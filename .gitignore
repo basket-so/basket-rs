@@ -1,0 +1,8 @@
+target/
+**/target/
+node_modules/
+.anchor/
+test-ledger/
+.idea/
+deployer-keypair.json
+

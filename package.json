@@ -1,0 +1,22 @@
+{
+  "name": "omnindex",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "anchor build",
+    "build:mainnet": "anchor build",
+    "deploy:mainnet": "anchor deploy --provider.cluster mainnet",
+    "test": "anchor test",
+    "test:integration": "anchor build && node tests/integration.mjs",
+    "test:rust": "cargo test -p omnindex"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "0.31.1",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
