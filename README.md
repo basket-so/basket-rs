@@ -73,11 +73,14 @@ oracle price. This prevents fixed-weight rebalances from running through a pair
 whose short-term price has moved too far away from the oracle used to compute
 targets.
 
-The caller supplies no price, target, or swap data. The caller only passes the
-accounts the Solana runtime requires the program to read or mutate. Non-quote
-components must store a configured Omnipair pair against the fixed-weight quote
-mint, and the quote mint must itself be one of the index components so any
-intermediate quote balance remains part of holder NAV.
+The caller supplies execution tolerances, but no price, target, or explicit
+swap route data. The caller only passes the accounts the Solana runtime
+requires the program to read or mutate. Components must store a configured
+Omnipair pair against the fixed-weight quote mint unless the quote mint itself
+is one of the index components. The quote mint may also be an external routing
+asset such as USDC; in that case all component pairs route through that external
+quote, and any remaining quote dust must be no larger than the caller-provided
+`max_quote_dust`.
 
 ## Instructions
 
@@ -276,15 +279,22 @@ For each swap in `swaps`, append:
 
 The instruction refuses to sell any amount needed for the target basket. Removed components must be fully sold down to zero, otherwise execution fails to avoid stranding value outside the active basket.
 
-`rebalance_fixed_weights` takes no instruction args. It expects component groups
-in current component order:
+`rebalance_fixed_weights` takes:
+
+1. `max_quote_dust`: maximum allowed remaining external quote-token atoms after
+   execution
+2. `max_post_rebalance_drift_bps`: maximum allowed final component drift after
+   swaps, fees, price impact, and integer rounding
+
+It expects a vault-authority ATA for the configured fixed-weight quote mint in
+the fixed accounts, then component groups in current component order:
 
 For every component:
 
 1. component mint
 2. component vault ATA
 
-For every non-quote component, append:
+For every component whose mint is not the fixed-weight quote mint, append:
 
 3. configured Omnipair pair account for `component/quote`
 4. Omnipair rate model account

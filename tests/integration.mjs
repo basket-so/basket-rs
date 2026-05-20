@@ -473,6 +473,105 @@ async function main() {
     assert.equal(createdIndex.indexMint.toBase58(), indexMint.toBase58());
     assert.equal(createdIndex.componentCount, 2);
 
+    const fixedWeightSymbol = "FWX";
+    const [fixedWeightIndex] = PublicKey.findProgramAddressSync(
+      [Buffer.from("index"), payer.publicKey.toBuffer(), Buffer.from(fixedWeightSymbol)],
+      programId,
+    );
+    const [fixedWeightIndexMint] = PublicKey.findProgramAddressSync(
+      [Buffer.from("index-mint"), fixedWeightIndex.toBuffer()],
+      programId,
+    );
+    const [fixedWeightVaultAuthority] = PublicKey.findProgramAddressSync(
+      [Buffer.from("vault-authority"), fixedWeightIndex.toBuffer()],
+      programId,
+    );
+    const fixedWeightComponentAPair = Keypair.generate().publicKey;
+    const fixedWeightComponentBPair = Keypair.generate().publicKey;
+
+    await program.methods
+      .createIndex({
+        name: "Fixed Weight External Quote",
+        symbol: fixedWeightSymbol,
+        metadataUri: "https://example.invalid/fixed-weight-external-quote.json",
+        decimals: 6,
+        feeRecipient: payer.publicKey,
+        maxSupply: new anchor.BN(0),
+        rebalanceDelaySeconds: new anchor.BN(0),
+        kind: { fixedWeights: {} },
+        fixedWeightQuoteMint: usdcMint,
+        fixedWeightRebalanceIntervalSeconds: new anchor.BN(60),
+        fixedWeightDriftThresholdBps: 0,
+        fixedWeightSpotEmaMaxDeviationBps: 500,
+        components: [
+          {
+            mint: componentA,
+            unitsPerIndex: new anchor.BN(1),
+            targetWeightBps: 5_000,
+            oraclePair: fixedWeightComponentAPair,
+          },
+          {
+            mint: componentB,
+            unitsPerIndex: new anchor.BN(1),
+            targetWeightBps: 5_000,
+            oraclePair: fixedWeightComponentBPair,
+          },
+        ],
+      })
+      .accounts({
+        payer: payer.publicKey,
+        authority: payer.publicKey,
+        protocolConfig,
+        index: fixedWeightIndex,
+        indexMint: fixedWeightIndexMint,
+        vaultAuthority: fixedWeightVaultAuthority,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    let fixedWeightState = await program.account.indexState.fetch(fixedWeightIndex);
+    assert.equal(fixedWeightState.indexMint.toBase58(), fixedWeightIndexMint.toBase58());
+    assert.equal(fixedWeightState.fixedWeightQuoteMint.toBase58(), usdcMint.toBase58());
+    assert.equal(fixedWeightState.components.length, 2);
+    assert.equal(fixedWeightState.components[0].targetWeightBps, 5_000);
+    assert.equal(fixedWeightState.components[1].targetWeightBps, 5_000);
+
+    await program.methods
+      .updateFixedWeightConfig({
+        fixedWeightQuoteMint: usdcMint,
+        fixedWeightRebalanceIntervalSeconds: new anchor.BN(120),
+        fixedWeightDriftThresholdBps: 250,
+        fixedWeightSpotEmaMaxDeviationBps: 750,
+        components: [
+          {
+            mint: componentA,
+            unitsPerIndex: new anchor.BN(123_456),
+            targetWeightBps: 5_000,
+            oraclePair: fixedWeightComponentAPair,
+          },
+          {
+            mint: componentB,
+            unitsPerIndex: new anchor.BN(654_321),
+            targetWeightBps: 5_000,
+            oraclePair: fixedWeightComponentBPair,
+          },
+        ],
+      })
+      .accounts({
+        authority: payer.publicKey,
+        index: fixedWeightIndex,
+        indexMint: fixedWeightIndexMint,
+      })
+      .rpc();
+
+    fixedWeightState = await program.account.indexState.fetch(fixedWeightIndex);
+    assert.equal(fixedWeightState.fixedWeightRebalanceIntervalSeconds.toString(), "120");
+    assert.equal(fixedWeightState.fixedWeightDriftThresholdBps, 250);
+    assert.equal(fixedWeightState.fixedWeightSpotEmaMaxDeviationBps, 750);
+    assert.equal(fixedWeightState.components[0].unitsPerIndex.toString(), "123456");
+    assert.equal(fixedWeightState.components[1].unitsPerIndex.toString(), "654321");
+
     const vaultA = getAssociatedTokenAddressSync(
       componentA,
       vaultAuthority,

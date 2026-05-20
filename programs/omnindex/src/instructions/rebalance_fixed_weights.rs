@@ -7,13 +7,14 @@ use crate::{
     events::FixedWeightRebalanceExecuted,
     state::{IndexComponent, IndexKind, IndexState},
     utils::{
+        associated_token_address, create_associated_token_account_idempotent,
         load_futarchy_authority, load_mint, load_pair, load_rate_model, load_user_token_account,
         omnipair_event_authority_address, omnipair_futarchy_authority_address,
         oracle_spot_and_ema_price_for_component, quote_exact_input_for_pair_output,
         quote_exact_output_for_pair_input, reserve_vault_address, swap as omnipair_swap,
         units_per_index_for_amount, validate_spot_ema_deviation, validate_vault_spl_token_account,
         validate_vault_token_account, FutarchyAuthority, Pair, RateModel, SwapAccounts, SwapArgs,
-        NAD, OMNIPAIR_ID, TOKEN_2022_ID,
+        ASSOCIATED_TOKEN_ID, NAD, OMNIPAIR_ID, TOKEN_2022_ID,
     },
 };
 
@@ -26,8 +27,6 @@ struct FixedWeightComponentAccount<'info> {
     rate_model_info: Option<AccountInfo<'info>>,
     component_reserve_vault_info: Option<AccountInfo<'info>>,
     quote_reserve_vault_info: Option<AccountInfo<'info>>,
-    pair: Option<Pair>,
-    rate_model: Option<RateModel>,
     price_nad: u64,
     current_amount: u64,
     target_amount: u64,
@@ -39,10 +38,17 @@ struct FixedWeightSwapContext<'info> {
     event_authority: AccountInfo<'info>,
     vault_authority: AccountInfo<'info>,
     quote_mint: AccountInfo<'info>,
+    quote_vault_info: AccountInfo<'info>,
     token_program: AccountInfo<'info>,
     token_2022_program: AccountInfo<'info>,
     index_key: Pubkey,
     vault_authority_bump: u8,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct RebalanceFixedWeightsArgs {
+    pub max_quote_dust: u64,
+    pub max_post_rebalance_drift_bps: u16,
 }
 
 #[derive(Accounts)]
@@ -61,6 +67,9 @@ pub struct RebalanceFixedWeights<'info> {
     pub vault_authority: UncheckedAccount<'info>,
     /// CHECK: Validated against the fixed-weight quote mint stored on the index.
     pub quote_mint: UncheckedAccount<'info>,
+    /// CHECK: Created and validated as the vault authority's quote ATA before use.
+    #[account(mut)]
+    pub vault_quote_token_account: UncheckedAccount<'info>,
     /// CHECK: Validated against the Omnipair program id.
     #[account(address = OMNIPAIR_ID @ OmnindexError::InvalidOmnipairProgram)]
     pub omnipair_program: UncheckedAccount<'info>,
@@ -71,15 +80,26 @@ pub struct RebalanceFixedWeights<'info> {
     /// CHECK: Omnipair's swap ABI requires this program account even when routes use classic SPL Token.
     #[account(address = TOKEN_2022_ID @ OmnindexError::InvalidOmnipairTokenProgram)]
     pub token_2022_program: UncheckedAccount<'info>,
+    /// CHECK: Validated as the Associated Token Program.
+    #[account(address = ASSOCIATED_TOKEN_ID @ OmnindexError::InvalidAssociatedTokenProgram)]
+    pub associated_token_program: UncheckedAccount<'info>,
     pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
 }
 
 impl<'info> RebalanceFixedWeights<'info> {
-    pub fn handle(ctx: Context<'_, '_, 'info, 'info, Self>) -> Result<()> {
+    pub fn handle(
+        ctx: Context<'_, '_, 'info, 'info, Self>,
+        args: RebalanceFixedWeightsArgs,
+    ) -> Result<()> {
         let index = &ctx.accounts.index;
         require!(
             index.kind == IndexKind::FixedWeights,
             OmnindexError::InvalidIndexKind
+        );
+        require!(
+            args.max_post_rebalance_drift_bps <= BPS_DENOMINATOR,
+            OmnindexError::InvalidFixedWeightConfig
         );
         require!(!index.rebalancing_paused, OmnindexError::RebalancingPaused);
         require!(
@@ -105,6 +125,7 @@ impl<'info> RebalanceFixedWeights<'info> {
             *ctx.accounts.quote_mint.to_account_info().owner == ctx.accounts.token_program.key(),
             OmnindexError::InvalidQuoteMint
         );
+        create_quote_vault_if_needed(&ctx)?;
 
         let index_mint = load_mint(&ctx.accounts.index_mint.to_account_info())?;
         let supply = index_mint.supply;
@@ -145,8 +166,6 @@ impl<'info> RebalanceFixedWeights<'info> {
             OmnindexError::InvalidRemainingAccounts
         );
         require!(total_nav_nad > 0, OmnindexError::InvalidOmnipairOraclePrice);
-        let quote_component_index =
-            quote_component_index.ok_or_else(|| error!(OmnindexError::InvalidFixedWeightConfig))?;
 
         let (max_drift_bps, drift_triggered) = fixed_weight_drift_status(
             &accounts,
@@ -172,6 +191,7 @@ impl<'info> RebalanceFixedWeights<'info> {
             event_authority: ctx.accounts.omnipair_event_authority.to_account_info(),
             vault_authority: ctx.accounts.vault_authority.to_account_info(),
             quote_mint: ctx.accounts.quote_mint.to_account_info(),
+            quote_vault_info: ctx.accounts.vault_quote_token_account.to_account_info(),
             token_program: ctx.accounts.token_program.to_account_info(),
             token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
             index_key: ctx.accounts.index.key(),
@@ -182,11 +202,28 @@ impl<'info> RebalanceFixedWeights<'info> {
             accounts,
             quote_component_index,
             &futarchy_authority,
+            args.max_quote_dust,
         )?;
+        if quote_component_index.is_none() {
+            let quote_vault =
+                load_user_token_account(&ctx.accounts.vault_quote_token_account.to_account_info())?;
+            validate_vault_spl_token_account(
+                &quote_vault,
+                &ctx.accounts.vault_quote_token_account.key(),
+                &ctx.accounts.vault_authority.key(),
+                &ctx.accounts.quote_mint.key(),
+            )?;
+            require!(
+                quote_vault.amount <= args.max_quote_dust,
+                OmnindexError::RebalanceTargetNotMet
+            );
+        }
 
         let base_units = ctx.accounts.index.index_base_units()?;
         let mut updated_components = Vec::with_capacity(accounts.len());
-        for account in &accounts {
+        let mut final_total_nav_nad = 0u128;
+        let mut accounts = accounts;
+        for account in &mut accounts {
             let vault_account = load_user_token_account(&account.vault_info)?;
             validate_vault_spl_token_account(
                 &vault_account,
@@ -194,6 +231,13 @@ impl<'info> RebalanceFixedWeights<'info> {
                 &ctx.accounts.vault_authority.key(),
                 &account.component.mint,
             )?;
+            account.current_amount = vault_account.amount;
+            final_total_nav_nad = final_total_nav_nad
+                .checked_add(component_value_nad(
+                    account.current_amount,
+                    account.price_nad,
+                )?)
+                .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
 
             let mut component = account.component.clone();
             update_fixed_weight_component_units(
@@ -204,6 +248,16 @@ impl<'info> RebalanceFixedWeights<'info> {
             )?;
             updated_components.push(component);
         }
+        require!(
+            final_total_nav_nad > 0,
+            OmnindexError::InvalidOmnipairOraclePrice
+        );
+        let (post_rebalance_max_drift_bps, _) =
+            fixed_weight_drift_status(&accounts, final_total_nav_nad, 0)?;
+        require!(
+            post_rebalance_max_drift_bps <= args.max_post_rebalance_drift_bps,
+            OmnindexError::RebalanceTargetNotMet
+        );
 
         let index = &mut ctx.accounts.index;
         index.components = updated_components;
@@ -222,6 +276,39 @@ impl<'info> RebalanceFixedWeights<'info> {
 
         Ok(())
     }
+}
+
+fn create_quote_vault_if_needed<'info>(
+    ctx: &Context<'_, '_, 'info, 'info, RebalanceFixedWeights<'info>>,
+) -> Result<()> {
+    let expected_ata = associated_token_address(
+        &ctx.accounts.vault_authority.key(),
+        &ctx.accounts.quote_mint.key(),
+    );
+    require_keys_eq!(
+        ctx.accounts.vault_quote_token_account.key(),
+        expected_ata,
+        OmnindexError::InvalidVaultAccount
+    );
+
+    create_associated_token_account_idempotent(
+        ctx.accounts.associated_token_program.to_account_info(),
+        ctx.accounts.executor.to_account_info(),
+        ctx.accounts.vault_quote_token_account.to_account_info(),
+        ctx.accounts.vault_authority.to_account_info(),
+        ctx.accounts.quote_mint.to_account_info(),
+        ctx.accounts.system_program.to_account_info(),
+        ctx.accounts.token_program.to_account_info(),
+    )?;
+
+    let quote_vault =
+        load_user_token_account(&ctx.accounts.vault_quote_token_account.to_account_info())?;
+    validate_vault_spl_token_account(
+        &quote_vault,
+        &ctx.accounts.vault_quote_token_account.key(),
+        &ctx.accounts.vault_authority.key(),
+        &ctx.accounts.quote_mint.key(),
+    )
 }
 
 fn load_component_account<'info>(
@@ -257,8 +344,6 @@ fn load_component_account<'info>(
             rate_model_info: None,
             component_reserve_vault_info: None,
             quote_reserve_vault_info: None,
-            pair: None,
-            rate_model: None,
             price_nad: NAD,
             current_amount: vault_account.amount,
             target_amount: 0,
@@ -316,8 +401,6 @@ fn load_component_account<'info>(
         rate_model_info: Some(rate_model_info.clone()),
         component_reserve_vault_info: Some(component_reserve_vault_info.clone()),
         quote_reserve_vault_info: Some(quote_reserve_vault_info.clone()),
-        pair: Some(pair),
-        rate_model: Some(rate_model),
         price_nad,
         current_amount: vault_account.amount,
         target_amount: 0,
@@ -352,23 +435,19 @@ fn fixed_weight_drift_status(
 fn assign_target_amounts(
     accounts: &mut [FixedWeightComponentAccount],
     total_nav_nad: u128,
-    quote_component_index: usize,
+    quote_component_index: Option<usize>,
 ) -> Result<()> {
     let mut assigned_value_nad = 0u128;
 
     for (index, account) in accounts.iter_mut().enumerate() {
-        if index == quote_component_index {
+        if Some(index) == quote_component_index {
             continue;
         }
-        let target_value = total_nav_nad
-            .checked_mul(u128::from(account.component.target_weight_bps))
-            .and_then(|value| value.checked_div(u128::from(BPS_DENOMINATOR)))
-            .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
-        let target_amount = target_value
-            .checked_div(u128::from(account.price_nad))
-            .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
-        account.target_amount =
-            u64::try_from(target_amount).map_err(|_| error!(OmnindexError::ArithmeticOverflow))?;
+        account.target_amount = target_amount_for_weight(
+            total_nav_nad,
+            account.component.target_weight_bps,
+            account.price_nad,
+        )?;
         assigned_value_nad = assigned_value_nad
             .checked_add(component_value_nad(
                 account.target_amount,
@@ -377,19 +456,37 @@ fn assign_target_amounts(
             .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
     }
 
-    let quote_value_nad = total_nav_nad.saturating_sub(assigned_value_nad);
-    accounts[quote_component_index].target_amount =
-        u64::try_from(quote_value_nad / u128::from(NAD))
-            .map_err(|_| error!(OmnindexError::ArithmeticOverflow))?;
+    if let Some(quote_component_index) = quote_component_index {
+        let quote_value_nad = total_nav_nad.saturating_sub(assigned_value_nad);
+        accounts[quote_component_index].target_amount =
+            u64::try_from(quote_value_nad / u128::from(NAD))
+                .map_err(|_| error!(OmnindexError::ArithmeticOverflow))?;
+    }
 
     Ok(())
 }
 
+fn target_amount_for_weight(
+    total_nav_nad: u128,
+    target_weight_bps: u16,
+    price_nad: u64,
+) -> Result<u64> {
+    let target_value = total_nav_nad
+        .checked_mul(u128::from(target_weight_bps))
+        .and_then(|value| value.checked_div(u128::from(BPS_DENOMINATOR)))
+        .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
+    let target_amount = target_value
+        .checked_div(u128::from(price_nad))
+        .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
+    u64::try_from(target_amount).map_err(|_| error!(OmnindexError::ArithmeticOverflow))
+}
+
 fn execute_target_swaps<'info>(
     ctx: &FixedWeightSwapContext<'info>,
-    accounts: Vec<FixedWeightComponentAccount<'info>>,
-    quote_component_index: usize,
+    mut accounts: Vec<FixedWeightComponentAccount<'info>>,
+    quote_component_index: Option<usize>,
     futarchy_authority: &FutarchyAuthority,
+    max_quote_dust: u64,
 ) -> Result<Vec<FixedWeightComponentAccount<'info>>> {
     let signer_seeds: &[&[u8]] = &[
         VAULT_AUTHORITY_SEED,
@@ -397,28 +494,28 @@ fn execute_target_swaps<'info>(
         &[ctx.vault_authority_bump],
     ];
     let quote_mint = ctx.quote_mint.key();
-    let quote_vault_info = accounts[quote_component_index].vault_info.clone();
-    let mut quote_available = accounts[quote_component_index].current_amount;
+    let quote_vault_info = ctx.quote_vault_info.clone();
+    let mut quote_available = if let Some(quote_component_index) = quote_component_index {
+        accounts[quote_component_index].current_amount
+    } else {
+        let quote_vault_account = load_user_token_account(&quote_vault_info)?;
+        quote_vault_account.amount
+    };
 
-    for account in accounts.iter() {
-        if account.component.mint == quote_mint || account.current_amount <= account.target_amount {
+    for index in 0..accounts.len() {
+        if accounts[index].component.mint == quote_mint
+            || accounts[index].current_amount <= accounts[index].target_amount
+        {
             continue;
         }
 
-        let amount_in = account.current_amount - account.target_amount;
-        let pair = account
-            .pair
-            .as_ref()
-            .ok_or_else(|| error!(OmnindexError::InvalidOmnipairPair))?;
-        let rate_model = account
-            .rate_model
-            .as_ref()
-            .ok_or_else(|| error!(OmnindexError::InvalidOmnipairRateModel))?;
+        let amount_in = accounts[index].current_amount - accounts[index].target_amount;
+        let (pair, rate_model) = load_current_pair_and_rate_model(&accounts[index])?;
         let quote_output = quote_exact_output_for_pair_input(
-            pair,
-            rate_model,
+            &pair,
+            &rate_model,
             futarchy_authority,
-            &account.component.mint,
+            &accounts[index].component.mint,
             &quote_mint,
             amount_in,
         )?;
@@ -426,7 +523,7 @@ fn execute_target_swaps<'info>(
 
         call_component_quote_swap(
             ctx,
-            account_swap_infos(account)?,
+            account_swap_infos(&accounts[index])?,
             quote_vault_info.clone(),
             signer_seeds,
             amount_in,
@@ -436,50 +533,152 @@ fn execute_target_swaps<'info>(
         quote_available = quote_available
             .checked_add(quote_output)
             .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
+        accounts[index].current_amount = accounts[index].target_amount;
     }
 
-    for account in accounts.iter() {
-        if account.component.mint == quote_mint || account.current_amount >= account.target_amount {
+    for index in underweight_buy_order(&accounts)? {
+        if accounts[index].component.mint == quote_mint
+            || accounts[index].current_amount >= accounts[index].target_amount
+        {
             continue;
         }
+        if quote_available == 0 {
+            break;
+        }
 
-        let amount_out = account.target_amount - account.current_amount;
-        let pair = account
-            .pair
-            .as_ref()
-            .ok_or_else(|| error!(OmnindexError::InvalidOmnipairPair))?;
-        let rate_model = account
-            .rate_model
-            .as_ref()
-            .ok_or_else(|| error!(OmnindexError::InvalidOmnipairRateModel))?;
+        let amount_out = accounts[index].target_amount - accounts[index].current_amount;
+        let (pair, rate_model) = load_current_pair_and_rate_model(&accounts[index])?;
         let quote_input = quote_exact_input_for_pair_output(
-            pair,
-            rate_model,
+            &pair,
+            &rate_model,
             futarchy_authority,
             &quote_mint,
-            &account.component.mint,
+            &accounts[index].component.mint,
             amount_out,
         )?;
-        require!(
-            quote_available >= quote_input,
-            OmnindexError::RebalanceTargetNotMet
-        );
+        let (quote_spent, component_output) = if quote_available >= quote_input {
+            (quote_input, amount_out)
+        } else {
+            if quote_available <= max_quote_dust {
+                break;
+            }
+            let component_output = quote_exact_output_for_pair_input(
+                &pair,
+                &rate_model,
+                futarchy_authority,
+                &quote_mint,
+                &accounts[index].component.mint,
+                quote_available,
+            )?;
+            require!(component_output > 0, OmnindexError::InvalidRebalanceSwap);
+            (quote_available, component_output)
+        };
 
         call_component_quote_swap(
             ctx,
-            account_swap_infos(account)?,
+            account_swap_infos(&accounts[index])?,
             quote_vault_info.clone(),
             signer_seeds,
-            quote_input,
-            amount_out,
+            quote_spent,
+            component_output,
             false,
         )?;
         quote_available = quote_available
-            .checked_sub(quote_input)
+            .checked_sub(quote_spent)
+            .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
+        accounts[index].current_amount = accounts[index]
+            .current_amount
+            .checked_add(component_output)
+            .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
+    }
+
+    if quote_component_index.is_none() && quote_available > max_quote_dust {
+        let index = surplus_sink_component_index(&accounts)?;
+        let (pair, rate_model) = load_current_pair_and_rate_model(&accounts[index])?;
+        let component_output = quote_exact_output_for_pair_input(
+            &pair,
+            &rate_model,
+            futarchy_authority,
+            &quote_mint,
+            &accounts[index].component.mint,
+            quote_available,
+        )?;
+        require!(component_output > 0, OmnindexError::InvalidRebalanceSwap);
+
+        call_component_quote_swap(
+            ctx,
+            account_swap_infos(&accounts[index])?,
+            quote_vault_info.clone(),
+            signer_seeds,
+            quote_available,
+            component_output,
+            false,
+        )?;
+        accounts[index].current_amount = accounts[index]
+            .current_amount
+            .checked_add(component_output)
             .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
     }
 
     Ok(accounts)
+}
+
+fn load_current_pair_and_rate_model(
+    account: &FixedWeightComponentAccount,
+) -> Result<(Pair, RateModel)> {
+    let pair_info = account
+        .pair_info
+        .as_ref()
+        .ok_or_else(|| error!(OmnindexError::InvalidOmnipairPair))?;
+    let rate_model_info = account
+        .rate_model_info
+        .as_ref()
+        .ok_or_else(|| error!(OmnindexError::InvalidOmnipairRateModel))?;
+    let pair = load_pair(pair_info)?;
+    let rate_model = load_rate_model(rate_model_info)?;
+    require_keys_eq!(
+        rate_model_info.key(),
+        pair.rate_model,
+        OmnindexError::InvalidOmnipairRateModel
+    );
+    Ok((pair, rate_model))
+}
+
+fn underweight_buy_order(accounts: &[FixedWeightComponentAccount]) -> Result<Vec<usize>> {
+    let mut deficits = Vec::new();
+    for (index, account) in accounts.iter().enumerate() {
+        if account.current_amount >= account.target_amount {
+            continue;
+        }
+        deficits.push((
+            index,
+            component_value_nad(
+                account.target_amount - account.current_amount,
+                account.price_nad,
+            )?,
+        ));
+    }
+    deficits.sort_by(|(left_index, left_value), (right_index, right_value)| {
+        right_value
+            .cmp(left_value)
+            .then_with(|| left_index.cmp(right_index))
+    });
+    Ok(deficits.into_iter().map(|(index, _)| index).collect())
+}
+
+fn surplus_sink_component_index(accounts: &[FixedWeightComponentAccount]) -> Result<usize> {
+    accounts
+        .iter()
+        .enumerate()
+        .filter(|(_, account)| account.pair_info.is_some())
+        .max_by(|(left_index, left), (right_index, right)| {
+            left.component
+                .target_weight_bps
+                .cmp(&right.component.target_weight_bps)
+                .then_with(|| right_index.cmp(left_index))
+        })
+        .map(|(index, _)| index)
+        .ok_or_else(|| error!(OmnindexError::InvalidOmnipairPair))
 }
 
 struct ComponentSwapInfos<'info> {
@@ -657,5 +856,24 @@ mod tests {
         update_fixed_weight_component_units(&mut component, 2, 1_000_000, 2_000_000).unwrap();
 
         assert_eq!(component.units_per_index, 1);
+    }
+
+    #[test]
+    fn target_amount_for_weight_uses_external_quote_nav() {
+        let total_nav_nad = 300u128 * u128::from(NAD);
+
+        assert_eq!(
+            target_amount_for_weight(total_nav_nad, 5_000, 2 * NAD).unwrap(),
+            75
+        );
+        assert_eq!(
+            target_amount_for_weight(total_nav_nad, 5_000, NAD).unwrap(),
+            150
+        );
+    }
+
+    #[test]
+    fn target_amount_for_weight_rejects_zero_price() {
+        assert!(target_amount_for_weight(300u128 * u128::from(NAD), 5_000, 0).is_err());
     }
 }

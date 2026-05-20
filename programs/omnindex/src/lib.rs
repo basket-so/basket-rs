@@ -85,6 +85,13 @@ pub mod omnindex {
         UpdateConfig::handle(ctx, args)
     }
 
+    pub fn update_fixed_weight_config(
+        ctx: Context<UpdateFixedWeightConfig>,
+        args: UpdateFixedWeightConfigArgs,
+    ) -> Result<()> {
+        UpdateFixedWeightConfig::handle(ctx, args)
+    }
+
     pub fn update_authority(
         ctx: Context<UpdateAuthority>,
         args: UpdateAuthorityArgs,
@@ -150,8 +157,9 @@ pub mod omnindex {
 
     pub fn rebalance_fixed_weights<'info>(
         ctx: Context<'_, '_, 'info, 'info, RebalanceFixedWeights<'info>>,
+        args: RebalanceFixedWeightsArgs,
     ) -> Result<()> {
-        RebalanceFixedWeights::handle(ctx)
+        RebalanceFixedWeights::handle(ctx, args)
     }
 
     pub fn redeem_index<'info>(

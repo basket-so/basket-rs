@@ -137,7 +137,6 @@ fn validate_fixed_weight_config(
     );
 
     let mut total_weight = 0u32;
-    let mut quote_component_found = false;
 
     for component in components {
         require!(
@@ -148,9 +147,7 @@ fn validate_fixed_weight_config(
             .checked_add(u32::from(component.target_weight_bps))
             .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
 
-        if component.mint == fixed_weight_quote_mint {
-            quote_component_found = true;
-        } else {
+        if component.mint != fixed_weight_quote_mint {
             require_keys_neq!(
                 component.oracle_pair,
                 Pubkey::default(),
@@ -161,10 +158,6 @@ fn validate_fixed_weight_config(
 
     require!(
         total_weight == u32::from(BPS_DENOMINATOR),
-        OmnindexError::InvalidFixedWeightConfig
-    );
-    require!(
-        quote_component_found,
         OmnindexError::InvalidFixedWeightConfig
     );
 
@@ -422,6 +415,44 @@ mod tests {
             500,
         )
         .is_ok());
+    }
+
+    #[test]
+    fn fixed_weight_config_accepts_external_quote_with_component_oracle_pairs() {
+        let quote = Pubkey::new_unique();
+        let components = vec![
+            weighted_component(Pubkey::new_unique(), 5_000, Pubkey::new_unique()),
+            weighted_component(Pubkey::new_unique(), 5_000, Pubkey::new_unique()),
+        ];
+
+        assert!(validate_index_strategy_config(
+            IndexKind::FixedWeights,
+            &components,
+            quote,
+            60,
+            0,
+            500,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn fixed_weight_config_requires_pairs_for_external_quote_components() {
+        let quote = Pubkey::new_unique();
+        let components = vec![
+            weighted_component(Pubkey::new_unique(), 5_000, Pubkey::new_unique()),
+            weighted_component(Pubkey::new_unique(), 5_000, Pubkey::default()),
+        ];
+
+        assert!(validate_index_strategy_config(
+            IndexKind::FixedWeights,
+            &components,
+            quote,
+            60,
+            0,
+            500,
+        )
+        .is_err());
     }
 
     #[test]

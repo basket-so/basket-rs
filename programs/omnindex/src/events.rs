@@ -156,6 +156,17 @@ pub struct FixedWeightRebalanceExecuted {
 }
 
 #[event]
+pub struct FixedWeightConfigUpdated {
+    pub index: Pubkey,
+    pub authority: Pubkey,
+    pub quote_mint: Pubkey,
+    pub components: u8,
+    pub rebalance_interval_seconds: i64,
+    pub drift_threshold_bps: u16,
+    pub spot_ema_max_deviation_bps: u16,
+}
+
+#[event]
 pub struct StakingPoolInitialized {
     pub authority: Pubkey,
     pub basket_mint: Pubkey,
