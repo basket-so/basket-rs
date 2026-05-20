@@ -63,6 +63,13 @@ pub mod omnindex {
         ClaimStakingRewards::handle(ctx)
     }
 
+    pub fn fund_staking_rewards(
+        ctx: Context<FundStakingRewards>,
+        args: FundStakingRewardsArgs,
+    ) -> Result<()> {
+        FundStakingRewards::handle(ctx, args)
+    }
+
     pub fn mint_index<'info>(
         ctx: Context<'_, '_, 'info, 'info, MintIndex<'info>>,
         args: MintIndexArgs,
@@ -70,11 +77,11 @@ pub mod omnindex {
         MintIndex::handle(ctx, args)
     }
 
-    pub fn mint_index_with_quote<'info>(
-        ctx: Context<'_, '_, 'info, 'info, MintIndexWithQuote<'info>>,
-        args: MintIndexWithQuoteArgs,
+    pub fn mint_index_with_jupiter<'info>(
+        ctx: Context<'_, '_, 'info, 'info, MintIndexWithJupiter<'info>>,
+        args: MintIndexWithJupiterArgs,
     ) -> Result<()> {
-        MintIndexWithQuote::handle(ctx, args)
+        MintIndexWithJupiter::handle(ctx, args)
     }
 
     pub fn update_fees(ctx: Context<UpdateFees>, args: UpdateFeesArgs) -> Result<()> {
@@ -155,11 +162,11 @@ pub mod omnindex {
         ExecuteRebalance::handle(ctx, args)
     }
 
-    pub fn rebalance_fixed_weights<'info>(
-        ctx: Context<'_, '_, 'info, 'info, RebalanceFixedWeights<'info>>,
-        args: RebalanceFixedWeightsArgs,
+    pub fn rebalance_fixed_weights_with_jupiter<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RebalanceFixedWeightsWithJupiter<'info>>,
+        args: RebalanceFixedWeightsWithJupiterArgs,
     ) -> Result<()> {
-        RebalanceFixedWeights::handle(ctx, args)
+        RebalanceFixedWeightsWithJupiter::handle(ctx, args)
     }
 
     pub fn redeem_index<'info>(
@@ -169,10 +176,10 @@ pub mod omnindex {
         RedeemIndex::handle(ctx, args)
     }
 
-    pub fn redeem_index_to_quote<'info>(
-        ctx: Context<'_, '_, 'info, 'info, RedeemIndexToQuote<'info>>,
-        args: RedeemIndexToQuoteArgs,
+    pub fn redeem_index_with_jupiter<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RedeemIndexWithJupiter<'info>>,
+        args: RedeemIndexWithJupiterArgs,
     ) -> Result<()> {
-        RedeemIndexToQuote::handle(ctx, args)
+        RedeemIndexWithJupiter::handle(ctx, args)
     }
 }

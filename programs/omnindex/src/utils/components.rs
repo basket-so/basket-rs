@@ -96,11 +96,6 @@ fn validate_fixed_unit_config(
             component.target_weight_bps == 0,
             OmnindexError::InvalidFixedWeightConfig
         );
-        require_keys_eq!(
-            component.oracle_pair,
-            Pubkey::default(),
-            OmnindexError::InvalidFixedWeightConfig
-        );
     }
 
     Ok(())
@@ -451,6 +446,46 @@ mod tests {
             60,
             0,
             500,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn fixed_unit_config_accepts_oracle_feed_ids() {
+        let components = vec![IndexComponent {
+            mint: Pubkey::new_unique(),
+            units_per_index: 1,
+            target_weight_bps: 0,
+            oracle_pair: Pubkey::new_unique(),
+        }];
+
+        assert!(validate_index_strategy_config(
+            IndexKind::FixedUnits,
+            &components,
+            Pubkey::default(),
+            0,
+            0,
+            0,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn fixed_unit_config_rejects_target_weights() {
+        let components = vec![IndexComponent {
+            mint: Pubkey::new_unique(),
+            units_per_index: 1,
+            target_weight_bps: 1,
+            oracle_pair: Pubkey::new_unique(),
+        }];
+
+        assert!(validate_index_strategy_config(
+            IndexKind::FixedUnits,
+            &components,
+            Pubkey::default(),
+            0,
+            0,
+            0,
         )
         .is_err());
     }

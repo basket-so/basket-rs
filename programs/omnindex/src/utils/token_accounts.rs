@@ -7,6 +7,7 @@ use anchor_lang::{
     },
 };
 use anchor_spl::token::{self, TokenAccount};
+use anchor_spl::token_interface::{Mint as InterfaceMint, TokenAccount as InterfaceTokenAccount};
 
 use crate::errors::OmnindexError;
 
@@ -23,8 +24,16 @@ pub fn require_remaining_account_pairs(actual: usize, component_count: usize) ->
 }
 
 pub fn associated_token_address(authority: &Pubkey, mint: &Pubkey) -> Pubkey {
+    associated_token_address_with_token_program(authority, mint, &token::ID)
+}
+
+pub fn associated_token_address_with_token_program(
+    authority: &Pubkey,
+    mint: &Pubkey,
+    token_program: &Pubkey,
+) -> Pubkey {
     Pubkey::find_program_address(
-        &[authority.as_ref(), token::ID.as_ref(), mint.as_ref()],
+        &[authority.as_ref(), token_program.as_ref(), mint.as_ref()],
         &ASSOCIATED_TOKEN_ID,
     )
     .0
@@ -47,7 +56,54 @@ pub fn create_associated_token_account_idempotent<'info>(
     require_keys_eq!(
         *token_program.key,
         token::ID,
-        OmnindexError::InvalidOmnipairTokenProgram
+        OmnindexError::InvalidTokenProgram
+    );
+
+    let instruction = Instruction {
+        program_id: ASSOCIATED_TOKEN_ID,
+        accounts: vec![
+            AccountMeta::new(*payer.key, true),
+            AccountMeta::new(*associated_token.key, false),
+            AccountMeta::new_readonly(*authority.key, false),
+            AccountMeta::new_readonly(*mint.key, false),
+            AccountMeta::new_readonly(*system_program.key, false),
+            AccountMeta::new_readonly(*token_program.key, false),
+        ],
+        data: vec![1],
+    };
+
+    invoke_signed(
+        &instruction,
+        &[
+            payer,
+            associated_token,
+            authority,
+            mint,
+            system_program,
+            token_program,
+        ],
+        &[],
+    )
+    .map_err(Into::into)
+}
+
+pub fn create_associated_token_account_idempotent_for_token_program<'info>(
+    associated_token_program: AccountInfo<'info>,
+    payer: AccountInfo<'info>,
+    associated_token: AccountInfo<'info>,
+    authority: AccountInfo<'info>,
+    mint: AccountInfo<'info>,
+    system_program: AccountInfo<'info>,
+    token_program: AccountInfo<'info>,
+) -> Result<()> {
+    require_keys_eq!(
+        *associated_token_program.key,
+        ASSOCIATED_TOKEN_ID,
+        OmnindexError::InvalidAssociatedTokenProgram
+    );
+    require!(
+        *token_program.key == token::ID || *token_program.key == anchor_spl::token_2022::ID,
+        OmnindexError::InvalidTokenProgram
     );
 
     let instruction = Instruction {
@@ -92,6 +148,28 @@ pub fn load_user_token_account(info: &AccountInfo) -> Result<SplTokenAccount> {
     );
     let data = info.try_borrow_data()?;
     SplTokenAccount::unpack(&data).map_err(|_| error!(OmnindexError::InvalidUserTokenAccount))
+}
+
+pub fn load_interface_mint(info: &AccountInfo) -> Result<InterfaceMint> {
+    require!(
+        *info.owner == token::ID || *info.owner == anchor_spl::token_2022::ID,
+        OmnindexError::InvalidTokenMint
+    );
+    let data = info.try_borrow_data()?;
+    let mut data_ref: &[u8] = &data;
+    InterfaceMint::try_deserialize_unchecked(&mut data_ref)
+        .map_err(|_| error!(OmnindexError::InvalidTokenMint))
+}
+
+pub fn load_interface_token_account(info: &AccountInfo) -> Result<InterfaceTokenAccount> {
+    require!(
+        *info.owner == token::ID || *info.owner == anchor_spl::token_2022::ID,
+        OmnindexError::InvalidUserTokenAccount
+    );
+    let data = info.try_borrow_data()?;
+    let mut data_ref: &[u8] = &data;
+    InterfaceTokenAccount::try_deserialize_unchecked(&mut data_ref)
+        .map_err(|_| error!(OmnindexError::InvalidUserTokenAccount))
 }
 
 pub fn validate_user_token_account(

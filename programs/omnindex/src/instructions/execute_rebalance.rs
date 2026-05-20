@@ -3,42 +3,35 @@ use anchor_spl::token::{Token, TokenAccount};
 
 use crate::{
     constants::{
-        MAX_COMPONENTS, MAX_METADATA_URI_LEN, MAX_NAME_LEN, MAX_REBALANCE_SWAPS, MAX_SYMBOL_LEN,
-        VAULT_AUTHORITY_SEED,
+        MAX_COMPONENTS, MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS, MAX_METADATA_URI_LEN,
+        MAX_NAME_LEN, MAX_NAV_TOLERANCE_BPS, MAX_ORACLE_PRICE_TOLERANCE_BPS, MAX_REBALANCE_SWAPS,
+        MAX_SYMBOL_LEN, VAULT_AUTHORITY_SEED,
     },
     errors::OmnindexError,
     events::IndexRebalanced,
     state::{IndexKind, IndexState},
     utils::{
-        associated_token_address, create_associated_token_account_idempotent,
-        load_futarchy_authority, load_mint, load_pair, load_rate_model, nav_nad,
-        omnipair_event_authority_address, omnipair_futarchy_authority_address,
-        quote_exact_output_for_pair_input, rebalance_mints, reserve_vault_address,
-        resolve_rebalance_prices, swap as omnipair_swap, target_component_amount,
-        validate_no_self_component, validate_vault_token_account, within_bps_tolerance_u128,
-        RebalancePriceInput, SwapAccounts, SwapArgs, ASSOCIATED_TOKEN_ID, OMNIPAIR_ID,
-        TOKEN_2022_ID,
+        associated_token_address, create_associated_token_account_idempotent, invoke_jupiter_swap,
+        load_interface_mint, load_mint, nav_nad, rebalance_mints, rebalance_price_for_mint,
+        resolve_rebalance_prices, target_component_amount, validate_jupiter_route_account_scope,
+        validate_no_self_component, validate_rebalance_execution_value,
+        validate_rebalance_quote_mint, validate_vault_token_account, verified_switchboard_prices,
+        within_bps_tolerance_u128, RebalancePrice, RebalancePriceInput, ASSOCIATED_TOKEN_ID,
     },
 };
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct ExecuteRebalanceArgs {
-    pub swaps: Vec<RebalanceSwapInput>,
-    pub prices: Vec<RebalancePriceInput>,
-}
+use super::mint_index_with_jupiter::JupiterSwapPlan;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct RebalanceSwapInput {
-    pub token_in_mint: Pubkey,
-    pub token_out_mint: Pubkey,
-    pub amount_in: u64,
-    pub min_amount_out: u64,
+pub struct ExecuteRebalanceArgs {
+    pub swaps: Vec<JupiterSwapPlan>,
+    pub prices: Vec<RebalancePriceInput>,
+    pub switchboard_max_age_slots: u64,
 }
 
 #[derive(Clone)]
 struct RebalanceMintAccount {
     mint: Pubkey,
-    mint_account_index: usize,
     vault_account_index: usize,
     target_amount: u64,
     is_new_component: bool,
@@ -70,20 +63,20 @@ pub struct ExecuteRebalance<'info> {
         bump = index.vault_authority_bump
     )]
     pub vault_authority: UncheckedAccount<'info>,
-    /// CHECK: Validated against the Omnipair program id.
-    #[account(address = OMNIPAIR_ID @ OmnindexError::InvalidOmnipairProgram)]
-    pub omnipair_program: UncheckedAccount<'info>,
-    /// CHECK: Validated as the Omnipair futarchy authority account.
-    pub omnipair_futarchy_authority: UncheckedAccount<'info>,
-    /// CHECK: Validated as the Omnipair event authority account.
-    pub omnipair_event_authority: UncheckedAccount<'info>,
+    /// CHECK: Validated against known Jupiter program ids.
+    pub jupiter_program: UncheckedAccount<'info>,
+    /// CHECK: Verified by Switchboard's quote verifier.
+    pub switchboard_queue: UncheckedAccount<'info>,
+    /// CHECK: Verified by Switchboard's quote verifier and canonical key check.
+    pub switchboard_quote: UncheckedAccount<'info>,
+    /// CHECK: Switchboard verifier validates this sysvar id.
+    pub slothashes: UncheckedAccount<'info>,
+    /// CHECK: Switchboard verifier validates this sysvar id.
+    pub instructions_sysvar: UncheckedAccount<'info>,
     /// CHECK: Validated as the Associated Token Program.
     #[account(address = ASSOCIATED_TOKEN_ID @ OmnindexError::InvalidAssociatedTokenProgram)]
     pub associated_token_program: UncheckedAccount<'info>,
     pub token_program: Program<'info, Token>,
-    /// CHECK: Omnipair's swap ABI requires this program account even when routes use classic SPL Token.
-    #[account(address = TOKEN_2022_ID @ OmnindexError::InvalidOmnipairTokenProgram)]
-    pub token_2022_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -108,73 +101,44 @@ impl<'info> ExecuteRebalance<'info> {
             args.swaps.len() <= MAX_REBALANCE_SWAPS,
             OmnindexError::TooManyRebalanceSwaps
         );
+        validate_rebalance_swap_controls(&args.swaps)?;
+        require!(
+            ctx.accounts
+                .index
+                .pending_rebalance_oracle_price_tolerance_bps
+                <= MAX_ORACLE_PRICE_TOLERANCE_BPS,
+            OmnindexError::InvalidOraclePriceTolerance
+        );
+        require!(
+            ctx.accounts.index.pending_rebalance_nav_tolerance_bps <= MAX_NAV_TOLERANCE_BPS,
+            OmnindexError::InvalidNavTolerance
+        );
         require!(
             Clock::get()?.unix_timestamp >= ctx.accounts.index.pending_rebalance_available_at,
             OmnindexError::RebalanceTimelockActive
         );
-        require_keys_eq!(
-            ctx.accounts.omnipair_futarchy_authority.key(),
-            omnipair_futarchy_authority_address(),
-            OmnindexError::InvalidOmnipairFutarchyAuthority
-        );
-        require_keys_eq!(
-            ctx.accounts.omnipair_event_authority.key(),
-            omnipair_event_authority_address(),
-            OmnindexError::InvalidOmnipairEventAuthority
-        );
-        let futarchy_authority =
-            load_futarchy_authority(&ctx.accounts.omnipair_futarchy_authority.to_account_info())?;
+        validate_rebalance_quote_mint(&ctx.accounts.index.pending_rebalance_quote_mint)?;
 
         let new_components = ctx.accounts.index.pending_components.clone();
         validate_no_self_component(&new_components, &ctx.accounts.index_mint.key())?;
         let old_components = ctx.accounts.index.components.clone();
         let rebalance_mints = rebalance_mints(&old_components, &new_components);
-
-        let mut remaining = ctx.remaining_accounts.iter();
-        let prices = resolve_rebalance_prices(
-            &mut remaining,
-            &rebalance_mints,
-            &ctx.accounts.index.pending_rebalance_quote_mint,
-            &args.prices,
-            ctx.accounts
-                .index
-                .pending_rebalance_oracle_price_tolerance_bps,
-            &futarchy_authority,
-        )?;
-        let old_nav_nad = nav_nad(&old_components, &rebalance_mints, &prices)?;
-        let new_nav_nad = nav_nad(&new_components, &rebalance_mints, &prices)?;
+        let mint_account_count = rebalance_mints
+            .len()
+            .checked_mul(2)
+            .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
         require!(
-            old_nav_nad > 0 && new_nav_nad > 0,
-            OmnindexError::RebalanceNavMismatch
-        );
-        require!(
-            within_bps_tolerance_u128(
-                old_nav_nad,
-                new_nav_nad,
-                ctx.accounts.index.pending_rebalance_nav_tolerance_bps,
-            )?,
-            OmnindexError::RebalanceNavMismatch
-        );
-
-        let rebalance_accounts = remaining.as_slice();
-        let mint_account_count = rebalance_mints.len() * 2;
-        let swap_account_count = args.swaps.len() * 4;
-
-        require!(
-            rebalance_accounts.len() == mint_account_count + swap_account_count,
+            ctx.remaining_accounts.len() >= mint_account_count,
             OmnindexError::InvalidRemainingAccounts
         );
+        let rebalance_accounts = &ctx.remaining_accounts[..mint_account_count];
+        let route_accounts = &ctx.remaining_accounts[mint_account_count..];
 
         let base_units = ctx.accounts.index.index_base_units()?;
         let index_mint = load_mint(&ctx.accounts.index_mint.to_account_info())?;
         let supply = index_mint.supply;
-        let signer_seeds: &[&[u8]] = &[
-            VAULT_AUTHORITY_SEED,
-            ctx.accounts.index.to_account_info().key.as_ref(),
-            &[ctx.accounts.index.vault_authority_bump],
-        ];
-
         let mut mint_accounts = Vec::with_capacity(rebalance_mints.len());
+        let mut mint_decimals = Vec::with_capacity(rebalance_mints.len());
 
         for (index, mint) in rebalance_mints.iter().enumerate() {
             let mint_account_index = index * 2;
@@ -183,6 +147,7 @@ impl<'info> ExecuteRebalance<'info> {
             let vault_info = &rebalance_accounts[vault_account_index];
 
             require_keys_eq!(mint_info.key(), *mint, OmnindexError::InvalidComponentMint);
+            mint_decimals.push(load_interface_mint(mint_info)?.decimals);
 
             create_component_vault_if_needed(&ctx, mint_info, vault_info)?;
 
@@ -196,7 +161,6 @@ impl<'info> ExecuteRebalance<'info> {
 
             mint_accounts.push(RebalanceMintAccount {
                 mint: *mint,
-                mint_account_index,
                 vault_account_index,
                 target_amount: target_component_amount(&new_components, mint, supply, base_units)?,
                 is_new_component: new_components
@@ -205,105 +169,60 @@ impl<'info> ExecuteRebalance<'info> {
             });
         }
 
-        for (swap_index, swap) in args.swaps.iter().enumerate() {
-            require!(swap.amount_in > 0, OmnindexError::InvalidRebalanceSwap);
-            require!(swap.min_amount_out > 0, OmnindexError::InvalidRebalanceSwap);
-            require_keys_neq!(
-                swap.token_in_mint,
-                swap.token_out_mint,
-                OmnindexError::InvalidRebalanceSwap
-            );
+        let switchboard_prices = verified_switchboard_prices(
+            &ctx.accounts.switchboard_queue.to_account_info(),
+            &ctx.accounts.switchboard_quote.to_account_info(),
+            &ctx.accounts.slothashes.to_account_info(),
+            &ctx.accounts.instructions_sysvar.to_account_info(),
+            Clock::get()?.slot,
+            args.switchboard_max_age_slots,
+        )?;
+        let prices = resolve_rebalance_prices(
+            &rebalance_mints,
+            &old_components,
+            &new_components,
+            &mint_decimals,
+            &args.prices,
+            ctx.accounts
+                .index
+                .pending_rebalance_oracle_price_tolerance_bps,
+            &switchboard_prices,
+        )?;
+        let old_nav_nad = nav_nad(&old_components, &prices)?;
+        let new_nav_nad = nav_nad(&new_components, &prices)?;
+        require!(
+            old_nav_nad > 0 && new_nav_nad > 0,
+            OmnindexError::RebalanceNavMismatch
+        );
+        require!(
+            within_bps_tolerance_u128(
+                old_nav_nad,
+                new_nav_nad,
+                ctx.accounts.index.pending_rebalance_nav_tolerance_bps,
+            )?,
+            OmnindexError::RebalanceNavMismatch
+        );
 
-            let input_index = mint_accounts
-                .iter()
-                .position(|account| account.mint == swap.token_in_mint)
-                .ok_or_else(|| error!(OmnindexError::InvalidRebalanceSwap))?;
-            let output_index = mint_accounts
-                .iter()
-                .position(|account| account.mint == swap.token_out_mint)
-                .ok_or_else(|| error!(OmnindexError::InvalidRebalanceSwap))?;
+        let index_key = ctx.accounts.index.key();
+        let vault_authority_bump = [ctx.accounts.index.vault_authority_bump];
+        let signer_seeds: &[&[u8]] = &[
+            VAULT_AUTHORITY_SEED,
+            index_key.as_ref(),
+            &vault_authority_bump,
+        ];
+        let candidates = account_candidates(&ctx, rebalance_accounts, route_accounts);
+        let protected_vaults = protected_vault_keys(&mint_accounts, rebalance_accounts);
 
-            let input_account = mint_accounts[input_index].clone();
-            let output_account = mint_accounts[output_index].clone();
-            let input_mint_info = &rebalance_accounts[input_account.mint_account_index];
-            let input_vault_info = &rebalance_accounts[input_account.vault_account_index];
-            let output_mint_info = &rebalance_accounts[output_account.mint_account_index];
-            let output_vault_info = &rebalance_accounts[output_account.vault_account_index];
-            let input_vault_account = Account::<TokenAccount>::try_from(input_vault_info)?;
-            let max_sell_amount = input_vault_account
-                .amount
-                .checked_sub(input_account.target_amount)
-                .ok_or_else(|| error!(OmnindexError::RebalanceWouldSellTargetBacking))?;
-            require!(
-                swap.amount_in <= max_sell_amount,
-                OmnindexError::RebalanceWouldSellTargetBacking
-            );
-
-            let swap_account_offset = mint_account_count + (swap_index * 4);
-            let pair_info = &rebalance_accounts[swap_account_offset];
-            let rate_model_info = &rebalance_accounts[swap_account_offset + 1];
-            let token_in_reserve_vault_info = &rebalance_accounts[swap_account_offset + 2];
-            let token_out_reserve_vault_info = &rebalance_accounts[swap_account_offset + 3];
-
-            let pair = load_pair(pair_info)?;
-            let rate_model = load_rate_model(rate_model_info)?;
-            require_keys_eq!(
-                rate_model_info.key(),
-                pair.rate_model,
-                OmnindexError::InvalidOmnipairRateModel
-            );
-            require!(
-                (pair.token0 == swap.token_in_mint && pair.token1 == swap.token_out_mint)
-                    || (pair.token1 == swap.token_in_mint && pair.token0 == swap.token_out_mint),
-                OmnindexError::InvalidOmnipairPair
-            );
-
-            validate_omnipair_reserve(
-                *pair_info.key,
-                &swap.token_in_mint,
-                token_in_reserve_vault_info,
-            )?;
-            validate_omnipair_reserve(
-                *pair_info.key,
-                &swap.token_out_mint,
-                token_out_reserve_vault_info,
-            )?;
-
-            let expected_amount_out = quote_exact_output_for_pair_input(
-                &pair,
-                &rate_model,
-                &futarchy_authority,
-                &swap.token_in_mint,
-                &swap.token_out_mint,
-                swap.amount_in,
-            )?;
-            require!(
-                expected_amount_out >= swap.min_amount_out,
-                OmnindexError::InvalidRebalanceSwap
-            );
-
-            omnipair_swap(
-                ctx.accounts.omnipair_program.to_account_info(),
-                SwapAccounts {
-                    pair: pair_info.clone(),
-                    rate_model: rate_model_info.clone(),
-                    futarchy_authority: ctx.accounts.omnipair_futarchy_authority.to_account_info(),
-                    token_in_vault: token_in_reserve_vault_info.clone(),
-                    token_out_vault: token_out_reserve_vault_info.clone(),
-                    user_token_in_account: input_vault_info.clone(),
-                    user_token_out_account: output_vault_info.clone(),
-                    token_in_mint: input_mint_info.clone(),
-                    token_out_mint: output_mint_info.clone(),
-                    user: ctx.accounts.vault_authority.to_account_info(),
-                    token_program: ctx.accounts.token_program.to_account_info(),
-                    token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-                    event_authority: ctx.accounts.omnipair_event_authority.to_account_info(),
-                },
-                SwapArgs {
-                    amount_in: swap.amount_in,
-                    min_amount_out: swap.min_amount_out,
-                },
-                &[signer_seeds],
+        for swap in &args.swaps {
+            execute_jupiter_rebalance_swap(
+                &ctx,
+                swap,
+                &mint_accounts,
+                rebalance_accounts,
+                &prices,
+                &protected_vaults,
+                &candidates,
+                signer_seeds,
             )?;
         }
 
@@ -344,28 +263,132 @@ impl<'info> ExecuteRebalance<'info> {
     }
 }
 
-fn validate_omnipair_reserve<'info>(
-    pair: Pubkey,
-    mint: &Pubkey,
-    reserve_vault_info: &'info AccountInfo<'info>,
+fn execute_jupiter_rebalance_swap<'info>(
+    ctx: &Context<'_, '_, 'info, 'info, ExecuteRebalance<'info>>,
+    swap: &JupiterSwapPlan,
+    mint_accounts: &[RebalanceMintAccount],
+    rebalance_accounts: &'info [AccountInfo<'info>],
+    prices: &[RebalancePrice],
+    protected_vaults: &[Pubkey],
+    candidates: &[AccountInfo<'info>],
+    signer_seeds: &[&[u8]],
 ) -> Result<()> {
-    require_keys_eq!(
-        reserve_vault_info.key(),
-        reserve_vault_address(&pair, mint),
-        OmnindexError::InvalidOmnipairVault
+    require_keys_neq!(
+        swap.input_mint,
+        swap.output_mint,
+        OmnindexError::InvalidRebalanceSwap
     );
-    let reserve_vault_account = Account::<TokenAccount>::try_from(reserve_vault_info)?;
+    let input_account = mint_accounts
+        .iter()
+        .find(|account| account.mint == swap.input_mint)
+        .ok_or_else(|| error!(OmnindexError::InvalidRebalanceSwap))?;
+    let output_account = mint_accounts
+        .iter()
+        .find(|account| account.mint == swap.output_mint)
+        .ok_or_else(|| error!(OmnindexError::InvalidRebalanceSwap))?;
+    let input_vault_info = &rebalance_accounts[input_account.vault_account_index];
+    let output_vault_info = &rebalance_accounts[output_account.vault_account_index];
+
     require_keys_eq!(
-        reserve_vault_account.owner,
-        pair,
-        OmnindexError::InvalidOmnipairVault
+        swap.source_token_account,
+        input_vault_info.key(),
+        OmnindexError::InvalidJupiterRoute
     );
     require_keys_eq!(
-        reserve_vault_account.mint,
-        *mint,
-        OmnindexError::InvalidOmnipairVault
+        swap.destination_token_account,
+        output_vault_info.key(),
+        OmnindexError::InvalidJupiterRoute
     );
+    validate_jupiter_route_account_scope(
+        &swap.accounts,
+        protected_vaults,
+        &[input_vault_info.key(), output_vault_info.key()],
+    )?;
+
+    let input_before = Account::<TokenAccount>::try_from(input_vault_info)?.amount;
+    let output_before = Account::<TokenAccount>::try_from(output_vault_info)?.amount;
+    let max_sell_amount = input_before
+        .checked_sub(input_account.target_amount)
+        .ok_or_else(|| error!(OmnindexError::RebalanceWouldSellTargetBacking))?;
+    require!(
+        max_sell_amount > 0,
+        OmnindexError::RebalanceWouldSellTargetBacking
+    );
+
+    invoke_jupiter_swap(
+        ctx.accounts.jupiter_program.to_account_info(),
+        candidates,
+        &swap.accounts,
+        &swap.instruction_data,
+        Some(ctx.accounts.vault_authority.key()),
+        &[signer_seeds],
+    )?;
+
+    let input_after = Account::<TokenAccount>::try_from(input_vault_info)?.amount;
+    let output_after = Account::<TokenAccount>::try_from(output_vault_info)?.amount;
+    let input_spent = input_before
+        .checked_sub(input_after)
+        .ok_or_else(|| error!(OmnindexError::InvalidJupiterRoute))?;
+    let output_received = output_after
+        .checked_sub(output_before)
+        .ok_or_else(|| error!(OmnindexError::InvalidJupiterRoute))?;
+    require!(input_spent > 0, OmnindexError::InvalidJupiterRoute);
+    require!(output_received > 0, OmnindexError::InvalidJupiterRoute);
+    require!(
+        input_spent <= max_sell_amount,
+        OmnindexError::RebalanceWouldSellTargetBacking
+    );
+
+    let input_price = rebalance_price_for_mint(prices, &swap.input_mint)?;
+    let output_price = rebalance_price_for_mint(prices, &swap.output_mint)?;
+    validate_rebalance_execution_value(
+        input_spent,
+        input_price,
+        output_received,
+        output_price,
+        swap.max_oracle_slippage_bps,
+    )
+}
+
+fn validate_rebalance_swap_controls(swaps: &[JupiterSwapPlan]) -> Result<()> {
+    for swap in swaps {
+        require!(
+            swap.max_oracle_slippage_bps <= MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS,
+            OmnindexError::InvalidOraclePriceTolerance
+        );
+    }
+
     Ok(())
+}
+
+fn protected_vault_keys(
+    mint_accounts: &[RebalanceMintAccount],
+    rebalance_accounts: &[AccountInfo<'_>],
+) -> Vec<Pubkey> {
+    mint_accounts
+        .iter()
+        .map(|account| rebalance_accounts[account.vault_account_index].key())
+        .collect()
+}
+
+fn account_candidates<'info>(
+    ctx: &Context<'_, '_, 'info, 'info, ExecuteRebalance<'info>>,
+    rebalance_accounts: &[AccountInfo<'info>],
+    route_accounts: &[AccountInfo<'info>],
+) -> Vec<AccountInfo<'info>> {
+    let mut candidates = vec![
+        ctx.accounts.authority.to_account_info(),
+        ctx.accounts.index.to_account_info(),
+        ctx.accounts.index_mint.to_account_info(),
+        ctx.accounts.vault_authority.to_account_info(),
+        ctx.accounts.jupiter_program.to_account_info(),
+        ctx.accounts.associated_token_program.to_account_info(),
+        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.system_program.to_account_info(),
+    ];
+    candidates.extend_from_slice(rebalance_accounts);
+    candidates.extend_from_slice(route_accounts);
+    candidates
 }
 
 fn create_component_vault_if_needed<'info>(
@@ -439,5 +462,20 @@ mod tests {
     #[test]
     fn final_validation_accepts_removed_component_sold_to_zero() {
         assert!(validate_rebalance_final_amount(0, 0, false).is_ok());
+    }
+
+    #[test]
+    fn rebalance_controls_reject_wide_jupiter_slippage() {
+        let swaps = vec![JupiterSwapPlan {
+            input_mint: Pubkey::new_unique(),
+            output_mint: Pubkey::new_unique(),
+            source_token_account: Pubkey::new_unique(),
+            destination_token_account: Pubkey::new_unique(),
+            max_oracle_slippage_bps: MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS + 1,
+            instruction_data: vec![1],
+            accounts: Vec::new(),
+        }];
+
+        assert!(validate_rebalance_swap_controls(&swaps).is_err());
     }
 }

@@ -9,10 +9,10 @@ use crate::{
     events::IndexRebalanceProposed,
     state::{IndexComponentInput, IndexKind, IndexState},
     utils::{
-        load_futarchy_authority, load_mint, nav_nad, omnipair_futarchy_authority_address,
-        rebalance_mints, resolve_rebalance_prices, validate_component_inputs,
-        validate_component_targets_integral, validate_no_self_component, within_bps_tolerance_u128,
-        RebalancePriceInput,
+        load_interface_mint, load_mint, nav_nad, rebalance_mints, resolve_rebalance_prices,
+        validate_component_inputs, validate_component_targets_integral,
+        validate_index_strategy_config, validate_no_self_component, validate_rebalance_quote_mint,
+        verified_switchboard_prices, within_bps_tolerance_u128, RebalancePriceInput,
     },
 };
 
@@ -23,6 +23,7 @@ pub struct ProposeRebalanceArgs {
     pub prices: Vec<RebalancePriceInput>,
     pub oracle_price_tolerance_bps: u16,
     pub nav_tolerance_bps: u16,
+    pub switchboard_max_age_slots: u64,
 }
 
 #[derive(Accounts)]
@@ -45,8 +46,14 @@ pub struct ProposeRebalance<'info> {
     pub index: Account<'info, IndexState>,
     /// CHECK: Validated as the configured classic SPL Token mint in the handler.
     pub index_mint: UncheckedAccount<'info>,
-    /// CHECK: Validated as the Omnipair futarchy authority account.
-    pub omnipair_futarchy_authority: UncheckedAccount<'info>,
+    /// CHECK: Verified by Switchboard's quote verifier.
+    pub switchboard_queue: UncheckedAccount<'info>,
+    /// CHECK: Verified by Switchboard's quote verifier and canonical key check.
+    pub switchboard_quote: UncheckedAccount<'info>,
+    /// CHECK: Switchboard verifier validates this sysvar id.
+    pub slothashes: UncheckedAccount<'info>,
+    /// CHECK: Switchboard verifier validates this sysvar id.
+    pub instructions_sysvar: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -63,13 +70,7 @@ impl<'info> ProposeRebalance<'info> {
             ctx.accounts.index.kind == IndexKind::FixedUnits,
             OmnindexError::InvalidIndexKind
         );
-        require_keys_eq!(
-            ctx.accounts.omnipair_futarchy_authority.key(),
-            omnipair_futarchy_authority_address(),
-            OmnindexError::InvalidOmnipairFutarchyAuthority
-        );
-        let futarchy_authority =
-            load_futarchy_authority(&ctx.accounts.omnipair_futarchy_authority.to_account_info())?;
+        validate_rebalance_quote_mint(&args.quote_mint)?;
         require!(
             args.oracle_price_tolerance_bps <= MAX_ORACLE_PRICE_TOLERANCE_BPS,
             OmnindexError::InvalidOraclePriceTolerance
@@ -81,6 +82,14 @@ impl<'info> ProposeRebalance<'info> {
 
         let components = validate_component_inputs(args.components.clone())?;
         validate_no_self_component(&components, &ctx.accounts.index_mint.key())?;
+        validate_index_strategy_config(
+            IndexKind::FixedUnits,
+            &components,
+            Pubkey::default(),
+            0,
+            0,
+            0,
+        )?;
         let old_components = ctx.accounts.index.components.clone();
         let index_mint = load_mint(&ctx.accounts.index_mint.to_account_info())?;
         validate_component_targets_integral(
@@ -90,23 +99,32 @@ impl<'info> ProposeRebalance<'info> {
         )?;
 
         let rebalance_mints = rebalance_mints(&old_components, &components);
-
         let mut remaining = ctx.remaining_accounts.iter();
-        let prices = resolve_rebalance_prices(
-            &mut remaining,
-            &rebalance_mints,
-            &args.quote_mint,
-            &args.prices,
-            args.oracle_price_tolerance_bps,
-            &futarchy_authority,
-        )?;
+        let mint_decimals = load_rebalance_mint_decimals(&mut remaining, &rebalance_mints)?;
         require!(
             remaining.next().is_none(),
             OmnindexError::InvalidRemainingAccounts
         );
+        let switchboard_prices = verified_switchboard_prices(
+            &ctx.accounts.switchboard_queue.to_account_info(),
+            &ctx.accounts.switchboard_quote.to_account_info(),
+            &ctx.accounts.slothashes.to_account_info(),
+            &ctx.accounts.instructions_sysvar.to_account_info(),
+            Clock::get()?.slot,
+            args.switchboard_max_age_slots,
+        )?;
+        let prices = resolve_rebalance_prices(
+            &rebalance_mints,
+            &old_components,
+            &components,
+            &mint_decimals,
+            &args.prices,
+            args.oracle_price_tolerance_bps,
+            &switchboard_prices,
+        )?;
 
-        let old_nav_nad = nav_nad(&old_components, &rebalance_mints, &prices)?;
-        let new_nav_nad = nav_nad(&components, &rebalance_mints, &prices)?;
+        let old_nav_nad = nav_nad(&old_components, &prices)?;
+        let new_nav_nad = nav_nad(&components, &prices)?;
         require!(
             old_nav_nad > 0 && new_nav_nad > 0,
             OmnindexError::RebalanceNavMismatch
@@ -151,4 +169,19 @@ impl<'info> ProposeRebalance<'info> {
 
         Ok(())
     }
+}
+
+fn load_rebalance_mint_decimals<'info>(
+    remaining: &mut std::slice::Iter<'info, AccountInfo<'info>>,
+    rebalance_mints: &[Pubkey],
+) -> Result<Vec<u8>> {
+    let mut decimals = Vec::with_capacity(rebalance_mints.len());
+
+    for mint in rebalance_mints {
+        let mint_info = next_account_info(remaining)?;
+        require_keys_eq!(mint_info.key(), *mint, OmnindexError::InvalidComponentMint);
+        decimals.push(load_interface_mint(mint_info)?.decimals);
+    }
+
+    Ok(decimals)
 }

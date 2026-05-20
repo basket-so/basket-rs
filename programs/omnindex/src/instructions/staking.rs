@@ -7,7 +7,10 @@ use crate::{
         STAKING_POOL_SEED, USDC_MINT,
     },
     errors::OmnindexError,
-    events::{BasketStaked, BasketUnstaked, StakingPoolInitialized, StakingRewardsClaimed},
+    events::{
+        BasketStaked, BasketUnstaked, StakingPoolInitialized, StakingRewardsAccrued,
+        StakingRewardsClaimed,
+    },
     state::{ProtocolConfig, StakePosition, StakingPool},
     utils::{
         accrue_staking_rewards, create_associated_token_account_idempotent, load_mint,
@@ -23,6 +26,11 @@ pub struct StakeBasketArgs {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct UnstakeBasketArgs {
+    pub amount: u64,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct FundStakingRewardsArgs {
     pub amount: u64,
 }
 
@@ -129,6 +137,74 @@ impl<'info> InitializeStakingPool<'info> {
 }
 
 #[derive(Accounts)]
+pub struct FundStakingRewards<'info> {
+    #[account(mut)]
+    pub funder: Signer<'info>,
+    #[account(mut, seeds = [STAKING_POOL_SEED], bump = staking_pool.bump)]
+    pub staking_pool: Account<'info, StakingPool>,
+    /// CHECK: PDA authority over staking vaults.
+    #[account(seeds = [STAKING_AUTHORITY_SEED], bump = staking_pool.staking_authority_bump)]
+    pub staking_authority: UncheckedAccount<'info>,
+    /// CHECK: Validated as funder's USDC token account.
+    #[account(mut)]
+    pub funder_reward_token_account: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub reward_vault: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
+
+impl<'info> FundStakingRewards<'info> {
+    pub fn handle(ctx: Context<Self>, args: FundStakingRewardsArgs) -> Result<()> {
+        require!(args.amount > 0, OmnindexError::InvalidRewardAmount);
+        require_keys_eq!(
+            ctx.accounts.staking_pool.reward_mint,
+            USDC_MINT,
+            OmnindexError::InvalidRewardMint
+        );
+        require!(
+            ctx.accounts.staking_pool.total_staked > 0,
+            OmnindexError::NoStakedTokens
+        );
+        validate_staking_vault(
+            &ctx.accounts.reward_vault,
+            &ctx.accounts.reward_vault.key(),
+            &ctx.accounts.staking_authority.key(),
+            &USDC_MINT,
+        )?;
+
+        let funder_reward_account =
+            load_user_token_account(&ctx.accounts.funder_reward_token_account.to_account_info())?;
+        validate_user_token_account(
+            &funder_reward_account,
+            &ctx.accounts.funder.key(),
+            &USDC_MINT,
+        )?;
+
+        token::transfer(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.funder_reward_token_account.to_account_info(),
+                    to: ctx.accounts.reward_vault.to_account_info(),
+                    authority: ctx.accounts.funder.to_account_info(),
+                },
+            ),
+            args.amount,
+        )?;
+
+        accrue_staking_rewards(&mut ctx.accounts.staking_pool, args.amount)?;
+
+        emit!(StakingRewardsAccrued {
+            source: ctx.accounts.funder.key(),
+            amount: args.amount,
+            total_staked: ctx.accounts.staking_pool.total_staked,
+        });
+
+        Ok(())
+    }
+}
+
+#[derive(Accounts)]
 pub struct StakeBasket<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
@@ -204,7 +280,6 @@ impl<'info> StakeBasket<'info> {
             .total_staked
             .checked_add(args.amount)
             .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
-        accrue_staking_rewards(&mut ctx.accounts.staking_pool, 0)?;
 
         emit!(BasketStaked {
             owner: ctx.accounts.owner.key(),

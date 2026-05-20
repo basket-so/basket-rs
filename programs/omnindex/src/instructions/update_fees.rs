@@ -1,8 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::{
-    constants::MAX_FEE_BPS, errors::OmnindexError, events::IndexFeesUpdated, state::IndexState,
-};
+use crate::{errors::OmnindexError, events::IndexFeesUpdated, state::IndexState};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct UpdateFeesArgs {
@@ -22,14 +20,8 @@ pub struct UpdateFees<'info> {
 
 impl<'info> UpdateFees<'info> {
     pub fn handle(ctx: Context<Self>, args: UpdateFeesArgs) -> Result<()> {
-        require!(
-            args.mint_fee_bps <= MAX_FEE_BPS,
-            OmnindexError::InvalidFeeBps
-        );
-        require!(
-            args.redeem_fee_bps <= MAX_FEE_BPS,
-            OmnindexError::InvalidFeeBps
-        );
+        require!(args.mint_fee_bps == 0, OmnindexError::InvalidFeeBps);
+        require!(args.redeem_fee_bps == 0, OmnindexError::InvalidFeeBps);
 
         let index = &mut ctx.accounts.index;
         index.mint_fee_bps = args.mint_fee_bps;

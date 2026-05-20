@@ -24,3 +24,4 @@ custom-panic = []
 anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
 anchor-spl = { version = "0.31.1", default-features = false, features = ["token", "token_2022"] }
 mpl-token-metadata = "5.1.1"
+switchboard-on-demand = { version = "0.12.1", default-features = false, features = ["anchor"] }

@@ -40,24 +40,12 @@ pub enum OmnindexError {
     InvalidQuoteMint,
     #[msg("The provided token mint is invalid.")]
     InvalidTokenMint,
+    #[msg("The provided token program account is invalid.")]
+    InvalidTokenProgram,
     #[msg("The quote budget would be exceeded.")]
     QuoteBudgetExceeded,
     #[msg("The provided user component token account is invalid.")]
     InvalidUserComponentTokenAccount,
-    #[msg("The provided Omnipair pair does not match the requested route.")]
-    InvalidOmnipairPair,
-    #[msg("The provided Omnipair rate model does not match the pair.")]
-    InvalidOmnipairRateModel,
-    #[msg("The provided Omnipair reserve vault is invalid.")]
-    InvalidOmnipairVault,
-    #[msg("The provided Omnipair event authority is invalid.")]
-    InvalidOmnipairEventAuthority,
-    #[msg("The provided Omnipair futarchy authority is invalid.")]
-    InvalidOmnipairFutarchyAuthority,
-    #[msg("The provided Omnipair program account is invalid.")]
-    InvalidOmnipairProgram,
-    #[msg("The provided Omnipair token program account is invalid.")]
-    InvalidOmnipairTokenProgram,
     #[msg("The provided associated token program account is invalid.")]
     InvalidAssociatedTokenProgram,
     #[msg("Only the index authority can perform this action.")]
@@ -100,9 +88,7 @@ pub enum OmnindexError {
     TooManyRebalanceSwaps,
     #[msg("The provided rebalance price input is invalid.")]
     InvalidRebalancePriceInput,
-    #[msg("The Omnipair oracle price is invalid.")]
-    InvalidOmnipairOraclePrice,
-    #[msg("The explicit price is outside the allowed Omnipair oracle tolerance.")]
+    #[msg("The explicit price is outside the allowed oracle tolerance.")]
     PriceOutsideOracleTolerance,
     #[msg("The old and new rebalance NAV differ outside the allowed tolerance.")]
     RebalanceNavMismatch,
@@ -130,14 +116,28 @@ pub enum OmnindexError {
     InvalidStakePosition,
     #[msg("The stake amount must be greater than zero.")]
     InvalidStakeAmount,
+    #[msg("The staking reward amount must be greater than zero.")]
+    InvalidRewardAmount,
     #[msg("The staking position does not have enough staked tokens.")]
     InsufficientStakedAmount,
+    #[msg("Staking rewards cannot be accrued while no BASKET is staked.")]
+    NoStakedTokens,
     #[msg("There are no staking rewards to claim.")]
     NoRewardsToClaim,
-    #[msg("Nonzero fees require a fee-bearing quote flow with USDC conversion.")]
+    #[msg("Nonzero fees are disabled for the current Jupiter-only protocol.")]
     FeesRequireUsdcQuote,
-    #[msg("The fee conversion route would produce zero USDC rewards.")]
-    FeeConversionOutputTooSmall,
-    #[msg("The Omnipair spot price is outside the configured EMA tolerance.")]
-    SpotPriceOutsideEmaTolerance,
+    #[msg("The provided Jupiter program account is invalid.")]
+    InvalidJupiterProgram,
+    #[msg("The provided Jupiter route instruction is invalid.")]
+    InvalidJupiterRoute,
+    #[msg("Switchboard oracle verification failed.")]
+    SwitchboardVerificationFailed,
+    #[msg("The requested Switchboard quote maximum age is outside the supported range.")]
+    InvalidSwitchboardMaxAge,
+    #[msg("The required Switchboard feed was not present in the verified quote.")]
+    MissingSwitchboardFeed,
+    #[msg("The Switchboard oracle price is invalid.")]
+    InvalidSwitchboardPrice,
+    #[msg("The Jupiter execution price is outside the configured oracle tolerance.")]
+    ExecutionPriceOutsideOracleTolerance,
 }
