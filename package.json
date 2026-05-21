@@ -1,5 +1,5 @@
 {
-  "name": "omnindex",
+  "name": "basket",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
@@ -9,7 +9,7 @@
     "deploy:mainnet": "anchor deploy --provider.cluster mainnet",
     "test": "anchor test",
     "test:integration": "anchor build && node tests/integration.mjs",
-    "test:rust": "cargo test -p omnindex"
+    "test:rust": "cargo test -p basket"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",

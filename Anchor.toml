@@ -7,10 +7,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-omnindex = "H6JKCZU82gCADQZ98Jmfj7UzpHTdbyfnDpt7AD5NZ3Lt"
+basket = "H6JKCZU82gCADQZ98Jmfj7UzpHTdbyfnDpt7AD5NZ3Lt"
 
 [programs.mainnet]
-omnindex = "H6JKCZU82gCADQZ98Jmfj7UzpHTdbyfnDpt7AD5NZ3Lt"
+basket = "H6JKCZU82gCADQZ98Jmfj7UzpHTdbyfnDpt7AD5NZ3Lt"
 
 [registry]
 url = "https://api.apr.dev"
@@ -20,9 +20,9 @@ cluster = "localnet"
 wallet = "deployer-keypair.json"
 
 [workspace]
-members = ["programs/omnindex"]
+members = ["programs/basket"]
 
 [scripts]
 build-mainnet = "anchor build"
 deploy-mainnet = "anchor deploy --provider.cluster mainnet"
-test = "cargo test -p omnindex"
+test = "cargo test -p basket"

@@ -51,7 +51,7 @@ function localSolanaBinary(name) {
 }
 
 const validator =
-  process.env.OMNINDEX_VALIDATOR_BIN ?? localSolanaBinary("solana-test-validator");
+  process.env.BASKET_VALIDATOR_BIN ?? localSolanaBinary("solana-test-validator");
 
 function keypairFromFile(file) {
   return Keypair.fromSecretKey(
@@ -143,7 +143,7 @@ function validatorStartupError(output) {
       "solana-test-validator exited before RPC became ready.",
       "On this Windows host it failed with privilege error 1314.",
       "Run the test from an elevated shell, enable Developer Mode/symlink privileges,",
-      "or point OMNINDEX_VALIDATOR_BIN at a validator binary that can start in this environment.",
+      "or point BASKET_VALIDATOR_BIN at a validator binary that can start in this environment.",
     ].join(" ");
   }
 
@@ -288,7 +288,7 @@ async function main() {
       payer.publicKey.toBase58(),
       "--upgradeable-program",
       programId.toBase58(),
-      path.join(root, "target", "deploy", "omnindex.so"),
+      path.join(root, "target", "deploy", "basket.so"),
       payer.publicKey.toBase58(),
       "--ledger",
       ledgerDir,
@@ -336,7 +336,7 @@ async function main() {
     assert.ok(programAccount?.executable, `${programId.toBase58()} was not loaded into the validator`);
     await transferSol(connection, payer, user.publicKey, 5);
 
-    const idl = JSON.parse(fs.readFileSync(path.join(root, "target/idl/omnindex.json"), "utf8"));
+    const idl = JSON.parse(fs.readFileSync(path.join(root, "target/idl/basket.json"), "utf8"));
     const program = new anchor.Program(idl, provider);
 
     const [protocolConfig] = PublicKey.findProgramAddressSync(

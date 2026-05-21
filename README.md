@@ -1,4 +1,4 @@
-# omnindex-rs
+# basket-rs
 
 Anchor workspace for an index protocol on Solana. Index tokens are pro-rata
 claims on component vault balances, with support for fixed-unit baskets and
@@ -152,7 +152,7 @@ order.
 Component oracle fields are interpreted as Switchboard feed IDs. Fixed accounts
 include the Jupiter program, Switchboard queue, verified Switchboard quote
 account, slot hashes sysvar, and instructions sysvar. Include the Switchboard
-quote update/signature instructions before the Omnindex instruction in the same
+quote update/signature instructions before the Basket instruction in the same
 transaction.
 
 When mint fees are nonzero, pass the protocol fee recipient's USDC token account
@@ -260,11 +260,11 @@ operator/admin after the program and protocol config are initialized.
 
 Current mainnet ID:
 
-- Omnindex: `H6JKCZU82gCADQZ98Jmfj7UzpHTdbyfnDpt7AD5NZ3Lt`
+- Basket: `H6JKCZU82gCADQZ98Jmfj7UzpHTdbyfnDpt7AD5NZ3Lt`
 
 Safe sequence:
 
-1. Build and deploy Omnindex with the mainnet program ID.
+1. Build and deploy Basket with the mainnet program ID.
 2. Have the current program upgrade authority call `initialize_protocol` with the desired protocol authority and approved `index_creator`.
 3. Call `initialize_staking_pool` to create the BASKET stake vault and USDC reward vault.
 4. Verify `permissionless_index_creation` is false.
