@@ -12,7 +12,7 @@ pub mod utils;
 
 pub use instructions::*;
 
-declare_id!("H6JKCZU82gCADQZ98Jmfj7UzpHTdbyfnDpt7AD5NZ3Lt");
+declare_id!("5PYVGshoLQrcawa8zyUCe4qTCe1AQJt6Nxkk89yVgkxu");
 
 #[program]
 pub mod basket {

@@ -14,16 +14,22 @@ use crate::{
     utils::{
         associated_token_address, associated_token_address_with_token_program, basis_points_amount,
         create_associated_token_account_idempotent,
-        create_associated_token_account_idempotent_for_token_program, invoke_jupiter_swap,
-        load_interface_mint, load_interface_token_account, load_mint,
-        mint_component_backing_amount, route_creator_fee, switchboard_feed_price,
-        validate_buy_execution_price, validate_pending_component_targets_integral,
-        verified_switchboard_prices, JupiterAccountMetaInput, ASSOCIATED_TOKEN_ID,
+        create_associated_token_account_idempotent_for_token_program,
+        invoke_jupiter_swap_with_scratch, load_interface_mint, load_interface_token_account,
+        load_mint, mint_component_backing_amount, route_creator_fee,
+        validate_jupiter_route_account_scope, validate_pending_component_targets_integral,
+        JupiterAccountMetaInput, JupiterInvokeScratch, ASSOCIATED_TOKEN_ID,
     },
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct JupiterSwapPlan {
+    pub instruction_data: Vec<u8>,
+    pub accounts: Vec<JupiterAccountMetaInput>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct JupiterRebalanceSwapPlan {
     pub input_mint: Pubkey,
     pub output_mint: Pubkey,
     pub source_token_account: Pubkey,
@@ -37,7 +43,6 @@ pub struct JupiterSwapPlan {
 pub struct MintIndexWithJupiterArgs {
     pub index_amount_out: u64,
     pub max_quote_in: u64,
-    pub switchboard_max_age_slots: u64,
     pub swaps: Vec<JupiterSwapPlan>,
 }
 
@@ -71,14 +76,6 @@ pub struct MintIndexWithJupiter<'info> {
     pub user_index_token_account: UncheckedAccount<'info>,
     /// CHECK: Validated against known Jupiter program ids.
     pub jupiter_program: UncheckedAccount<'info>,
-    /// CHECK: Verified by Switchboard's quote verifier.
-    pub switchboard_queue: UncheckedAccount<'info>,
-    /// CHECK: Verified by Switchboard's quote verifier and canonical key check.
-    pub switchboard_quote: UncheckedAccount<'info>,
-    /// CHECK: Switchboard verifier validates this sysvar id.
-    pub slothashes: UncheckedAccount<'info>,
-    /// CHECK: Switchboard verifier validates this sysvar id.
-    pub instructions_sysvar: UncheckedAccount<'info>,
     /// CHECK: Validated as the Associated Token Program.
     #[account(address = ASSOCIATED_TOKEN_ID @ BasketError::InvalidAssociatedTokenProgram)]
     pub associated_token_program: UncheckedAccount<'info>,
@@ -92,7 +89,6 @@ struct ComponentAccount<'info> {
     mint_info: AccountInfo<'info>,
     vault_info: AccountInfo<'info>,
     token_program_info: AccountInfo<'info>,
-    decimals: u8,
 }
 
 impl<'info> MintIndexWithJupiter<'info> {
@@ -144,15 +140,6 @@ impl<'info> MintIndexWithJupiter<'info> {
         }
         validate_pending_component_targets_integral(&ctx.accounts.index, post_supply)?;
 
-        let prices = verified_switchboard_prices(
-            &ctx.accounts.switchboard_queue.to_account_info(),
-            &ctx.accounts.switchboard_quote.to_account_info(),
-            &ctx.accounts.slothashes.to_account_info(),
-            &ctx.accounts.instructions_sysvar.to_account_info(),
-            Clock::get()?.slot,
-            args.switchboard_max_age_slots,
-        )?;
-
         let components = ctx.accounts.index.components.clone();
         let mut remaining = ctx.remaining_accounts.iter();
         let mut component_accounts = Vec::with_capacity(components.len());
@@ -160,12 +147,14 @@ impl<'info> MintIndexWithJupiter<'info> {
             component_accounts.push(load_component_account(&ctx, &mut remaining, component)?);
         }
         let route_accounts = remaining.as_slice();
+        let protected_vaults = protected_vault_keys(&component_accounts);
         let candidates = account_candidates(&ctx, &component_accounts, route_accounts);
 
         let base_units = ctx.accounts.index.index_base_units()?;
         let quote_decimals = quote_mint.decimals;
         let mut total_quote_spent = 0u64;
         let mut swap_index = 0usize;
+        let mut jupiter_scratch = JupiterInvokeScratch::new();
 
         for (component, accounts) in components.iter().zip(component_accounts.into_iter()) {
             let required_amount = mint_component_backing_amount(
@@ -200,24 +189,24 @@ impl<'info> MintIndexWithJupiter<'info> {
             swap_index = swap_index
                 .checked_add(1)
                 .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
-
-            validate_component_buy_swap(
-                ctx.accounts.quote_mint.key(),
-                ctx.accounts.user_quote_token_account.key(),
-                component.mint,
-                accounts.vault_info.key(),
-                swap,
+            validate_jupiter_route_account_scope(
+                &candidates,
+                &swap.accounts,
+                &protected_vaults,
+                &[accounts.vault_info.key()],
             )?;
+
             let quote_before = ctx.accounts.user_quote_token_account.amount;
             let component_before = load_interface_token_account(&accounts.vault_info)?.amount;
 
-            invoke_jupiter_swap(
+            invoke_jupiter_swap_with_scratch(
                 ctx.accounts.jupiter_program.to_account_info(),
                 &candidates,
                 &swap.accounts,
                 &swap.instruction_data,
                 Some(ctx.accounts.user.key()),
                 &[],
+                &mut jupiter_scratch,
             )?;
 
             ctx.accounts.user_quote_token_account.reload()?;
@@ -235,16 +224,6 @@ impl<'info> MintIndexWithJupiter<'info> {
             );
             total_quote_spent =
                 require_quote_budget(total_quote_spent, quote_spent, args.max_quote_in)?;
-
-            let oracle_price = switchboard_feed_price(&prices, &component.oracle_pair)?;
-            validate_buy_execution_price(
-                quote_spent,
-                component_received,
-                quote_decimals,
-                accounts.decimals,
-                oracle_price,
-                swap.max_oracle_slippage_bps,
-            )?;
         }
 
         require!(
@@ -318,7 +297,7 @@ fn load_component_account<'info>(
         token_program_info.clone(),
     )?;
 
-    let mint = load_interface_mint(mint_info)?;
+    load_interface_mint(mint_info)?;
     let vault = load_interface_token_account(vault_info)?;
     require_keys_eq!(
         vault.owner,
@@ -331,38 +310,7 @@ fn load_component_account<'info>(
         mint_info: mint_info.clone(),
         vault_info: vault_info.clone(),
         token_program_info: token_program_info.clone(),
-        decimals: mint.decimals,
     })
-}
-
-fn validate_component_buy_swap(
-    quote_mint: Pubkey,
-    user_quote_token_account: Pubkey,
-    component_mint: Pubkey,
-    component_vault: Pubkey,
-    swap: &JupiterSwapPlan,
-) -> Result<()> {
-    require_keys_eq!(
-        swap.input_mint,
-        quote_mint,
-        BasketError::InvalidJupiterRoute
-    );
-    require_keys_eq!(
-        swap.output_mint,
-        component_mint,
-        BasketError::InvalidJupiterRoute
-    );
-    require_keys_eq!(
-        swap.source_token_account,
-        user_quote_token_account,
-        BasketError::InvalidJupiterRoute
-    );
-    require_keys_eq!(
-        swap.destination_token_account,
-        component_vault,
-        BasketError::InvalidJupiterRoute
-    );
-    Ok(())
 }
 
 fn account_candidates<'info>(
@@ -391,6 +339,13 @@ fn account_candidates<'info>(
     }
     candidates.extend_from_slice(route_accounts);
     candidates
+}
+
+fn protected_vault_keys(component_accounts: &[ComponentAccount<'_>]) -> Vec<Pubkey> {
+    component_accounts
+        .iter()
+        .map(|account| account.vault_info.key())
+        .collect()
 }
 
 fn transfer_checked_from_user_quote<'info>(

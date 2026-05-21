@@ -28,7 +28,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const programId = new PublicKey("H6JKCZU82gCADQZ98Jmfj7UzpHTdbyfnDpt7AD5NZ3Lt");
+const programId = new PublicKey("5PYVGshoLQrcawa8zyUCe4qTCe1AQJt6Nxkk89yVgkxu");
 const basketMint = new PublicKey("5yTFbtAE5RDjxpiVpDfyWuzcCWgwh659CEu7a7ZQtSpk");
 const usdcMint = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 const bpfLoaderUpgradeable = new PublicKey(

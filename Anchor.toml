@@ -7,10 +7,10 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-basket = "H6JKCZU82gCADQZ98Jmfj7UzpHTdbyfnDpt7AD5NZ3Lt"
+basket = "5PYVGshoLQrcawa8zyUCe4qTCe1AQJt6Nxkk89yVgkxu"
 
 [programs.mainnet]
-basket = "H6JKCZU82gCADQZ98Jmfj7UzpHTdbyfnDpt7AD5NZ3Lt"
+basket = "5PYVGshoLQrcawa8zyUCe4qTCe1AQJt6Nxkk89yVgkxu"
 
 [registry]
 url = "https://api.apr.dev"

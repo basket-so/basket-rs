@@ -24,7 +24,7 @@ use crate::{
     },
 };
 
-use super::mint_index_with_jupiter::JupiterSwapPlan;
+use super::mint_index_with_jupiter::JupiterRebalanceSwapPlan as JupiterSwapPlan;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct RebalanceFixedWeightsWithJupiterArgs {
@@ -390,6 +390,7 @@ fn execute_jupiter_swaps<'info>(
             .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
         validate_component_sell_swap(quote_mint, quote_vault, account, swap)?;
         validate_jupiter_route_account_scope(
+            candidates,
             &swap.accounts,
             &protected_vaults,
             &[account.vault_info.key(), quote_vault],
@@ -453,6 +454,7 @@ fn execute_jupiter_swaps<'info>(
             .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
         validate_component_buy_swap(quote_mint, quote_vault, &accounts[index], swap)?;
         validate_jupiter_route_account_scope(
+            candidates,
             &swap.accounts,
             &protected_vaults,
             &[quote_vault, accounts[index].vault_info.key()],

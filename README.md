@@ -260,7 +260,7 @@ operator/admin after the program and protocol config are initialized.
 
 Current mainnet ID:
 
-- Basket: `H6JKCZU82gCADQZ98Jmfj7UzpHTdbyfnDpt7AD5NZ3Lt`
+- Basket: `5PYVGshoLQrcawa8zyUCe4qTCe1AQJt6Nxkk89yVgkxu`
 
 Safe sequence:
 

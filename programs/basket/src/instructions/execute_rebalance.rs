@@ -22,7 +22,7 @@ use crate::{
     },
 };
 
-use super::mint_index_with_jupiter::JupiterSwapPlan;
+use super::mint_index_with_jupiter::JupiterRebalanceSwapPlan as JupiterSwapPlan;
 
 const REBALANCE_ACCOUNT_STRIDE: usize = 3;
 
@@ -320,6 +320,7 @@ fn execute_jupiter_rebalance_swap<'info>(
         BasketError::InvalidJupiterRoute
     );
     validate_jupiter_route_account_scope(
+        context.candidates,
         &swap.accounts,
         context.protected_vaults,
         &[input_vault_info.key(), output_vault_info.key()],
