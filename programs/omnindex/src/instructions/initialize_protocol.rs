@@ -60,6 +60,7 @@ impl<'info> InitializeProtocol<'info> {
         protocol_config.permissionless_index_creation = false;
         protocol_config.bump = ctx.bumps.protocol_config;
         protocol_config.reserved = [0; 30];
+        protocol_config.index_creator_whitelist = Vec::new();
 
         emit!(ProtocolConfigInitialized {
             authority: protocol_config.authority,

@@ -7,13 +7,20 @@ use anchor_lang::{
     },
 };
 use anchor_spl::token::{self, TokenAccount};
-use anchor_spl::token_interface::{Mint as InterfaceMint, TokenAccount as InterfaceTokenAccount};
+use anchor_spl::token_interface::TokenAccount as InterfaceTokenAccount;
 
 use crate::errors::OmnindexError;
 
 pub const ASSOCIATED_TOKEN_ID: Pubkey = pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 pub type SplMint = token::spl_token::state::Mint;
 pub type SplTokenAccount = token::spl_token::state::Account;
+const MINT_DECIMALS_OFFSET: usize = 44;
+const MINT_INITIALIZED_OFFSET: usize = 45;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InterfaceMintInfo {
+    pub decimals: u8,
+}
 
 pub fn require_remaining_account_pairs(actual: usize, component_count: usize) -> Result<()> {
     require!(
@@ -150,15 +157,25 @@ pub fn load_user_token_account(info: &AccountInfo) -> Result<SplTokenAccount> {
     SplTokenAccount::unpack(&data).map_err(|_| error!(OmnindexError::InvalidUserTokenAccount))
 }
 
-pub fn load_interface_mint(info: &AccountInfo) -> Result<InterfaceMint> {
+pub fn load_interface_mint(info: &AccountInfo) -> Result<InterfaceMintInfo> {
     require!(
         *info.owner == token::ID || *info.owner == anchor_spl::token_2022::ID,
         OmnindexError::InvalidTokenMint
     );
     let data = info.try_borrow_data()?;
-    let mut data_ref: &[u8] = &data;
-    InterfaceMint::try_deserialize_unchecked(&mut data_ref)
-        .map_err(|_| error!(OmnindexError::InvalidTokenMint))
+    interface_mint_info_from_data(&data)
+}
+
+fn interface_mint_info_from_data(data: &[u8]) -> Result<InterfaceMintInfo> {
+    require!(data.len() >= SplMint::LEN, OmnindexError::InvalidTokenMint);
+    require!(
+        data[MINT_INITIALIZED_OFFSET] != 0,
+        OmnindexError::InvalidTokenMint
+    );
+
+    Ok(InterfaceMintInfo {
+        decimals: data[MINT_DECIMALS_OFFSET],
+    })
 }
 
 pub fn load_interface_token_account(info: &AccountInfo) -> Result<InterfaceTokenAccount> {
@@ -238,4 +255,27 @@ pub fn validate_vault_spl_token_account(
         OmnindexError::InvalidVaultAccount
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interface_mint_reader_extracts_decimals_from_base_header() {
+        let mut data = [0u8; SplMint::LEN];
+        data[MINT_DECIMALS_OFFSET] = 6;
+        data[MINT_INITIALIZED_OFFSET] = 1;
+
+        let mint = interface_mint_info_from_data(&data).unwrap();
+
+        assert_eq!(mint.decimals, 6);
+    }
+
+    #[test]
+    fn interface_mint_reader_rejects_uninitialized_mint() {
+        let data = [0u8; SplMint::LEN];
+
+        assert!(interface_mint_info_from_data(&data).is_err());
+    }
 }

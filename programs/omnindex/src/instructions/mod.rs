@@ -17,6 +17,7 @@ pub mod update_authority;
 pub mod update_config;
 pub mod update_fees;
 pub mod update_fixed_weight_config;
+pub mod update_index_creator_whitelist;
 pub mod update_protocol_config;
 
 pub use cancel_rebalance::*;
@@ -38,4 +39,5 @@ pub use update_authority::*;
 pub use update_config::*;
 pub use update_fees::*;
 pub use update_fixed_weight_config::*;
+pub use update_index_creator_whitelist::*;
 pub use update_protocol_config::*;

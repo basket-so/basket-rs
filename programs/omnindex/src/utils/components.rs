@@ -135,6 +135,10 @@ fn validate_fixed_weight_config(
 
     for component in components {
         require!(
+            component.units_per_index > 0,
+            OmnindexError::ZeroComponentUnits
+        );
+        require!(
             component.target_weight_bps > 0,
             OmnindexError::InvalidFixedWeightConfig
         );
@@ -381,6 +385,33 @@ mod tests {
         ]);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_component_inputs_rejects_zero_initial_units() {
+        let result = validate_component_inputs(vec![IndexComponentInput {
+            mint: Pubkey::new_unique(),
+            units_per_index: 0,
+            target_weight_bps: 5_000,
+            oracle_pair: Pubkey::new_unique(),
+        }]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn first_mint_uses_configured_initial_units() {
+        let component = IndexComponent {
+            mint: Pubkey::new_unique(),
+            units_per_index: 2_500_000,
+            target_weight_bps: 5_000,
+            oracle_pair: Pubkey::new_unique(),
+        };
+
+        assert_eq!(
+            mint_component_backing_amount(&component, 5_000_000, 1_000_000, 0, 0).unwrap(),
+            12_500_000
+        );
     }
 
     #[test]

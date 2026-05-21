@@ -42,6 +42,11 @@ component's Switchboard feed id. The field name is legacy.
 
 A fixed-weight index stores target weights in basis points on each component.
 Target weights are a rebalance policy, not a redemption formula.
+Each component must also specify nonzero `units_per_index` at creation time.
+Those units define the initial basket used by the first mint while supply is
+zero; later mints and redeems use pro-rata vault-share accounting, and
+fixed-weight rebalances refresh stored units from the post-rebalance vault
+balances.
 
 `rebalance_fixed_weights_with_jupiter` is the fixed-weight execution path. It:
 
@@ -54,7 +59,8 @@ Target weights are a rebalance policy, not a redemption formula.
 ## Instructions
 
 - `initialize_protocol`: creates the protocol config PDA with permissioned index creation enabled by default
-- `update_protocol_config`: rotates protocol authority, sets the approved index creator, or enables permissionless index creation
+- `update_protocol_config`: rotates protocol authority, sets the primary approved index creator, or enables permissionless index creation
+- `update_index_creator_whitelist`: adds or removes additional approved index creators while creation remains permissioned
 - `create_index`: creates the index account and index mint PDA
 - `create_index_metadata`: creates Metaplex metadata for the index mint
 - `update_index_metadata`: updates the index mint metadata URI
@@ -69,8 +75,8 @@ Target weights are a rebalance policy, not a redemption formula.
 - `quote_redeem_index`: emits component amounts returned by a direct component redeem when redeem fees are zero
 - `mint_index`: transfers the pro-rata vault share into vaults and mints index tokens
 - `mint_index_with_jupiter`: spends USDC through caller-provided Jupiter routes, verifies fills against Switchboard, deposits into vaults, and mints index tokens
-- `update_fees`: currently accepts only zero fees
-- `update_config`: sets fee recipient, supply cap, rebalance delay, and pause flags
+- `update_fees`: sets protocol and creator mint/redeem fee bps, capped at 10% total per direction
+- `update_config`: sets protocol and creator fee recipients, supply cap, rebalance delay, and pause flags
 - `update_authority`: transfers index authority to a new wallet, multisig, DAO, or governance PDA
 - `claim_fees`: disabled under pro-rata vault-share accounting
 - `propose_rebalance`: stages a fixed-unit basket update behind the configured timelock using Switchboard NAV checks
@@ -80,9 +86,12 @@ Target weights are a rebalance policy, not a redemption formula.
 - `redeem_index`: burns index tokens and transfers the pro-rata vault share back out of vaults
 - `redeem_index_with_jupiter`: burns index tokens, routes component backing to USDC through Jupiter, verifies execution against Switchboard, and pays the user in USDC
 
-Nonzero protocol fees are disabled in the current Jupiter-only surface. Direct
-component mint/redeem and Jupiter mint/redeem reject nonzero fees, and
-`update_fees` only accepts `0` for both fee fields.
+Nonzero mint/redeem fees are supported on the USDC Jupiter paths. `mint_fee_bps`
+and `redeem_fee_bps` are protocol fees paid to `fee_recipient`;
+`creator_mint_fee_bps` and `creator_redeem_fee_bps` are creator fees paid to
+`creator_fee_recipient`. The total protocol plus creator fee for each direction
+is capped at 1,000 bps. Direct component mint/redeem and quote helpers reject
+nonzero fees because those paths do not have a single USDC quote asset to split.
 
 The BASKET staking mint is fixed at
 `5yTFbtAE5RDjxpiVpDfyWuzcCWgwh659CEu7a7ZQtSpk`. Staking rewards are funded
@@ -143,6 +152,11 @@ account, slot hashes sysvar, and instructions sysvar. Include the Switchboard
 quote update/signature instructions before the Omnindex instruction in the same
 transaction.
 
+When mint fees are nonzero, pass the protocol fee recipient's USDC token account
+and the creator fee recipient's USDC token account in the fixed account list.
+Fees are charged after backing purchases, and `max_quote_in` covers backing plus
+both fee splits.
+
 Remaining accounts start with component groups in basket order:
 
 1. component mint
@@ -165,6 +179,10 @@ Append all Jupiter route accounts after the component groups. The `swaps` args
 must be ordered by basket component order for every non-USDC component. Each
 route must spend from the component vault and deposit into the user's USDC token
 account.
+
+Redeem fees are deducted from the user's gross USDC output after route
+execution. `min_quote_out` is checked against the user's net USDC after protocol
+and creator fees.
 
 `propose_rebalance` takes:
 
@@ -189,12 +207,13 @@ switchboard_max_age_slots }`. It reads the pending quote mint and tolerance
 settings from the stored proposal. The price input order matches
 `propose_rebalance`.
 
-Remaining accounts start with pairs for every unique old/new component mint:
+Remaining accounts start with triples for every unique old/new component mint:
 
 1. component mint
-2. vault ATA for the vault authority PDA and that mint
+2. vault ATA for the vault authority PDA, that mint, and the mint token program
+3. mint token program (`spl_token::ID` or Token-2022)
 
-After all mint/vault pairs, append every account required by the supplied
+After all component triples, append every account required by the supplied
 Jupiter route instructions. Each route must use a component vault as its source
 and a component vault as its destination. Protected component vaults that are
 not the declared source or destination are rejected.

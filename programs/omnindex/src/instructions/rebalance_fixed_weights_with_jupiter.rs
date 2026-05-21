@@ -1,9 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     token::Token,
-    token_interface::{
-        Mint as InterfaceMint, TokenAccount as InterfaceTokenAccount, TokenInterface,
-    },
+    token_interface::{TokenAccount as InterfaceTokenAccount, TokenInterface},
 };
 
 use crate::{
@@ -50,7 +48,8 @@ pub struct RebalanceFixedWeightsWithJupiter<'info> {
         bump = index.vault_authority_bump
     )]
     pub vault_authority: UncheckedAccount<'info>,
-    pub quote_mint: InterfaceAccount<'info, InterfaceMint>,
+    /// CHECK: Validated as the configured quote mint and parsed manually for Token/Token-2022 decimals.
+    pub quote_mint: UncheckedAccount<'info>,
     #[account(mut)]
     /// CHECK: Created and validated as the vault authority quote ATA.
     pub vault_quote_token_account: UncheckedAccount<'info>,
@@ -121,6 +120,8 @@ impl<'info> RebalanceFixedWeightsWithJupiter<'info> {
             ctx.accounts.index.fixed_weight_quote_mint,
             OmnindexError::InvalidQuoteMint
         );
+        let quote_mint_info = load_interface_mint(&ctx.accounts.quote_mint.to_account_info())?;
+        let quote_decimals = quote_mint_info.decimals;
 
         create_quote_vault_if_needed(&ctx)?;
 
@@ -170,11 +171,7 @@ impl<'info> RebalanceFixedWeightsWithJupiter<'info> {
             ctx.accounts.index.fixed_weight_drift_threshold_bps,
         )?;
         if quote_component_index.is_none() {
-            validate_quote_dust_budget(
-                args.max_quote_dust,
-                ctx.accounts.quote_mint.decimals,
-                total_value,
-            )?;
+            validate_quote_dust_budget(args.max_quote_dust, quote_decimals, total_value)?;
         }
         let now = Clock::get()?.unix_timestamp;
         let time_triggered = ctx.accounts.index.fixed_weight_rebalance_interval_seconds > 0
@@ -191,7 +188,7 @@ impl<'info> RebalanceFixedWeightsWithJupiter<'info> {
         );
 
         assign_target_amounts(&mut accounts, total_value)?;
-        let accounts = execute_jupiter_swaps(&ctx, accounts, &candidates, &args)?;
+        let accounts = execute_jupiter_swaps(&ctx, accounts, &candidates, &args, quote_decimals)?;
         validate_quote_dust(&ctx, quote_component_index, args.max_quote_dust)?;
 
         let base_units = ctx.accounts.index.index_base_units()?;
@@ -364,6 +361,7 @@ fn execute_jupiter_swaps<'info>(
     mut accounts: Vec<FixedWeightJupiterComponent<'info>>,
     candidates: &[AccountInfo<'info>],
     args: &RebalanceFixedWeightsWithJupiterArgs,
+    quote_decimals: u8,
 ) -> Result<Vec<FixedWeightJupiterComponent<'info>>> {
     let index_key = ctx.accounts.index.key();
     let vault_authority_bump = [ctx.accounts.index.vault_authority_bump];
@@ -374,7 +372,6 @@ fn execute_jupiter_swaps<'info>(
     ];
     let quote_mint = ctx.accounts.quote_mint.key();
     let quote_vault = ctx.accounts.vault_quote_token_account.key();
-    let quote_decimals = ctx.accounts.quote_mint.decimals;
     let protected_vaults = protected_vault_keys(&accounts, quote_vault);
     let mut swap_index = 0usize;
 
@@ -534,7 +531,7 @@ fn protected_vault_keys(
     let mut keys = vec![quote_vault];
     for account in accounts {
         let vault = account.vault_info.key();
-        if !keys.iter().any(|key| *key == vault) {
+        if !keys.contains(&vault) {
             keys.push(vault);
         }
     }

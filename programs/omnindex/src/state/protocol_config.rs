@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
 
+use crate::constants::MAX_INDEX_CREATOR_WHITELIST;
+
 #[account]
 pub struct ProtocolConfig {
     pub authority: Pubkey,
@@ -7,13 +9,19 @@ pub struct ProtocolConfig {
     pub permissionless_index_creation: bool,
     pub bump: u8,
     pub reserved: [u8; 30],
+    pub index_creator_whitelist: Vec<Pubkey>,
 }
 
 impl ProtocolConfig {
-    pub const SPACE: usize = 32 + 32 + 1 + 1 + 30;
+    pub const SPACE: usize = 32 + 32 + 1 + 1 + 30 + 4 + (MAX_INDEX_CREATOR_WHITELIST * 32);
 
     pub fn can_create_index(&self, creator: &Pubkey) -> bool {
-        self.permissionless_index_creation || self.index_creator == *creator
+        self.permissionless_index_creation
+            || self.index_creator == *creator
+            || self
+                .index_creator_whitelist
+                .iter()
+                .any(|whitelisted| whitelisted == creator)
     }
 }
 
@@ -28,6 +36,7 @@ mod tests {
             permissionless_index_creation,
             bump: 255,
             reserved: [0; 30],
+            index_creator_whitelist: Vec::new(),
         }
     }
 
@@ -51,5 +60,14 @@ mod tests {
         let protocol_config = config(true, Pubkey::new_unique());
 
         assert!(protocol_config.can_create_index(&Pubkey::new_unique()));
+    }
+
+    #[test]
+    fn permissioned_creation_allows_whitelisted_creator() {
+        let creator = Pubkey::new_unique();
+        let mut protocol_config = config(false, Pubkey::new_unique());
+        protocol_config.index_creator_whitelist.push(creator);
+
+        assert!(protocol_config.can_create_index(&creator));
     }
 }

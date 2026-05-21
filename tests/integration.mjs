@@ -506,13 +506,13 @@ async function main() {
         components: [
           {
             mint: componentA,
-            unitsPerIndex: new anchor.BN(1),
+            unitsPerIndex: new anchor.BN(1_250_000),
             targetWeightBps: 5_000,
             oraclePair: fixedWeightComponentAPair,
           },
           {
             mint: componentB,
-            unitsPerIndex: new anchor.BN(1),
+            unitsPerIndex: new anchor.BN(2_500_000),
             targetWeightBps: 5_000,
             oraclePair: fixedWeightComponentBPair,
           },
@@ -534,6 +534,8 @@ async function main() {
     assert.equal(fixedWeightState.indexMint.toBase58(), fixedWeightIndexMint.toBase58());
     assert.equal(fixedWeightState.fixedWeightQuoteMint.toBase58(), usdcMint.toBase58());
     assert.equal(fixedWeightState.components.length, 2);
+    assert.equal(fixedWeightState.components[0].unitsPerIndex.toString(), "1250000");
+    assert.equal(fixedWeightState.components[1].unitsPerIndex.toString(), "2500000");
     assert.equal(fixedWeightState.components[0].targetWeightBps, 5_000);
     assert.equal(fixedWeightState.components[1].targetWeightBps, 5_000);
 

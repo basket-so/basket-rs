@@ -9,11 +9,13 @@ pub const STAKING_AUTHORITY_SEED: &[u8] = b"staking-authority";
 pub const STAKE_POSITION_SEED: &[u8] = b"stake-position";
 
 pub const MAX_COMPONENTS: usize = 8;
+pub const MAX_INDEX_CREATOR_WHITELIST: usize = 64;
 pub const MAX_REBALANCE_SWAPS: usize = 32;
 pub const MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS: u16 = 500;
 pub const MAX_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS: u16 = 500;
 pub const MAX_FIXED_WEIGHT_QUOTE_DUST_BPS: u16 = 500;
 pub const MAX_SWITCHBOARD_QUOTE_AGE_SLOTS: u64 = 150;
+pub const MAX_TOTAL_INDEX_FEE_BPS: u16 = 1_000;
 pub const MAX_ORACLE_PRICE_TOLERANCE_BPS: u16 = BPS_DENOMINATOR;
 pub const MAX_NAV_TOLERANCE_BPS: u16 = BPS_DENOMINATOR;
 pub const MAX_NAME_LEN: usize = 32;

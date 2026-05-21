@@ -35,7 +35,9 @@ pub struct IndexComponentInput {
 #[account]
 pub struct IndexState {
     pub authority: Pubkey,
+    pub creator: Pubkey,
     pub fee_recipient: Pubkey,
+    pub creator_fee_recipient: Pubkey,
     pub index_mint: Pubkey,
     pub vault_authority_bump: u8,
     pub index_bump: u8,
@@ -46,6 +48,8 @@ pub struct IndexState {
     pub pending_component_count: u8,
     pub mint_fee_bps: u16,
     pub redeem_fee_bps: u16,
+    pub creator_mint_fee_bps: u16,
+    pub creator_redeem_fee_bps: u16,
     pub max_supply: u64,
     pub rebalance_delay_seconds: i64,
     pub fixed_weight_rebalance_interval_seconds: i64,
@@ -78,6 +82,8 @@ impl IndexState {
     ) -> usize {
         32 + 32
             + 32
+            + 32
+            + 32
             + 1
             + 1
             + 1
@@ -85,6 +91,8 @@ impl IndexState {
             + IndexKind::SPACE
             + 1
             + 1
+            + 2
+            + 2
             + 2
             + 2
             + 8

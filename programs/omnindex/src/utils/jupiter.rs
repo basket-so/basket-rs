@@ -32,12 +32,8 @@ pub fn validate_jupiter_route_account_scope(
     allowed_protected_accounts: &[Pubkey],
 ) -> Result<()> {
     for meta in account_metas {
-        if protected_accounts
-            .iter()
-            .any(|account| *account == meta.pubkey)
-            && !allowed_protected_accounts
-                .iter()
-                .any(|account| *account == meta.pubkey)
+        if protected_accounts.contains(&meta.pubkey)
+            && !allowed_protected_accounts.contains(&meta.pubkey)
         {
             return err!(OmnindexError::InvalidJupiterRoute);
         }

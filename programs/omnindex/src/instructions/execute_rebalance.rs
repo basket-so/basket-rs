@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Token, TokenAccount};
+use anchor_spl::{token::Token, token_interface::TokenAccount as InterfaceTokenAccount};
 
 use crate::{
     constants::{
@@ -11,16 +11,20 @@ use crate::{
     events::IndexRebalanced,
     state::{IndexKind, IndexState},
     utils::{
-        associated_token_address, create_associated_token_account_idempotent, invoke_jupiter_swap,
-        load_interface_mint, load_mint, nav_nad, rebalance_mints, rebalance_price_for_mint,
-        resolve_rebalance_prices, target_component_amount, validate_jupiter_route_account_scope,
-        validate_no_self_component, validate_rebalance_execution_value,
-        validate_rebalance_quote_mint, validate_vault_token_account, verified_switchboard_prices,
-        within_bps_tolerance_u128, RebalancePrice, RebalancePriceInput, ASSOCIATED_TOKEN_ID,
+        associated_token_address_with_token_program,
+        create_associated_token_account_idempotent_for_token_program, invoke_jupiter_swap,
+        load_interface_mint, load_interface_token_account, load_mint, nav_nad, rebalance_mints,
+        rebalance_price_for_mint, resolve_rebalance_prices, target_component_amount,
+        validate_jupiter_route_account_scope, validate_no_self_component,
+        validate_rebalance_execution_value, validate_rebalance_quote_mint,
+        verified_switchboard_prices, within_bps_tolerance_u128, RebalancePrice,
+        RebalancePriceInput, ASSOCIATED_TOKEN_ID,
     },
 };
 
 use super::mint_index_with_jupiter::JupiterSwapPlan;
+
+const REBALANCE_ACCOUNT_STRIDE: usize = 3;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct ExecuteRebalanceArgs {
@@ -32,9 +36,20 @@ pub struct ExecuteRebalanceArgs {
 #[derive(Clone)]
 struct RebalanceMintAccount {
     mint: Pubkey,
+    token_program: Pubkey,
     vault_account_index: usize,
     target_amount: u64,
     is_new_component: bool,
+}
+
+struct RebalanceSwapContext<'a, 'info> {
+    jupiter_program: AccountInfo<'info>,
+    vault_authority: AccountInfo<'info>,
+    rebalance_accounts: &'info [AccountInfo<'info>],
+    prices: &'a [RebalancePrice],
+    protected_vaults: &'a [Pubkey],
+    candidates: &'a [AccountInfo<'info>],
+    signer_seeds: &'a [&'a [u8]],
 }
 
 #[derive(Accounts)]
@@ -125,7 +140,7 @@ impl<'info> ExecuteRebalance<'info> {
         let rebalance_mints = rebalance_mints(&old_components, &new_components);
         let mint_account_count = rebalance_mints
             .len()
-            .checked_mul(2)
+            .checked_mul(REBALANCE_ACCOUNT_STRIDE)
             .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
         require!(
             ctx.remaining_accounts.len() >= mint_account_count,
@@ -141,26 +156,35 @@ impl<'info> ExecuteRebalance<'info> {
         let mut mint_decimals = Vec::with_capacity(rebalance_mints.len());
 
         for (index, mint) in rebalance_mints.iter().enumerate() {
-            let mint_account_index = index * 2;
+            let mint_account_index = index * REBALANCE_ACCOUNT_STRIDE;
             let vault_account_index = mint_account_index + 1;
+            let token_program_account_index = mint_account_index + 2;
             let mint_info = &rebalance_accounts[mint_account_index];
             let vault_info = &rebalance_accounts[vault_account_index];
+            let token_program_info = &rebalance_accounts[token_program_account_index];
 
             require_keys_eq!(mint_info.key(), *mint, OmnindexError::InvalidComponentMint);
+            require_keys_eq!(
+                *mint_info.owner,
+                token_program_info.key(),
+                OmnindexError::InvalidTokenMint
+            );
             mint_decimals.push(load_interface_mint(mint_info)?.decimals);
 
-            create_component_vault_if_needed(&ctx, mint_info, vault_info)?;
+            create_component_vault_if_needed(&ctx, mint_info, vault_info, token_program_info)?;
 
-            let vault_token_account = Account::<TokenAccount>::try_from(vault_info)?;
-            validate_vault_token_account(
+            let vault_token_account = load_interface_token_account(vault_info)?;
+            validate_rebalance_vault_account(
                 &vault_token_account,
-                &vault_info.key(),
+                vault_info,
                 &ctx.accounts.vault_authority.key(),
                 mint,
+                token_program_info.key,
             )?;
 
             mint_accounts.push(RebalanceMintAccount {
                 mint: *mint,
+                token_program: token_program_info.key(),
                 vault_account_index,
                 target_amount: target_component_amount(&new_components, mint, supply, base_units)?,
                 is_new_component: new_components
@@ -212,28 +236,29 @@ impl<'info> ExecuteRebalance<'info> {
         ];
         let candidates = account_candidates(&ctx, rebalance_accounts, route_accounts);
         let protected_vaults = protected_vault_keys(&mint_accounts, rebalance_accounts);
+        let swap_context = RebalanceSwapContext {
+            jupiter_program: ctx.accounts.jupiter_program.to_account_info(),
+            vault_authority: ctx.accounts.vault_authority.to_account_info(),
+            rebalance_accounts,
+            prices: &prices,
+            protected_vaults: &protected_vaults,
+            candidates: &candidates,
+            signer_seeds,
+        };
 
         for swap in &args.swaps {
-            execute_jupiter_rebalance_swap(
-                &ctx,
-                swap,
-                &mint_accounts,
-                rebalance_accounts,
-                &prices,
-                &protected_vaults,
-                &candidates,
-                signer_seeds,
-            )?;
+            execute_jupiter_rebalance_swap(swap, &mint_accounts, &swap_context)?;
         }
 
         for account in &mint_accounts {
             let vault_info = &rebalance_accounts[account.vault_account_index];
-            let vault_token_account = Account::<TokenAccount>::try_from(vault_info)?;
-            validate_vault_token_account(
+            let vault_token_account = load_interface_token_account(vault_info)?;
+            validate_rebalance_vault_account(
                 &vault_token_account,
-                &vault_info.key(),
+                vault_info,
                 &ctx.accounts.vault_authority.key(),
                 &account.mint,
+                &account.token_program,
             )?;
             validate_rebalance_final_amount(
                 vault_token_account.amount,
@@ -264,14 +289,9 @@ impl<'info> ExecuteRebalance<'info> {
 }
 
 fn execute_jupiter_rebalance_swap<'info>(
-    ctx: &Context<'_, '_, 'info, 'info, ExecuteRebalance<'info>>,
     swap: &JupiterSwapPlan,
     mint_accounts: &[RebalanceMintAccount],
-    rebalance_accounts: &'info [AccountInfo<'info>],
-    prices: &[RebalancePrice],
-    protected_vaults: &[Pubkey],
-    candidates: &[AccountInfo<'info>],
-    signer_seeds: &[&[u8]],
+    context: &RebalanceSwapContext<'_, 'info>,
 ) -> Result<()> {
     require_keys_neq!(
         swap.input_mint,
@@ -286,8 +306,8 @@ fn execute_jupiter_rebalance_swap<'info>(
         .iter()
         .find(|account| account.mint == swap.output_mint)
         .ok_or_else(|| error!(OmnindexError::InvalidRebalanceSwap))?;
-    let input_vault_info = &rebalance_accounts[input_account.vault_account_index];
-    let output_vault_info = &rebalance_accounts[output_account.vault_account_index];
+    let input_vault_info = &context.rebalance_accounts[input_account.vault_account_index];
+    let output_vault_info = &context.rebalance_accounts[output_account.vault_account_index];
 
     require_keys_eq!(
         swap.source_token_account,
@@ -301,12 +321,12 @@ fn execute_jupiter_rebalance_swap<'info>(
     );
     validate_jupiter_route_account_scope(
         &swap.accounts,
-        protected_vaults,
+        context.protected_vaults,
         &[input_vault_info.key(), output_vault_info.key()],
     )?;
 
-    let input_before = Account::<TokenAccount>::try_from(input_vault_info)?.amount;
-    let output_before = Account::<TokenAccount>::try_from(output_vault_info)?.amount;
+    let input_before = load_interface_token_account(input_vault_info)?.amount;
+    let output_before = load_interface_token_account(output_vault_info)?.amount;
     let max_sell_amount = input_before
         .checked_sub(input_account.target_amount)
         .ok_or_else(|| error!(OmnindexError::RebalanceWouldSellTargetBacking))?;
@@ -316,16 +336,16 @@ fn execute_jupiter_rebalance_swap<'info>(
     );
 
     invoke_jupiter_swap(
-        ctx.accounts.jupiter_program.to_account_info(),
-        candidates,
+        context.jupiter_program.clone(),
+        context.candidates,
         &swap.accounts,
         &swap.instruction_data,
-        Some(ctx.accounts.vault_authority.key()),
-        &[signer_seeds],
+        Some(context.vault_authority.key()),
+        &[context.signer_seeds],
     )?;
 
-    let input_after = Account::<TokenAccount>::try_from(input_vault_info)?.amount;
-    let output_after = Account::<TokenAccount>::try_from(output_vault_info)?.amount;
+    let input_after = load_interface_token_account(input_vault_info)?.amount;
+    let output_after = load_interface_token_account(output_vault_info)?.amount;
     let input_spent = input_before
         .checked_sub(input_after)
         .ok_or_else(|| error!(OmnindexError::InvalidJupiterRoute))?;
@@ -339,8 +359,8 @@ fn execute_jupiter_rebalance_swap<'info>(
         OmnindexError::RebalanceWouldSellTargetBacking
     );
 
-    let input_price = rebalance_price_for_mint(prices, &swap.input_mint)?;
-    let output_price = rebalance_price_for_mint(prices, &swap.output_mint)?;
+    let input_price = rebalance_price_for_mint(context.prices, &swap.input_mint)?;
+    let output_price = rebalance_price_for_mint(context.prices, &swap.output_mint)?;
     validate_rebalance_execution_value(
         input_spent,
         input_price,
@@ -395,10 +415,12 @@ fn create_component_vault_if_needed<'info>(
     ctx: &Context<'_, '_, 'info, 'info, ExecuteRebalance<'info>>,
     component_mint_info: &AccountInfo<'info>,
     vault_info: &AccountInfo<'info>,
+    token_program_info: &AccountInfo<'info>,
 ) -> Result<()> {
-    let expected_vault = associated_token_address(
+    let expected_vault = associated_token_address_with_token_program(
         &ctx.accounts.vault_authority.key(),
         &component_mint_info.key(),
+        token_program_info.key,
     );
     require_keys_eq!(
         vault_info.key(),
@@ -406,16 +428,48 @@ fn create_component_vault_if_needed<'info>(
         OmnindexError::InvalidVaultAccount
     );
 
-    create_associated_token_account_idempotent(
+    create_associated_token_account_idempotent_for_token_program(
         ctx.accounts.associated_token_program.to_account_info(),
         ctx.accounts.authority.to_account_info(),
         vault_info.clone(),
         ctx.accounts.vault_authority.to_account_info(),
         component_mint_info.clone(),
         ctx.accounts.system_program.to_account_info(),
-        ctx.accounts.token_program.to_account_info(),
+        token_program_info.clone(),
     )?;
 
+    Ok(())
+}
+
+fn validate_rebalance_vault_account(
+    token_account: &InterfaceTokenAccount,
+    vault_info: &AccountInfo<'_>,
+    vault_authority: &Pubkey,
+    component_mint: &Pubkey,
+    token_program: &Pubkey,
+) -> Result<()> {
+    let expected_vault =
+        associated_token_address_with_token_program(vault_authority, component_mint, token_program);
+    require_keys_eq!(
+        vault_info.key(),
+        expected_vault,
+        OmnindexError::InvalidVaultAccount
+    );
+    require_keys_eq!(
+        *vault_info.owner,
+        *token_program,
+        OmnindexError::InvalidVaultAccount
+    );
+    require_keys_eq!(
+        token_account.owner,
+        *vault_authority,
+        OmnindexError::InvalidVaultAccount
+    );
+    require_keys_eq!(
+        token_account.mint,
+        *component_mint,
+        OmnindexError::InvalidVaultAccount
+    );
     Ok(())
 }
 

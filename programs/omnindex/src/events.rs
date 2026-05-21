@@ -29,6 +29,13 @@ pub struct ProtocolConfigUpdated {
 }
 
 #[event]
+pub struct IndexCreatorWhitelistUpdated {
+    pub authority: Pubkey,
+    pub creator: Pubkey,
+    pub whitelisted: bool,
+}
+
+#[event]
 pub struct IndexMinted {
     pub index: Pubkey,
     pub depositor: Pubkey,
@@ -48,6 +55,8 @@ pub struct IndexFeesUpdated {
     pub authority: Pubkey,
     pub mint_fee_bps: u16,
     pub redeem_fee_bps: u16,
+    pub creator_mint_fee_bps: u16,
+    pub creator_redeem_fee_bps: u16,
 }
 
 #[event]
@@ -71,6 +80,7 @@ pub struct IndexConfigUpdated {
     pub index: Pubkey,
     pub authority: Pubkey,
     pub fee_recipient: Pubkey,
+    pub creator_fee_recipient: Pubkey,
     pub max_supply: u64,
     pub rebalance_delay_seconds: i64,
     pub minting_paused: bool,

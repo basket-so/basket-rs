@@ -2,8 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::{
     token::{self, MintTo, Token},
     token_interface::{
-        self, Mint as InterfaceMint, TokenAccount as InterfaceTokenAccount, TokenInterface,
-        TransferChecked,
+        self, TokenAccount as InterfaceTokenAccount, TokenInterface, TransferChecked,
     },
 };
 
@@ -13,7 +12,7 @@ use crate::{
     events::IndexMinted,
     state::{IndexComponent, IndexState},
     utils::{
-        associated_token_address, associated_token_address_with_token_program,
+        associated_token_address, associated_token_address_with_token_program, basis_points_amount,
         create_associated_token_account_idempotent,
         create_associated_token_account_idempotent_for_token_program, invoke_jupiter_swap,
         load_interface_mint, load_interface_token_account, load_mint,
@@ -57,9 +56,16 @@ pub struct MintIndexWithJupiter<'info> {
         bump = index.vault_authority_bump
     )]
     pub vault_authority: UncheckedAccount<'info>,
-    pub quote_mint: InterfaceAccount<'info, InterfaceMint>,
+    /// CHECK: Validated as the configured quote mint and parsed manually for Token/Token-2022 decimals.
+    pub quote_mint: UncheckedAccount<'info>,
     #[account(mut)]
     pub user_quote_token_account: InterfaceAccount<'info, InterfaceTokenAccount>,
+    /// CHECK: Validated as the protocol fee recipient's quote token account when protocol fees apply.
+    #[account(mut)]
+    pub fee_recipient_quote_token_account: UncheckedAccount<'info>,
+    /// CHECK: Validated as the creator fee recipient's quote token account when creator fees apply.
+    #[account(mut)]
+    pub creator_fee_recipient_quote_token_account: UncheckedAccount<'info>,
     #[account(mut)]
     /// CHECK: Created and validated as the user's index ATA before minting.
     pub user_index_token_account: UncheckedAccount<'info>,
@@ -109,9 +115,16 @@ impl<'info> MintIndexWithJupiter<'info> {
             ctx.accounts.quote_token_program.key(),
             OmnindexError::InvalidQuoteMint
         );
+        let quote_mint = load_interface_mint(&ctx.accounts.quote_mint.to_account_info())?;
+        let total_mint_fee_bps = ctx
+            .accounts
+            .index
+            .mint_fee_bps
+            .checked_add(ctx.accounts.index.creator_mint_fee_bps)
+            .ok_or_else(|| error!(OmnindexError::InvalidFeeBps))?;
         require!(
-            ctx.accounts.index.mint_fee_bps == 0,
-            OmnindexError::FeesRequireUsdcQuote
+            total_mint_fee_bps <= crate::constants::MAX_TOTAL_INDEX_FEE_BPS,
+            OmnindexError::InvalidFeeBps
         );
         require!(
             args.swaps.len() <= ctx.accounts.index.components.len(),
@@ -150,7 +163,7 @@ impl<'info> MintIndexWithJupiter<'info> {
         let candidates = account_candidates(&ctx, &component_accounts, route_accounts);
 
         let base_units = ctx.accounts.index.index_base_units()?;
-        let quote_decimals = ctx.accounts.quote_mint.decimals;
+        let quote_decimals = quote_mint.decimals;
         let mut total_quote_spent = 0u64;
         let mut swap_index = 0usize;
 
@@ -173,6 +186,7 @@ impl<'info> MintIndexWithJupiter<'info> {
                     &ctx,
                     accounts.vault_info.clone(),
                     required_amount,
+                    quote_decimals,
                 )?;
                 ctx.accounts.user_quote_token_account.reload()?;
                 total_quote_spent = new_total;
@@ -237,6 +251,20 @@ impl<'info> MintIndexWithJupiter<'info> {
             swap_index == args.swaps.len(),
             OmnindexError::InvalidJupiterRoute
         );
+        let (protocol_fee, creator_fee) = quote_fee_split(
+            total_quote_spent,
+            ctx.accounts.index.mint_fee_bps,
+            ctx.accounts.index.creator_mint_fee_bps,
+        )?;
+        let total_quote_with_fees = total_quote_spent
+            .checked_add(protocol_fee)
+            .and_then(|value| value.checked_add(creator_fee))
+            .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
+        require!(
+            total_quote_with_fees <= args.max_quote_in,
+            OmnindexError::QuoteBudgetExceeded
+        );
+        collect_quote_fees_from_user(&ctx, protocol_fee, creator_fee, quote_decimals)?;
 
         mint_index_tokens(&ctx, args.index_amount_out)?;
 
@@ -373,6 +401,7 @@ fn transfer_checked_from_user_quote<'info>(
     ctx: &Context<'_, '_, 'info, 'info, MintIndexWithJupiter<'info>>,
     destination: AccountInfo<'info>,
     amount: u64,
+    quote_decimals: u8,
 ) -> Result<()> {
     token_interface::transfer_checked(
         CpiContext::new(
@@ -385,7 +414,7 @@ fn transfer_checked_from_user_quote<'info>(
             },
         ),
         amount,
-        ctx.accounts.quote_mint.decimals,
+        quote_decimals,
     )
 }
 
@@ -449,4 +478,99 @@ fn require_quote_budget(
         OmnindexError::QuoteBudgetExceeded
     );
     Ok(new_total_quote_spent)
+}
+
+fn quote_fee_split(
+    quote_amount: u64,
+    protocol_fee_bps: u16,
+    creator_fee_bps: u16,
+) -> Result<(u64, u64)> {
+    Ok((
+        basis_points_amount(quote_amount, protocol_fee_bps)?,
+        basis_points_amount(quote_amount, creator_fee_bps)?,
+    ))
+}
+
+fn collect_quote_fees_from_user<'info>(
+    ctx: &Context<'_, '_, 'info, 'info, MintIndexWithJupiter<'info>>,
+    protocol_fee: u64,
+    creator_fee: u64,
+    quote_decimals: u8,
+) -> Result<()> {
+    transfer_quote_fee_from_user(
+        ctx,
+        ctx.accounts
+            .fee_recipient_quote_token_account
+            .to_account_info(),
+        ctx.accounts.index.fee_recipient,
+        protocol_fee,
+        false,
+        quote_decimals,
+    )?;
+    transfer_quote_fee_from_user(
+        ctx,
+        ctx.accounts
+            .creator_fee_recipient_quote_token_account
+            .to_account_info(),
+        ctx.accounts.index.creator_fee_recipient,
+        creator_fee,
+        true,
+        quote_decimals,
+    )
+}
+
+fn transfer_quote_fee_from_user<'info>(
+    ctx: &Context<'_, '_, 'info, 'info, MintIndexWithJupiter<'info>>,
+    destination: AccountInfo<'info>,
+    expected_owner: Pubkey,
+    amount: u64,
+    creator_fee: bool,
+    quote_decimals: u8,
+) -> Result<()> {
+    if amount == 0 {
+        return Ok(());
+    }
+
+    let destination_account = load_interface_token_account(&destination)?;
+    if creator_fee {
+        require_keys_eq!(
+            destination_account.owner,
+            expected_owner,
+            OmnindexError::InvalidCreatorFeeRecipientTokenAccount
+        );
+        require_keys_eq!(
+            destination_account.mint,
+            ctx.accounts.quote_mint.key(),
+            OmnindexError::InvalidCreatorFeeRecipientTokenAccount
+        );
+    } else {
+        require_keys_eq!(
+            destination_account.owner,
+            expected_owner,
+            OmnindexError::InvalidFeeRecipientTokenAccount
+        );
+        require_keys_eq!(
+            destination_account.mint,
+            ctx.accounts.quote_mint.key(),
+            OmnindexError::InvalidFeeRecipientTokenAccount
+        );
+    }
+
+    if destination.key() == ctx.accounts.user_quote_token_account.key() {
+        return Ok(());
+    }
+
+    token_interface::transfer_checked(
+        CpiContext::new(
+            ctx.accounts.quote_token_program.to_account_info(),
+            TransferChecked {
+                from: ctx.accounts.user_quote_token_account.to_account_info(),
+                mint: ctx.accounts.quote_mint.to_account_info(),
+                to: destination,
+                authority: ctx.accounts.user.to_account_info(),
+            },
+        ),
+        amount,
+        quote_decimals,
+    )
 }

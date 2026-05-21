@@ -133,7 +133,9 @@ impl<'info> CreateIndex<'info> {
 
         let index = &mut ctx.accounts.index;
         index.authority = ctx.accounts.authority.key();
+        index.creator = ctx.accounts.authority.key();
         index.fee_recipient = fee_recipient;
+        index.creator_fee_recipient = ctx.accounts.authority.key();
         index.index_mint = ctx.accounts.index_mint.key();
         index.vault_authority_bump = ctx.bumps.vault_authority;
         index.index_bump = ctx.bumps.index;
@@ -144,6 +146,8 @@ impl<'info> CreateIndex<'info> {
         index.pending_component_count = 0;
         index.mint_fee_bps = 0;
         index.redeem_fee_bps = 0;
+        index.creator_mint_fee_bps = 0;
+        index.creator_redeem_fee_bps = 0;
         index.max_supply = args.max_supply;
         index.rebalance_delay_seconds = args.rebalance_delay_seconds;
         index.fixed_weight_rebalance_interval_seconds =

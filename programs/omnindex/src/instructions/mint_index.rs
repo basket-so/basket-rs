@@ -51,7 +51,10 @@ impl<'info> MintIndex<'info> {
         let index = &ctx.accounts.index;
         let index_mint = load_mint(&ctx.accounts.index_mint.to_account_info())?;
         require!(!index.minting_paused, OmnindexError::MintingPaused);
-        require!(index.mint_fee_bps == 0, OmnindexError::FeesRequireUsdcQuote);
+        require!(
+            index.mint_fee_bps == 0 && index.creator_mint_fee_bps == 0,
+            OmnindexError::FeesRequireUsdcQuote
+        );
         let current_supply = index_mint.supply;
         let post_supply = current_supply
             .checked_add(args.amount)

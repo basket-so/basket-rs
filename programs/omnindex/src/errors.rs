@@ -52,6 +52,8 @@ pub enum OmnindexError {
     UnauthorizedAuthority,
     #[msg("The requested fee is outside the supported range.")]
     InvalidFeeBps,
+    #[msg("The provided creator fee recipient token account is invalid.")]
+    InvalidCreatorFeeRecipientTokenAccount,
     #[msg("The metadata URI is too long.")]
     MetadataUriTooLong,
     #[msg("The requested rebalance delay is outside the supported range.")]
@@ -78,6 +80,8 @@ pub enum OmnindexError {
     InvalidProgramData,
     #[msg("Only an approved index creator can create indexes.")]
     UnauthorizedIndexCreator,
+    #[msg("The index creator whitelist is full.")]
+    IndexCreatorWhitelistFull,
     #[msg("The rebalance swap plan is invalid.")]
     InvalidRebalanceSwap,
     #[msg("A rebalance swap would sell assets required by the target basket.")]

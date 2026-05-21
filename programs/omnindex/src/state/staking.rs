@@ -26,9 +26,10 @@ pub struct StakePosition {
     pub pending_rewards: u64,
     pub reward_per_token_checkpoint: u128,
     pub bump: u8,
-    pub reserved: [u8; 31],
+    pub pending_rewards_scaled: u128,
+    pub reserved: [u8; 15],
 }
 
 impl StakePosition {
-    pub const SPACE: usize = 32 + 32 + 8 + 8 + 16 + 1 + 31;
+    pub const SPACE: usize = 32 + 32 + 8 + 8 + 16 + 1 + 16 + 15;
 }

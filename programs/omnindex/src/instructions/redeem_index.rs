@@ -46,7 +46,7 @@ impl<'info> RedeemIndex<'info> {
         let index = &ctx.accounts.index;
         require!(!index.redeeming_paused, OmnindexError::RedeemingPaused);
         require!(
-            index.redeem_fee_bps == 0,
+            index.redeem_fee_bps == 0 && index.creator_redeem_fee_bps == 0,
             OmnindexError::FeesRequireUsdcQuote
         );
         let index_mint = load_mint(&ctx.accounts.index_mint.to_account_info())?;

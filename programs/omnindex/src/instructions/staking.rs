@@ -463,7 +463,8 @@ fn initialize_or_validate_position(ctx: &mut Context<StakeBasket>) -> Result<()>
         position.reward_per_token_checkpoint =
             ctx.accounts.staking_pool.reward_per_token_accumulator;
         position.bump = ctx.bumps.stake_position;
-        position.reserved = [0; 31];
+        position.pending_rewards_scaled = 0;
+        position.reserved = [0; 15];
         return Ok(());
     }
 

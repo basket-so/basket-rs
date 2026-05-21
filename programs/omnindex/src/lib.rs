@@ -32,6 +32,13 @@ pub mod omnindex {
         UpdateProtocolConfig::handle(ctx, args)
     }
 
+    pub fn update_index_creator_whitelist(
+        ctx: Context<UpdateIndexCreatorWhitelist>,
+        args: UpdateIndexCreatorWhitelistArgs,
+    ) -> Result<()> {
+        UpdateIndexCreatorWhitelist::handle(ctx, args)
+    }
+
     pub fn create_index<'info>(
         ctx: Context<'_, '_, 'info, 'info, CreateIndex<'info>>,
         args: CreateIndexArgs,

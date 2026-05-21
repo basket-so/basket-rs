@@ -51,9 +51,15 @@ pub fn settle_stake_position(pool: &StakingPool, position: &mut StakePosition) -
         .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
 
     if position.amount_staked > 0 && delta > 0 {
-        let earned = u128::from(position.amount_staked)
+        let accrued_scaled = u128::from(position.amount_staked)
             .checked_mul(delta)
-            .and_then(|value| value.checked_div(REWARD_PER_TOKEN_SCALE))
+            .and_then(|value| value.checked_add(position.pending_rewards_scaled))
+            .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
+        let earned = accrued_scaled
+            .checked_div(REWARD_PER_TOKEN_SCALE)
+            .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
+        let remainder = accrued_scaled
+            .checked_rem(REWARD_PER_TOKEN_SCALE)
             .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
         let earned =
             u64::try_from(earned).map_err(|_| error!(OmnindexError::ArithmeticOverflow))?;
@@ -61,6 +67,7 @@ pub fn settle_stake_position(pool: &StakingPool, position: &mut StakePosition) -
             .pending_rewards
             .checked_add(earned)
             .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
+        position.pending_rewards_scaled = remainder;
     }
 
     position.reward_per_token_checkpoint = pool.reward_per_token_accumulator;
@@ -142,7 +149,8 @@ mod tests {
             pending_rewards: 0,
             reward_per_token_checkpoint: 0,
             bump: 253,
-            reserved: [0; 31],
+            pending_rewards_scaled: 0,
+            reserved: [0; 15],
         }
     }
 
@@ -194,5 +202,26 @@ mod tests {
         assert_eq!(position.pending_rewards, 3);
         assert_eq!(pool.unallocated_rewards, 0);
         assert!(pool.reward_remainder_scaled < u128::from(pool.total_staked));
+    }
+
+    #[test]
+    fn position_remainder_survives_zero_reward_settlements() {
+        let mut pool = pool(3);
+        let mut position = position(1);
+
+        accrue_staking_rewards(&mut pool, 1).unwrap();
+        settle_stake_position(&pool, &mut position).unwrap();
+        assert_eq!(position.pending_rewards, 0);
+        assert_eq!(position.pending_rewards_scaled, 333_333_333_333_333_333);
+
+        accrue_staking_rewards(&mut pool, 1).unwrap();
+        settle_stake_position(&pool, &mut position).unwrap();
+        assert_eq!(position.pending_rewards, 0);
+        assert_eq!(position.pending_rewards_scaled, 666_666_666_666_666_666);
+
+        accrue_staking_rewards(&mut pool, 1).unwrap();
+        settle_stake_position(&pool, &mut position).unwrap();
+        assert_eq!(position.pending_rewards, 1);
+        assert_eq!(position.pending_rewards_scaled, 0);
     }
 }
