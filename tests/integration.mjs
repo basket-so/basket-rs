@@ -434,6 +434,7 @@ async function main() {
         metadataUri: "https://example.invalid/test-index.json",
         decimals: 6,
         feeRecipient: payer.publicKey,
+        creatorFeeRecipient: PublicKey.default,
         maxSupply: new anchor.BN(0),
         rebalanceDelaySeconds: new anchor.BN(0),
         kind: { fixedUnits: {} },
@@ -471,6 +472,7 @@ async function main() {
     const createdIndex = await program.account.indexState.fetch(index);
     assert.equal(createdIndex.authority.toBase58(), payer.publicKey.toBase58());
     assert.equal(createdIndex.indexMint.toBase58(), indexMint.toBase58());
+    assert.equal(createdIndex.creatorFeeRecipient.toBase58(), PublicKey.default.toBase58());
     assert.equal(createdIndex.componentCount, 2);
 
     const fixedWeightSymbol = "FWX";
@@ -496,6 +498,7 @@ async function main() {
         metadataUri: "https://example.invalid/fixed-weight-external-quote.json",
         decimals: 6,
         feeRecipient: payer.publicKey,
+        creatorFeeRecipient: PublicKey.default,
         maxSupply: new anchor.BN(0),
         rebalanceDelaySeconds: new anchor.BN(0),
         kind: { fixedWeights: {} },

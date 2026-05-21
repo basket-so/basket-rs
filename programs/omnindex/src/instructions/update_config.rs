@@ -33,10 +33,6 @@ impl<'info> UpdateConfig<'info> {
             OmnindexError::InvalidAuthority
         );
         require!(
-            args.creator_fee_recipient != Pubkey::default(),
-            OmnindexError::InvalidAuthority
-        );
-        require!(
             args.rebalance_delay_seconds >= 0
                 && args.rebalance_delay_seconds <= MAX_REBALANCE_DELAY_SECONDS,
             OmnindexError::InvalidRebalanceDelay

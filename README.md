@@ -89,7 +89,10 @@ balances.
 Nonzero mint/redeem fees are supported on the USDC Jupiter paths. `mint_fee_bps`
 and `redeem_fee_bps` are protocol fees paid to `fee_recipient`;
 `creator_mint_fee_bps` and `creator_redeem_fee_bps` are creator fees paid to
-`creator_fee_recipient`. The total protocol plus creator fee for each direction
+`creator_fee_recipient` when one is configured. `create_index` accepts
+`creator_fee_recipient`; pass the default pubkey for no creator. When no creator
+recipient is configured, creator-fee amounts are routed to the protocol
+`fee_recipient` instead. The total protocol plus creator fee for each direction
 is capped at 1,000 bps. Direct component mint/redeem and quote helpers reject
 nonzero fees because those paths do not have a single USDC quote asset to split.
 
@@ -153,9 +156,12 @@ quote update/signature instructions before the Omnindex instruction in the same
 transaction.
 
 When mint fees are nonzero, pass the protocol fee recipient's USDC token account
-and the creator fee recipient's USDC token account in the fixed account list.
-Fees are charged after backing purchases, and `max_quote_in` covers backing plus
-both fee splits.
+and, when configured, the creator fee recipient's USDC token account in the fixed
+account list. The account field is still present when no creator recipient is
+configured; clients can pass the protocol fee token account there too. Fees are
+charged after backing purchases, and `max_quote_in` covers backing plus both fee
+splits. If no creator recipient is configured, the creator fee split is paid to
+the protocol fee recipient.
 
 Remaining accounts start with component groups in basket order:
 
@@ -182,7 +188,8 @@ account.
 
 Redeem fees are deducted from the user's gross USDC output after route
 execution. `min_quote_out` is checked against the user's net USDC after protocol
-and creator fees.
+and creator fees. If no creator recipient is configured, the creator fee split is
+paid to the protocol fee recipient.
 
 `propose_rebalance` takes:
 

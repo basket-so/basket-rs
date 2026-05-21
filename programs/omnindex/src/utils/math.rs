@@ -99,6 +99,21 @@ pub fn subtract_fee(amount: u64, fee_bps: u16) -> Result<(u64, u64)> {
     Ok((net, fee))
 }
 
+pub fn route_creator_fee(
+    protocol_fee: u64,
+    creator_fee: u64,
+    creator_fee_recipient: &Pubkey,
+) -> Result<(u64, u64)> {
+    if *creator_fee_recipient == Pubkey::default() {
+        let protocol_fee = protocol_fee
+            .checked_add(creator_fee)
+            .ok_or_else(|| error!(OmnindexError::ArithmeticOverflow))?;
+        Ok((protocol_fee, 0))
+    } else {
+        Ok((protocol_fee, creator_fee))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +163,21 @@ mod tests {
     fn adds_and_subtracts_fees() {
         assert_eq!(add_fee(1_000, 50).unwrap(), (1_005, 5));
         assert_eq!(subtract_fee(1_000, 50).unwrap(), (995, 5));
+    }
+
+    #[test]
+    fn creator_fee_routes_to_protocol_when_unset() {
+        let (protocol_fee, creator_fee) = route_creator_fee(10, 5, &Pubkey::default()).unwrap();
+
+        assert_eq!(protocol_fee, 15);
+        assert_eq!(creator_fee, 0);
+    }
+
+    #[test]
+    fn creator_fee_keeps_split_when_recipient_is_set() {
+        let (protocol_fee, creator_fee) = route_creator_fee(10, 5, &Pubkey::new_unique()).unwrap();
+
+        assert_eq!(protocol_fee, 10);
+        assert_eq!(creator_fee, 5);
     }
 }

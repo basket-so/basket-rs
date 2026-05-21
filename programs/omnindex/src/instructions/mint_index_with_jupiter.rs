@@ -16,9 +16,9 @@ use crate::{
         create_associated_token_account_idempotent,
         create_associated_token_account_idempotent_for_token_program, invoke_jupiter_swap,
         load_interface_mint, load_interface_token_account, load_mint,
-        mint_component_backing_amount, switchboard_feed_price, validate_buy_execution_price,
-        validate_pending_component_targets_integral, verified_switchboard_prices,
-        JupiterAccountMetaInput, ASSOCIATED_TOKEN_ID,
+        mint_component_backing_amount, route_creator_fee, switchboard_feed_price,
+        validate_buy_execution_price, validate_pending_component_targets_integral,
+        verified_switchboard_prices, JupiterAccountMetaInput, ASSOCIATED_TOKEN_ID,
     },
 };
 
@@ -497,6 +497,11 @@ fn collect_quote_fees_from_user<'info>(
     creator_fee: u64,
     quote_decimals: u8,
 ) -> Result<()> {
+    let (protocol_fee, creator_fee) = route_creator_fee(
+        protocol_fee,
+        creator_fee,
+        &ctx.accounts.index.creator_fee_recipient,
+    )?;
     transfer_quote_fee_from_user(
         ctx,
         ctx.accounts

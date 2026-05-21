@@ -22,6 +22,7 @@ pub struct CreateIndexArgs {
     pub metadata_uri: String,
     pub decimals: u8,
     pub fee_recipient: Pubkey,
+    pub creator_fee_recipient: Pubkey,
     pub max_supply: u64,
     pub rebalance_delay_seconds: i64,
     pub kind: IndexKind,
@@ -133,9 +134,13 @@ impl<'info> CreateIndex<'info> {
 
         let index = &mut ctx.accounts.index;
         index.authority = ctx.accounts.authority.key();
-        index.creator = ctx.accounts.authority.key();
+        index.creator = if args.creator_fee_recipient == Pubkey::default() {
+            Pubkey::default()
+        } else {
+            ctx.accounts.authority.key()
+        };
         index.fee_recipient = fee_recipient;
-        index.creator_fee_recipient = ctx.accounts.authority.key();
+        index.creator_fee_recipient = args.creator_fee_recipient;
         index.index_mint = ctx.accounts.index_mint.key();
         index.vault_authority_bump = ctx.bumps.vault_authority;
         index.index_bump = ctx.bumps.index;
