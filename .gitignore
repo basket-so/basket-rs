@@ -1,8 +1,40 @@
-target/
+# Rust / Anchor build artifacts
+/target/
 **/target/
-node_modules/
-.anchor/
-test-ledger/
-.idea/
-deployer-keypair.json
-
+/.anchor/
+/test-ledger/
+/ledger/
+# Local Cargo overrides
+/.cargo/
+# Local Solana/Agave installs
+/.agave/
+/.agave-*/
+# Local audit and assistant tooling
+/.audit/
+/.codex/
+# Node dependencies and logs
+/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+# Local secrets and deployment keys
+.env
+.env.*
+!.env.example
+*-keypair.json
+*.keypair.json
+# Coverage and generated reports
+/coverage/
+/.nyc_output/
+/lcov.info
+# Editor, OS, and temporary files
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.bak
+*.backup
+*.sbf-warning-backup
