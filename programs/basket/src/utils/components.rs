@@ -3,9 +3,12 @@ use std::collections::BTreeSet;
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{BPS_DENOMINATOR, MAX_COMPONENTS, MAX_REBALANCE_DELAY_SECONDS},
+    constants::{
+        BPS_DENOMINATOR, MAX_COMPONENTS, MAX_REBALANCE_DELAY_SECONDS,
+        MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS,
+    },
     errors::BasketError,
-    state::{IndexComponent, IndexComponentInput, IndexKind, IndexState},
+    state::{IndexComponent, IndexComponentInput, IndexKind},
     utils::{pro_rata_mint_amount, pro_rata_redeem_amount, quote_component_amount},
 };
 
@@ -117,13 +120,21 @@ fn validate_fixed_weight_config(
         (0..=MAX_REBALANCE_DELAY_SECONDS).contains(&fixed_weight_rebalance_interval_seconds),
         BasketError::InvalidFixedWeightConfig
     );
+    // Drift triggering is either disabled (0) or set strictly above the keeper drift-bound
+    // floor. The rebalance open clamps a drift-triggered intent's post-rebalance drift
+    // bound to [MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS, threshold); a threshold at or
+    // below the floor would make that range empty and the drift rebalance un-openable, so
+    // forbid it at config time rather than silently bricking the drift flow.
     require!(
-        fixed_weight_drift_threshold_bps <= BPS_DENOMINATOR,
+        fixed_weight_drift_threshold_bps == 0
+            || (fixed_weight_drift_threshold_bps > MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS
+                && fixed_weight_drift_threshold_bps <= BPS_DENOMINATOR),
         BasketError::InvalidFixedWeightConfig
     );
+    // Reserved knob: the legacy atomic rebalance enforced a spot-vs-EMA oracle deviation
+    // bound; the batched intent flow does not read it yet, so 0 (= disabled) is allowed.
     require!(
-        fixed_weight_spot_ema_max_deviation_bps > 0
-            && fixed_weight_spot_ema_max_deviation_bps <= BPS_DENOMINATOR,
+        fixed_weight_spot_ema_max_deviation_bps <= BPS_DENOMINATOR,
         BasketError::InvalidFixedWeightConfig
     );
     require!(
@@ -240,23 +251,6 @@ pub fn validate_component_targets_integral(
     }
 
     Ok(())
-}
-
-pub fn validate_pending_component_targets_integral(index: &IndexState, supply: u64) -> Result<()> {
-    if index.pending_component_count == 0 {
-        return Ok(());
-    }
-
-    require!(
-        index.pending_component_count as usize == index.pending_components.len(),
-        BasketError::InvalidComponentCount
-    );
-
-    validate_component_targets_integral(
-        &index.pending_components,
-        supply,
-        index.index_base_units()?,
-    )
 }
 
 #[cfg(test)]
@@ -415,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn fixed_weight_config_requires_spot_ema_deviation_limit() {
+    fn fixed_weight_config_allows_disabled_spot_ema_deviation() {
         let quote = Pubkey::new_unique();
         let component_mint = Pubkey::new_unique();
         let components = vec![
@@ -423,6 +417,8 @@ mod tests {
             weighted_component(component_mint, 5_000, Pubkey::new_unique()),
         ];
 
+        // 0 = disabled (the batched intent flow does not read the knob); anything
+        // above 100% is rejected.
         assert!(validate_index_strategy_config(
             IndexKind::FixedWeights,
             &components,
@@ -431,7 +427,7 @@ mod tests {
             0,
             0,
         )
-        .is_err());
+        .is_ok());
         assert!(validate_index_strategy_config(
             IndexKind::FixedWeights,
             &components,
@@ -441,6 +437,42 @@ mod tests {
             500,
         )
         .is_ok());
+        assert!(validate_index_strategy_config(
+            IndexKind::FixedWeights,
+            &components,
+            quote,
+            60,
+            0,
+            10_001,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn fixed_weight_config_rejects_drift_threshold_at_or_below_keeper_floor() {
+        let quote = Pubkey::new_unique();
+        let components = vec![
+            weighted_component(Pubkey::new_unique(), 5_000, Pubkey::new_unique()),
+            weighted_component(Pubkey::new_unique(), 5_000, Pubkey::new_unique()),
+        ];
+        let cfg = |threshold| {
+            validate_index_strategy_config(
+                IndexKind::FixedWeights,
+                &components,
+                quote,
+                0,
+                threshold,
+                500,
+            )
+        };
+        // A drift threshold at or below the post-rebalance drift floor would leave the
+        // open-time [MIN, threshold) clamp empty, so the drift rebalance could never open.
+        assert!(cfg(MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS).is_err());
+        assert!(cfg(MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS - 1).is_err());
+        // Strictly above the floor is fine.
+        assert!(cfg(MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS + 1).is_ok());
+        assert!(cfg(BPS_DENOMINATOR).is_ok());
+        assert!(cfg(BPS_DENOMINATOR + 1).is_err());
     }
 
     #[test]

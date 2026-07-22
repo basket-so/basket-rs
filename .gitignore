@@ -28,6 +28,8 @@ pnpm-debug.log*
 /coverage/
 /.nyc_output/
 /lcov.info
+# Local build helper binary (rebuild: rustc scripts/rustc-wrapper.rs -o scripts/rustc-wrapper.exe)
+/scripts/rustc-wrapper.exe
 # Editor, OS, and temporary files
 /.idea/
 /.vscode/

@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::state::IndexKind;
+use crate::state::{IndexKind, LargeBasketIntentKind};
 
 #[event]
 pub struct IndexCreated {
@@ -57,6 +57,8 @@ pub struct IndexFeesUpdated {
     pub redeem_fee_bps: u16,
     pub creator_mint_fee_bps: u16,
     pub creator_redeem_fee_bps: u16,
+    pub staking_mint_fee_bps: u16,
+    pub staking_redeem_fee_bps: u16,
 }
 
 #[event]
@@ -177,6 +179,67 @@ pub struct FixedWeightConfigUpdated {
 }
 
 #[event]
+pub struct LargeBasketIntentOpened {
+    pub intent: Pubkey,
+    pub index: Pubkey,
+    pub owner: Pubkey,
+    pub nonce: u64,
+    pub kind: LargeBasketIntentKind,
+    pub index_amount: u64,
+    pub fee_basis_usdc_atoms: u64,
+    pub protocol_fee_usdc_atoms: u64,
+    pub creator_fee_usdc_atoms: u64,
+    pub staking_fee_usdc_atoms: u64,
+    pub expires_at: i64,
+}
+
+#[event]
+pub struct LargeBasketComponentPageInitialized {
+    pub index: Pubkey,
+    pub page: Pubkey,
+    pub page_index: u8,
+    pub start_component_index: u16,
+    pub component_count: u16,
+}
+
+#[event]
+pub struct LargeBasketConfigFinalized {
+    pub index: Pubkey,
+    pub component_count: u8,
+    pub page_count: u8,
+}
+
+#[event]
+pub struct LargeBasketComponentOraclePairUpdated {
+    pub index: Pubkey,
+    pub authority: Pubkey,
+    pub page: Pubkey,
+    pub component_index: u16,
+    pub component_mint: Pubkey,
+    pub oracle_pair: Pubkey,
+}
+
+#[event]
+pub struct LargeBasketComponentFilled {
+    pub intent: Pubkey,
+    pub index: Pubkey,
+    pub owner: Pubkey,
+    pub component_index: u16,
+    pub amount: u64,
+    pub quote_atoms: u64,
+}
+
+#[event]
+pub struct LargeBasketIntentFinalized {
+    pub intent: Pubkey,
+    pub index: Pubkey,
+    pub owner: Pubkey,
+    pub kind: LargeBasketIntentKind,
+    pub index_amount: u64,
+    pub quote_atoms_executed: u64,
+}
+
+#[event]
 pub struct StakingPoolInitialized {
     pub authority: Pubkey,
     pub basket_mint: Pubkey,
@@ -208,4 +271,41 @@ pub struct StakingRewardsAccrued {
     pub source: Pubkey,
     pub amount: u64,
     pub total_staked: u64,
+}
+
+#[event]
+pub struct RebalanceIntentOpened {
+    pub intent: Pubkey,
+    pub index: Pubkey,
+    pub initiator: Pubkey,
+    pub nonce: u64,
+    pub component_count: u16,
+    pub sell_legs: u16,
+    pub buy_legs: u16,
+    pub total_nav_nad: u128,
+    pub max_drift_bps: u16,
+    pub time_triggered: bool,
+    pub drift_triggered: bool,
+    pub expires_at: i64,
+}
+
+#[event]
+pub struct RebalanceComponentSwapped {
+    pub intent: Pubkey,
+    pub index: Pubkey,
+    pub component_index: u16,
+    pub is_sell: bool,
+    pub component_atoms: u64,
+    pub quote_atoms: u64,
+}
+
+#[event]
+pub struct RebalanceIntentUnwound {
+    pub intent: Pubkey,
+    pub index: Pubkey,
+    pub caller: Pubkey,
+    pub nonce: u64,
+    pub expired: bool,
+    pub completed_sells: u16,
+    pub completed_buys: u16,
 }

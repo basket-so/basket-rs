@@ -65,6 +65,28 @@ pub fn units_per_index_for_amount(
     mul_div_floor_u64(vault_amount, index_base_units, supply)
 }
 
+/// `floor(vault_amount * index_base_units / supply)` clamped to `u64::MAX` instead of
+/// erroring on a too-large quotient. The product is computed in u128 (max
+/// `u64::MAX * 1e9` ≈ 1.8e28, far under `u128::MAX`), so this is infallible for any
+/// `supply > 0`. Used by the rebalance unwind, whose accounting re-sync must never be
+/// blockable — a component vault balance can be inflated by anyone airdropping tokens to
+/// the (public, deterministic) vault ATA, and a saturated `units_per_index` on such a
+/// pathological vault is strictly better than a permanently stranded operation lock.
+/// `units_per_index` only seeds the basket when supply returns to zero; live mint/redeem
+/// use `accounted_reserve`, so a saturated value here is benign.
+pub fn units_per_index_for_amount_saturating(
+    vault_amount: u64,
+    index_base_units: u64,
+    supply: u64,
+) -> u64 {
+    if supply == 0 {
+        return 0;
+    }
+    let numerator = u128::from(vault_amount).saturating_mul(u128::from(index_base_units));
+    let value = numerator / u128::from(supply);
+    u64::try_from(value.min(u128::from(u64::MAX))).unwrap_or(u64::MAX)
+}
+
 pub fn basis_points_amount(amount: u64, bps: u16) -> Result<u64> {
     require!(bps <= BPS_DENOMINATOR, BasketError::InvalidFeeBps);
     if amount == 0 || bps == 0 {
@@ -144,6 +166,24 @@ mod tests {
     #[test]
     fn pro_rata_redeem_rounds_down_to_protect_remaining_holders() {
         assert_eq!(pro_rata_redeem_amount(1, 10, 3).unwrap(), 3);
+    }
+
+    #[test]
+    fn units_saturating_clamps_instead_of_erroring() {
+        // Normal case agrees with the checked version.
+        assert_eq!(
+            units_per_index_for_amount_saturating(10, 1_000_000, 3),
+            units_per_index_for_amount(10, 1_000_000, 3).unwrap()
+        );
+        // supply == 0 yields 0 rather than dividing by zero.
+        assert_eq!(units_per_index_for_amount_saturating(10, 1_000_000, 0), 0);
+        // A balance/supply ratio that overflows u64 saturates to u64::MAX instead of
+        // erroring (this is exactly the case that must never block the unwind).
+        assert!(units_per_index_for_amount(u64::MAX, 1_000_000_000, 1).is_err());
+        assert_eq!(
+            units_per_index_for_amount_saturating(u64::MAX, 1_000_000_000, 1),
+            u64::MAX
+        );
     }
 
     #[test]

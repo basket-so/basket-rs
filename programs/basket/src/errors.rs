@@ -144,4 +144,34 @@ pub enum BasketError {
     InvalidSwitchboardPrice,
     #[msg("The Jupiter execution price is outside the configured oracle tolerance.")]
     ExecutionPriceOutsideOracleTolerance,
+    #[msg("Staking fee distribution requires the large-basket intent flow.")]
+    StakingFeesRequireLargeBasketIntent,
+    #[msg("The large-basket intent is invalid.")]
+    InvalidLargeBasketIntent,
+    #[msg("The large-basket intent has expired.")]
+    LargeBasketIntentExpired,
+    #[msg("The large-basket intent expiry is outside the supported range.")]
+    InvalidLargeBasketIntentExpiry,
+    #[msg("The large-basket component page is invalid.")]
+    InvalidLargeBasketComponentPage,
+    #[msg("The large-basket index is not fully configured.")]
+    LargeBasketNotConfigured,
+    #[msg("The large-basket component has already been filled for this intent.")]
+    LargeBasketComponentAlreadyFilled,
+    #[msg("The large-basket component has not been filled for this intent.")]
+    LargeBasketComponentNotFilled,
+    #[msg("The component transfer did not credit the required token amount.")]
+    ComponentTransferAmountMismatch,
+    #[msg("A large-basket component oracle pair can only be updated while the index supply is zero.")]
+    LargeBasketOracleUpdateRequiresZeroSupply,
+    #[msg("The large-basket component price has already been verified for this intent.")]
+    LargeBasketComponentAlreadyVerified,
+    #[msg("All filled large-basket components must be price-verified before finalizing.")]
+    LargeBasketComponentNotVerified,
+    #[msg("The rebalance intent has expired.")]
+    RebalanceIntentExpired,
+    #[msg("Only the index authority can unwind a rebalance intent before it expires.")]
+    RebalanceIntentNotExpired,
+    #[msg("The rebalance intent is still open.")]
+    RebalanceIntentStillOpen,
 }

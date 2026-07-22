@@ -9,11 +9,38 @@ pub const STAKING_AUTHORITY_SEED: &[u8] = b"staking-authority";
 pub const STAKE_POSITION_SEED: &[u8] = b"stake-position";
 
 pub const MAX_COMPONENTS: usize = 8;
+pub const MAX_LARGE_BASKET_COMPONENTS: usize = 50;
+pub const MAX_LARGE_BASKET_COMPONENTS_PER_PAGE: usize = 10;
+pub const MAX_LARGE_BASKET_PAGES: usize =
+    MAX_LARGE_BASKET_COMPONENTS.div_ceil(MAX_LARGE_BASKET_COMPONENTS_PER_PAGE);
+pub const LARGE_BASKET_COMPONENT_BITMAP_BYTES: usize = MAX_LARGE_BASKET_COMPONENTS.div_ceil(8);
 pub const MAX_INDEX_CREATOR_WHITELIST: usize = 64;
 pub const MAX_REBALANCE_SWAPS: usize = 32;
+pub const MAX_REBALANCE_SWAPS_PER_BATCH: usize = 4;
+pub const LARGE_BASKET_INTENT_SEED: &[u8] = b"large-basket-intent";
+pub const LARGE_BASKET_INTENT_LOCK_SEED: &[u8] = b"large-basket-intent-lock";
+pub const LARGE_BASKET_COMPONENT_PAGE_SEED: &[u8] = b"large-basket-component-page";
+pub const REBALANCE_INTENT_SEED: &[u8] = b"rebalance-intent";
+pub const MAX_LARGE_BASKET_INTENT_TTL_SECONDS: i64 = 30 * 60;
 pub const MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS: u16 = 500;
 pub const MAX_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS: u16 = 500;
-pub const MAX_FIXED_WEIGHT_QUOTE_DUST_BPS: u16 = 500;
+// Keeper rebalances are permissionless, so the initiator-supplied NAV-loss tolerance is
+// clamped two-sided: the ceiling bounds how much NAV a malicious keeper can leak per
+// rebalance, the floor prevents a no-op-tight gate.
+pub const MIN_KEEPER_NAV_TOLERANCE_BPS: u16 = 10;
+pub const MAX_KEEPER_NAV_TOLERANCE_BPS: u16 = 100;
+// The post-rebalance drift bound is clamped two-sided AND, at open, constrained to stay
+// strictly below the index's drift re-trigger threshold so a finalized rebalance cannot
+// immediately re-trigger (drift-loop guard). The floor keeps the bound achievable (an
+// exact-0 bound is unreachable after real swaps); a drift-enabled basket must therefore
+// be configured with a threshold strictly above this floor (validate_fixed_weight_config)
+// so the resulting [MIN, threshold) range is always non-empty and finalizable.
+pub const MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS: u16 = 25;
+// Post-rebalance idle quote (USDC left in the scratch ATA, beyond any USDC component's
+// own target backing) must be under this fraction of NAV at finalize. Kept tight so a
+// keeper cannot finalize with a meaningful slice of NAV sitting un-invested; genuine
+// swap dust is far below this.
+pub const MAX_FIXED_WEIGHT_QUOTE_DUST_BPS: u16 = 100;
 pub const MAX_SWITCHBOARD_QUOTE_AGE_SLOTS: u64 = 150;
 pub const MAX_TOTAL_INDEX_FEE_BPS: u16 = 1_000;
 pub const MAX_ORACLE_PRICE_TOLERANCE_BPS: u16 = BPS_DENOMINATOR;

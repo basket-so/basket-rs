@@ -280,6 +280,7 @@ impl<'info> StakeBasket<'info> {
             .total_staked
             .checked_add(args.amount)
             .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
+        accrue_staking_rewards(&mut ctx.accounts.staking_pool, 0)?;
 
         emit!(BasketStaked {
             owner: ctx.accounts.owner.key(),

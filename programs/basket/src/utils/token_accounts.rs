@@ -185,6 +185,23 @@ pub fn load_interface_token_account(info: &AccountInfo) -> Result<InterfaceToken
         .map_err(|_| error!(BasketError::InvalidUserTokenAccount))
 }
 
+pub fn validate_token_account_credit(
+    before_amount: u64,
+    after_amount: u64,
+    expected_credit: u64,
+) -> Result<()> {
+    require!(
+        after_amount >= before_amount,
+        BasketError::ComponentTransferAmountMismatch
+    );
+    let actual_credit = after_amount - before_amount;
+    require!(
+        actual_credit == expected_credit,
+        BasketError::ComponentTransferAmountMismatch
+    );
+    Ok(())
+}
+
 pub fn validate_user_token_account(
     token_account: &SplTokenAccount,
     expected_owner: &Pubkey,
@@ -273,5 +290,18 @@ mod tests {
         let data = [0u8; SplMint::LEN];
 
         assert!(interface_mint_info_from_data(&data).is_err());
+    }
+
+    #[test]
+    fn token_credit_validation_accepts_exact_credit() {
+        assert!(validate_token_account_credit(100, 125, 25).is_ok());
+        assert!(validate_token_account_credit(100, 100, 0).is_ok());
+    }
+
+    #[test]
+    fn token_credit_validation_rejects_short_or_extra_credit() {
+        assert!(validate_token_account_credit(100, 124, 25).is_err());
+        assert!(validate_token_account_credit(100, 126, 25).is_err());
+        assert!(validate_token_account_credit(100, 99, 1).is_err());
     }
 }

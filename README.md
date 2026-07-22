@@ -31,12 +31,12 @@ starting basket. After that, vault balances are the economic source of truth.
 ## Fixed-Unit Indexes
 
 A fixed-unit index has a target basket defined in atomic units per full index
-token. Authority-managed rebalances can change that target basket behind the
-configured timelock. Rebalance proposals and execution use Switchboard prices
-for old-vs-new NAV checks, and execution uses caller-provided Jupiter routes.
+token. Authority-managed rebalancing of that target basket is not currently
+available; the legacy timelocked propose/execute flow was removed and its
+replacement on the intent model has not shipped yet (see Rebalancing).
 
-For non-USDC components, `IndexComponent.oracle_pair` is interpreted as the
-component's Switchboard feed id. The field name is legacy.
+For non-USDC components, the component's `oracle_pair` is interpreted as its
+Switchboard feed id. The field name is legacy.
 
 ## Fixed-Weight Indexes
 
@@ -48,53 +48,78 @@ zero; later mints and redeems use pro-rata vault-share accounting, and
 fixed-weight rebalances refresh stored units from the post-rebalance vault
 balances.
 
-`rebalance_fixed_weights_with_jupiter` is the fixed-weight execution path. It:
+Fixed-weight rebalancing runs on a batched intent flow
+(`open_rebalance_intent` -> `execute_rebalance_sell_batch` /
+`execute_rebalance_buy_batch` -> `verify_rebalance_component_price` ->
+`finalize_rebalance`), so the swaps span multiple transactions. It:
 
 - uses Switchboard USD prices to compute current weights and target amounts
 - uses native Solana USDC as the quote leg
 - sells overweight components to USDC, then buys underweight components
 - verifies every Jupiter route's mints, token accounts, protected vault scope,
-  vault balance deltas, execution price, quote dust, and final drift
+  vault balance deltas, deferred per-leg execution price, quote dust, one-sided
+  NAV preservation, and final drift
+- counts USDC parked in the vault-authority quote ATA toward NAV so leftover
+  quote (for example from an unwound rebalance) is recycled into components
+- can always be abandoned: `unwind_rebalance` is permissionless after the
+  intent expires (index authority any time) and re-syncs page accounting from
+  live vault balances before releasing the operation lock
 
 ## Instructions
 
 - `initialize_protocol`: creates the protocol config PDA with permissioned index creation enabled by default
 - `update_protocol_config`: rotates protocol authority, sets the primary approved index creator, or enables permissionless index creation
 - `update_index_creator_whitelist`: adds or removes additional approved index creators while creation remains permissioned
-- `create_index`: creates the index account and index mint PDA
+- `create_large_basket_index`: creates the index account and the classic SPL index mint PDA, and records the index kind, fee recipients, supply cap, rebalance config, and component count
+- `initialize_large_basket_component_page`: writes one page of up to ten components and idempotently creates each component's vault ATA; pages are filled while supply is zero and the config is unfinalized
+- `finalize_large_basket_config`: checks that the pages tile every component index with no gaps or duplicates, runs strategy validation, and locks the component set
+- `set_large_basket_component_oracle_pair`: re-points a component's Switchboard feed; only allowed while supply is zero and no intent is mid-flight
 - `create_index_metadata`: creates Metaplex metadata for the index mint
 - `update_index_metadata`: updates the index mint metadata URI
 - `migrate_index_metadata_authority`: moves legacy Metaplex update authority to the index vault-authority PDA
-- `initialize_vaults`: creates the vault ATA for each component mint
 - `initialize_staking_pool`: initializes the BASKET staking pool plus BASKET stake vault and USDC reward vault
 - `stake_basket`: stakes BASKET into the protocol staking vault
 - `unstake_basket`: settles rewards, then unstakes BASKET
 - `fund_staking_rewards`: transfers USDC into the reward vault and accrues it to currently staked BASKET
 - `claim_staking_rewards`: claims accrued USDC rewards for a BASKET staker
-- `quote_mint_index`: emits component amounts needed for a direct component mint when mint fees are zero
-- `quote_redeem_index`: emits component amounts returned by a direct component redeem when redeem fees are zero
-- `mint_index`: transfers the pro-rata vault share into vaults and mints index tokens
-- `mint_index_with_jupiter`: spends USDC through caller-provided Jupiter routes, verifies fills against Switchboard, deposits into vaults, and mints index tokens
-- `update_fees`: sets protocol and creator mint/redeem fee bps, capped at 10% total per direction
+- `open_large_basket_mint_intent`: snapshots supply, sizes each component's backing (units-per-index basket while supply is zero, pro-rata vault share afterward), opens the intent, and takes the operation lock
+- `open_large_basket_redeem_intent`: burns the redeemed index tokens up front, reserves each component's backing on its page, opens the intent, and takes the operation lock
+- `execute_large_basket_mint_component` / `execute_large_basket_redeem_component`: fill one component by routing USDC<->component through caller-provided Jupiter routes (or moving USDC directly when the component is USDC), recording the leg's quote atoms
+- `execute_large_basket_mint_component_in_kind` / `execute_large_basket_redeem_component_in_kind`: fill one component by depositing/withdrawing the exact component tokens to/from the owner, skimming the fee in-kind; used when the intent was opened `in_kind`
+- `execute_large_basket_mint_batch` / `execute_large_basket_redeem_batch`: fill several components in one transaction, each route scoped to its own entry's accounts
+- `verify_large_basket_mint_component_price` / `verify_large_basket_redeem_component_price`: optional deferred check that bounds a filled component's effective price against a fresh single-feed Switchboard quote
+- `collect_large_basket_intent_fees`: after every component has executed, charges the USDC fee split (protocol, creator, staking) on the realized swap volume; swap-path intents only
+- `finalize_large_basket_mint_intent`: requires collected fees on swap-path intents, re-checks backing and supply against the budget and cap, books the filled reserves, mints the index tokens, and releases the lock
+- `finalize_large_basket_redeem_intent`: enforces the net USDC min-out on swap-path intents and releases the lock
+- `cancel_unfilled_large_basket_mint_intent` / `cancel_unfilled_large_basket_redeem_intent`: owner aborts an intent before any component fills; redeem restores reserves and re-mints the burned tokens
+- `cancel_expired_large_basket_intent`: permissionless after expiry; returns filled mint backing (or unfilled redeem backing) to the owner and releases the lock
+- `open_rebalance_intent`: permissionlessly opens a fixed-weight rebalance when the drift or time trigger fires; prices NAV via Switchboard, derives per-component sell/buy legs, and takes the operation lock
+- `execute_rebalance_sell_batch` / `execute_rebalance_buy_batch`: execute batched Jupiter swap legs (component->USDC, then USDC->component) and record each leg's quote and fill atoms; blocked after expiry or while rebalancing is paused
+- `verify_rebalance_component_price`: bounds an executed leg's effective price against a fresh single-feed Switchboard quote
+- `finalize_rebalance`: requires every leg executed and verified, enforces post-rebalance drift, one-sided NAV preservation, and quote dust, then rewrites page units/reserves and releases the lock
+- `cancel_rebalance`: initiator-only cancel before any leg has executed
+- `unwind_rebalance`: abandons a stuck rebalance (permissionless after expiry, index authority any time), re-syncing page accounting from live vault balances and releasing the lock
+- `close_rebalance_intent`: initiator reclaims the intent account rent once the intent is finalized or cancelled
+- `update_fees`: sets protocol, creator, and staking mint/redeem fee bps, capped at 10% total per direction
 - `update_config`: sets protocol and creator fee recipients, supply cap, rebalance delay, and pause flags
 - `update_authority`: transfers index authority to a new wallet, multisig, DAO, or governance PDA
 - `claim_fees`: disabled under pro-rata vault-share accounting
-- `propose_rebalance`: stages a fixed-unit basket update behind the configured timelock using Switchboard NAV checks
-- `cancel_rebalance`: clears the pending rebalance proposal
-- `execute_rebalance`: executes the pending fixed-unit rebalance through Jupiter routes and verifies final vault backing
-- `rebalance_fixed_weights_with_jupiter`: permissionlessly rebalances a fixed-weight index through Jupiter routes with Switchboard price guards
-- `redeem_index`: burns index tokens and transfers the pro-rata vault share back out of vaults
-- `redeem_index_with_jupiter`: burns index tokens, routes component backing to USDC through Jupiter, verifies execution against Switchboard, and pays the user in USDC
 
-Nonzero mint/redeem fees are supported on the USDC Jupiter paths. `mint_fee_bps`
-and `redeem_fee_bps` are protocol fees paid to `fee_recipient`;
-`creator_mint_fee_bps` and `creator_redeem_fee_bps` are creator fees paid to
-`creator_fee_recipient` when one is configured. `create_index` accepts
-`creator_fee_recipient`; pass the default pubkey for no creator. When no creator
-recipient is configured, creator-fee amounts are routed to the protocol
-`fee_recipient` instead. The total protocol plus creator fee for each direction
-is capped at 1,000 bps. Direct component mint/redeem and quote helpers reject
-nonzero fees because those paths do not have a single USDC quote asset to split.
+Mint and redeem fees are configured per index by `update_fees`. Each direction
+splits into a protocol fee (`mint_fee_bps` / `redeem_fee_bps`, paid to
+`fee_recipient`), a creator fee (`creator_mint_fee_bps` / `creator_redeem_fee_bps`,
+paid to `creator_fee_recipient`), and a staking fee (`staking_mint_fee_bps` /
+`staking_redeem_fee_bps`, accrued to the BASKET staking reward vault). The sum of
+the three splits for each direction is capped at 1,000 bps.
+`create_large_basket_index` accepts `creator_fee_recipient`; pass the default
+pubkey for no creator. When no creator recipient is configured, the creator-fee
+amount is routed to the protocol `fee_recipient` instead.
+
+Swap-path intents pay fees in native Solana USDC: `collect_large_basket_intent_fees`
+runs after every component has executed and charges the splits on the realized USDC
+that moved through the swaps. In-kind intents have no USDC fee step; the fee is
+skimmed in the component token itself at execute time, with the staking share folded
+into the protocol share so rewards stay a single token.
 
 The BASKET staking mint is fixed at
 `5yTFbtAE5RDjxpiVpDfyWuzcCWgwh659CEu7a7ZQtSpk`. Staking rewards are funded
@@ -104,159 +129,232 @@ accounting.
 
 ## Rebalancing
 
-Fixed-unit rebalancing is a two-step flow. The authority proposes the new
-basket with `propose_rebalance`, waits until `pending_rebalance_available_at`,
-then calls `execute_rebalance` with fresh Switchboard verification and a Jupiter
-swap plan.
+Fixed-weight rebalancing is an intent state machine scoped to one index at a
+time; the intent shares the `large_basket_operation_in_progress` lock with the
+mint/redeem intent flow, so a rebalance and a mint/redeem can never interleave.
 
-Both proposal and execution check old basket NAV against new basket NAV using
-Switchboard prices. If a `RebalancePriceInput.price_nad` is omitted, the
-verified Switchboard price is used. If it is supplied, it must be within
-`oracle_price_tolerance_bps` of the verified Switchboard price. Prices are
-scaled by `1e9` and interpreted as UI-token USDC prices. Mint decimals are
-loaded from the supplied mint accounts.
+`open_rebalance_intent` is permissionless but only fires when the index's drift
+threshold or rebalance interval triggers, and its caller-supplied gates are
+clamped two-sided: `nav_tolerance_bps` within
+[`MIN_KEEPER_NAV_TOLERANCE_BPS`, `MAX_KEEPER_NAV_TOLERANCE_BPS`] and
+`max_post_rebalance_drift_bps` within
+[`MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS`,
+`MAX_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS`], so a malicious initiator can
+neither loosen the safety gates nor open a no-op-tight one. When drift
+triggering is enabled, the post-rebalance drift bound is additionally required
+to sit strictly below the index's drift threshold so a finalized rebalance
+cannot immediately re-trigger (a drift-loop guard). To keep that range
+non-empty, a drift-enabled index must be configured with a drift threshold
+strictly above `MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS`.
 
-Execution computes the backing required for the current index supply under the
-new basket. It refuses to sell any amount needed for the target basket, invokes
-Jupiter with the vault authority PDA only for the declared route source and
-destination vaults, and commits the new basket only if final vault balances
-satisfy target amounts. Removed components must be sold down to zero.
+The binding per-rebalance value protection is the per-leg
+`verify_rebalance_component_price` check, which caps each executed leg's
+effective price against a fresh single-feed Switchboard quote. The finalize
+NAV-preservation gate is a one-sided aggregate backstop: it re-prices the
+original holdings and the post-rebalance holdings at the same fresh oracle (so
+market drift over the intent's life nets out), but because the keeper selects
+the finalize quote it cannot tighten below the per-leg bound and should not be
+read as a hard standalone NAV guarantee.
 
-While a rebalance is pending, mints and redeems are rejected if the resulting
-supply would make pending component targets fractional.
+Swap legs execute in batches and record their effective quote/fill amounts; the
+per-leg oracle price check is deferred to `verify_rebalance_component_price`
+(the swap and the Switchboard quote do not fit one transaction together).
+Execution stops at `expires_at` (at most 30 minutes after open) and while the
+authority has paused rebalancing.
+
+`finalize_rebalance` re-prices the basket, enforces post-rebalance drift,
+one-sided NAV loss within `nav_tolerance_bps`, and a quote-dust bound, then
+refreshes every page's `units_per_index` / `accounted_reserve` from live vault
+balances. When USDC is itself a component, its vault is the same ATA as the
+rebalance scratch account; the dust bound then applies only to the excess over
+that component's target backing.
+
+A rebalance that cannot complete is never terminal: `unwind_rebalance`
+(permissionless after expiry, index authority any time) re-syncs page
+accounting from live vault balances and releases the lock. Funds never leave
+vault-authority custody during a rebalance, so the unwind moves no tokens; any
+USDC left in the scratch ATA is counted into NAV by the next
+`open_rebalance_intent`, which sizes its buy legs to recycle it.
+
+Fixed-unit (authority-proposed, timelocked) rebalancing is not currently
+available; the legacy atomic flow was removed with the batched rewrite and its
+replacement on the intent model has not shipped yet.
 
 ## Remaining Account Order
 
-`initialize_vaults` expects pairs of remaining accounts:
+`initialize_large_basket_component_page` expects, after the named accounts, one
+group per component in this page's `components` argument order:
 
 1. component mint
-2. vault ATA for the vault authority PDA and that mint
+2. vault ATA for the vault-authority PDA, that mint, and that mint's token program
+3. token program that owns the mint (`spl_token::ID` or Token-2022)
 
-`quote_mint_index` expects no remaining accounts when current supply is zero.
-When current supply is nonzero, pass one vault account per component in basket
-order.
+The handler creates each vault ATA idempotently.
 
-`quote_redeem_index` expects one vault account per component in basket order.
+`finalize_large_basket_config` expects every component page account for the index,
+all writable. Order is normalized by `page_index` internally; the pages must tile
+component indices `0..component_count` with no gaps or duplicates.
+`set_large_basket_component_oracle_pair` takes no remaining accounts; it addresses
+a single component by `page_index` and `component_index`.
 
-`mint_index` expects pairs of remaining accounts:
+`open_large_basket_mint_intent` and `open_large_basket_redeem_intent` expect all
+component pages in page-index order; the open reads each page to size per-component
+backing. For redeem the pages must be writable: the open reserves backing against
+each page and burns the index tokens before the intent goes live.
 
-1. depositor source token account
-2. vault ATA for that component
+`execute_large_basket_mint_component` and `execute_large_basket_redeem_component`
+name the single component's page, mint, vault, and token program. When the component
+is not USDC, append the accounts required by the Jupiter route after the named
+accounts; the mint route must spend the owner's USDC into the component vault, and
+the redeem route must spend the component vault into the vault-authority USDC ATA.
+When the component is USDC, pass no swap and the program moves USDC directly.
+Vault-authority-owned token accounts other than the declared source and destination
+are rejected from every route.
 
-`redeem_index` expects pairs of remaining accounts:
+`execute_large_basket_mint_batch` and `execute_large_basket_redeem_batch` name only
+the shared accounts. Each `entries` element brings a contiguous remaining-account
+group of `4 + route_account_count` accounts:
 
-1. vault ATA for that component
-2. redeemer destination token account
+1. component page
+2. component mint
+3. component vault
+4. component token program
+5. ...the Jupiter route accounts for that entry
 
-`mint_index_with_jupiter` expects native Solana USDC as the quote mint.
-Component oracle fields are interpreted as Switchboard feed IDs. Fixed accounts
-include the Jupiter program, Switchboard queue, verified Switchboard quote
-account, slot hashes sysvar, and instructions sysvar. Include the Switchboard
-quote update/signature instructions before the Basket instruction in the same
-transaction.
+Groups appear in the same order as `entries`, and each entry's swap plan indices are
+scoped to that entry's own accounts, so one entry's route can never touch another's
+vault.
 
-When mint fees are nonzero, pass the protocol fee recipient's USDC token account
-and, when configured, the creator fee recipient's USDC token account in the fixed
-account list. The account field is still present when no creator recipient is
-configured; clients can pass the protocol fee token account there too. Fees are
-charged after backing purchases, and `max_quote_in` covers backing plus both fee
-splits. If no creator recipient is configured, the creator fee split is paid to
-the protocol fee recipient.
+`execute_large_basket_mint_component_in_kind` and
+`execute_large_basket_redeem_component_in_kind` take no remaining accounts; the
+owner's component token account and the protocol and creator fee recipients'
+component token accounts are named. Mint deposits the exact backing plus the in-kind
+fee from the owner; redeem releases the net backing to the owner and skims the fee,
+all from the component vault.
 
-Remaining accounts start with component groups in basket order:
+`verify_large_basket_mint_component_price` and
+`verify_large_basket_redeem_component_price` name the component's page plus the
+Switchboard queue, verified quote account, slot hashes sysvar, and instructions
+sysvar. Include the Switchboard quote update/signature instructions before the
+Basket instruction in the same transaction. These checks are optional: finalize
+relies on the aggregate `max_quote_in` / `min_quote_out` bounds and Jupiter per-swap
+slippage instead.
 
-1. component mint
-2. vault ATA for that component
-3. token program for that component mint
+`collect_large_basket_intent_fees` takes no remaining accounts; it requires every
+component executed, then transfers the USDC fee split from the owner's USDC account
+to the protocol and creator fee token accounts and the staking reward vault.
 
-After all component groups, append every account required by the Jupiter swap
-instructions returned by Jupiter. The `swaps` args must be ordered by basket
-component order for every non-USDC component. Each route must spend from the
-user's USDC token account and deposit into the component vault.
+`finalize_large_basket_mint_intent` expects all component pages in page order, all
+writable; it re-checks backing, books the filled reserves onto the pages, mints the
+index tokens, and releases the lock. `finalize_large_basket_redeem_intent` takes no
+remaining accounts.
 
-`redeem_index_with_jupiter` mirrors `mint_index_with_jupiter`. Component groups
-are:
+`cancel_unfilled_large_basket_mint_intent` takes no remaining accounts.
+`cancel_unfilled_large_basket_redeem_intent` expects all component pages (writable)
+so it can restore the reserved backing before re-minting the burned tokens.
 
-1. component mint
-2. vault ATA for that component
-3. token program for that component mint
+`cancel_expired_large_basket_intent` expects all component pages (writable) first,
+then a `[component mint, component vault, owner token account, component token
+program]` group for every component whose backing is returned to the owner (filled
+components for a mint, unfilled components for a redeem). Pass no component groups
+when there is nothing to return.
 
-Append all Jupiter route accounts after the component groups. The `swaps` args
-must be ordered by basket component order for every non-USDC component. Each
-route must spend from the component vault and deposit into the user's USDC token
-account.
+`open_rebalance_intent` takes `OpenRebalanceIntentArgs { nonce, expires_at,
+switchboard_max_age_slots, nav_tolerance_bps, max_post_rebalance_drift_bps }`
+and remaining accounts of all component pages in page-index order followed by
+all component vaults in global component order.
 
-Redeem fees are deducted from the user's gross USDC output after route
-execution. `min_quote_out` is checked against the user's net USDC after protocol
-and creator fees. If no creator recipient is configured, the creator fee split is
-paid to the protocol fee recipient.
+`execute_rebalance_sell_batch` / `execute_rebalance_buy_batch` take
+`ExecuteRebalanceBatchArgs { entries }` where each entry carries
+`component_index`, a keeper-side `quote_limit` (sell: minimum USDC out; buy:
+maximum USDC in), `route_account_count`, and the compact Jupiter swap plan.
+Remaining accounts are per-entry groups of
+`[component page, component mint, component vault, component token program,
+...route accounts]`. Each sell route must spend exactly the leg from its
+component vault into the vault-authority USDC ATA; each buy route must spend
+from that USDC ATA and deliver at least the leg into its component vault.
+Vault-authority-owned token accounts other than the declared source and
+destination are rejected from every route.
 
-`propose_rebalance` takes:
+`verify_rebalance_component_price` takes `component_index`,
+`max_oracle_slippage_bps` (capped by
+`MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS`), and `switchboard_max_age_slots`,
+and bounds the recorded quote/fill effective price against a fresh single-feed
+Switchboard quote.
 
-1. new component list
-2. quote mint, currently native Solana USDC
-3. price inputs for every unique old/new component mint
-4. oracle price tolerance in basis points
-5. old-vs-new NAV tolerance in basis points
-6. maximum age for the verified Switchboard quote
-
-Price inputs and remaining mint accounts must be ordered by:
-
-1. all old basket components in old basket order
-2. followed by any new basket component mint not already included, in new basket order
-
-For each mint in that order, append:
-
-1. component mint account
-
-`execute_rebalance` takes `ExecuteRebalanceArgs { swaps, prices,
-switchboard_max_age_slots }`. It reads the pending quote mint and tolerance
-settings from the stored proposal. The price input order matches
-`propose_rebalance`.
-
-Remaining accounts start with triples for every unique old/new component mint:
-
-1. component mint
-2. vault ATA for the vault authority PDA, that mint, and the mint token program
-3. mint token program (`spl_token::ID` or Token-2022)
-
-After all component triples, append every account required by the supplied
-Jupiter route instructions. Each route must use a component vault as its source
-and a component vault as its destination. Protected component vaults that are
-not the declared source or destination are rejected.
-
-`rebalance_fixed_weights_with_jupiter` takes:
-
-1. `max_quote_dust`: maximum allowed remaining external USDC atoms when USDC is not itself a component
-2. `max_post_rebalance_drift_bps`: maximum allowed final component drift
-3. `switchboard_max_age_slots`: maximum age for the verified Switchboard quote
-4. `swaps`: Jupiter route instructions, first sells for overweight components in component order, then buys for underweight components ordered by largest value deficit
-
-Remaining accounts start with component groups in current component order:
-
-1. component mint
-2. component vault ATA
-3. token program for that component mint
-
-After all component groups, append every account required by the supplied
-Jupiter swap instructions. Each sell route must spend from a component vault and
-deposit into the vault-authority USDC ATA. Each buy route must spend from that
-USDC ATA and deposit into the destination component vault.
+`finalize_rebalance` takes `switchboard_max_age_slots` plus the same
+pages-then-vaults remaining accounts as open (pages writable).
+`unwind_rebalance` takes no args and the same pages-then-vaults layout.
 
 ## Current Scope
 
-This cut targets classic SPL Token direct component mint/redeem flows,
-Token-2022-compatible Jupiter/Switchboard paths, Metaplex metadata,
-authority-managed timelocked rebalancing, permissionless fixed-weight
-rebalancing, BASKET staking, pause/supply-cap controls, and external governance
-ownership of index authority.
+This cut targets paged large-basket indexes (up to 50 components across pages of
+ten) with a classic SPL index mint and Token-2022-capable component vaults, the
+batched mint/redeem intent state machine (Jupiter swap path plus in-kind variants),
+Switchboard-priced execution and fee checks, permissionless fixed-weight rebalancing
+on the intent model, Metaplex metadata, BASKET staking with protocol/creator/staking
+fee splits, pause/supply-cap controls, and external governance ownership of index
+authority. Fixed-unit (authority-proposed, timelocked) rebalancing is not yet
+available (see Rebalancing).
+
+## Rebalance Worker
+
+`scripts/rebalance-bot.mjs` is a keeper worker for fixed-weight baskets. It auto-discovers
+every FixedWeights index (or targets one with `--index <pubkey>`), prices the basket from
+Jupiter, computes each component's weight drift, and — when the index's drift threshold or
+time interval has triggered — drives the on-chain rebalance state machine end to end:
+`open_rebalance_intent` → batched `execute_rebalance_sell_batch` / `execute_rebalance_buy_batch`
+(Jupiter routes encoded as the compact `LargeBasketSwapPlan`) → `verify_rebalance_component_price`
+per leg → `finalize_rebalance`. It also detects a stuck/expired intent and calls
+`unwind_rebalance` to release the operation lock.
+
+It is **dry-run by default** — it reads chain state, fetches quotes, and prints the plan but
+sends no transactions. Pass `--execute` to send. `--execute` spends the keeper's funds (swap
+fees + slippage) and moves basket assets, so validate with the dry run first.
+
+```bash
+node scripts/rebalance-bot.mjs                 # detect-only, scan all FixedWeights baskets
+node scripts/rebalance-bot.mjs --preview-swaps # dry-run + encode the Jupiter swaps read-only
+node scripts/rebalance-bot.mjs --index <pk>    # only this index (skips getProgramAccounts)
+node scripts/rebalance-bot.mjs --execute       # actually rebalance triggered baskets
+node scripts/rebalance-bot.mjs --watch         # poll forever (--interval <seconds>)
+```
+
+On `--execute` the worker builds, tx-size-packs, and route-scope-validates every sell and
+buy batch *before* sending any execute transaction; if a leg can't be built/sized/scoped it
+cancels the just-opened (zero-legs-executed) intent and reclaims its rent rather than
+stranding the operation lock. It derives time from the on-chain clock, keeps the intent TTL
+under the program cap, sizes compute units per batch, and retries a step if its Switchboard
+quote goes stale.
+
+Env: `SOLANA_RPC_URL` (default mainnet-beta; discovery needs a `getProgramAccounts`-capable
+RPC), `ANCHOR_WALLET` (keeper keypair, default `deployer-keypair.json`), `JUPITER_SWAP_API`,
+`JUPITER_PRICE_API`. Flags: `--batch-size` (default 2), `--slippage-bps`, `--verify-buffer-bps`,
+`--nav-tolerance-bps`, `--drift-margin-bps`, `--ttl`, `--priority-fee`, `--interval`.
+
+Prerequisites: the program build that includes the rebalance intent flow must be deployed and
+`target/idl/basket.json` regenerated (`anchor build`) so the worker decodes accounts and
+encodes instructions against the matching layout. The worker only manages USDC-quoted
+FixedWeights baskets.
+
+## Building on Windows
+
+`.cargo/config.toml` (local, untracked) points `rustc-wrapper` at
+`scripts/rustc-wrapper.exe`, a small shim that strips `\\?\` UNC prefixes from
+paths so the SBF toolchain accepts them. The binary is not tracked in git;
+rebuild it with:
+
+```bash
+rustc scripts/rustc-wrapper.rs -o scripts/rustc-wrapper.exe
+```
 
 ## Mainnet Deployment
 
 Mainnet deployment is intentionally program-only. It must not call
-`create_index`, `initialize_vaults`, or any bootstrap script that creates an
-index. The first mainnet index should be created explicitly by the protocol
-operator/admin after the program and protocol config are initialized.
+`create_large_basket_index`, `initialize_large_basket_component_page`,
+`finalize_large_basket_config`, or any bootstrap script that creates an index. The
+first mainnet index should be created explicitly by the protocol operator/admin
+after the program and protocol config are initialized.
 
 Current mainnet ID:
 
