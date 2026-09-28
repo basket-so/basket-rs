@@ -1,0 +1,273 @@
+{
+  "checkedAt": "2026-09-08T00:05:26.361Z",
+  "program": "9LNEoShrH93XekWQTFmZBdUdMu8ugJxBr5cbfqJQC1mw",
+  "payer": "HF6Qk5JnBTfa4MyL4RX2KJUaD9nRG7maNt7xJH9QUVk2",
+  "walletLamports": 476995275,
+  "assets": {
+    "cbBTC": {
+      "mint": "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij",
+      "decimals": 8,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://www.coinbase.com/cbbtc",
+      "price": 79097.81,
+      "priceObservedAt": "2026-09-08T00:05:13.514Z",
+      "liquidityUsd": 27848788.524071626,
+      "vaultSize": 165
+    },
+    "ETH": {
+      "mint": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+      "decimals": 8,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://github.com/wormhole-foundation/wormhole-token-list/blob/main/content/dest_solana.md",
+      "price": 2487.7748358199847,
+      "priceObservedAt": "2026-09-08T00:05:15.321Z",
+      "liquidityUsd": 21537120.35592206,
+      "vaultSize": 165
+    },
+    "SOL": {
+      "mint": "So11111111111111111111111111111111111111112",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=So11111111111111111111111111111111111111112",
+      "price": 103.69704529231431,
+      "priceObservedAt": "2026-09-08T00:05:17.494Z",
+      "liquidityUsd": 832575936.540176,
+      "vaultSize": 165
+    },
+    "USDC": {
+      "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "price": 1,
+      "priceObservedAt": "2026-09-08T00:05:17.494Z",
+      "liquidityUsd": 411630311.5673934,
+      "vaultSize": 165
+    },
+    "HNT": {
+      "mint": "hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux",
+      "decimals": 8,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux",
+      "price": 0.538211162604566,
+      "priceObservedAt": "2026-09-08T00:05:19.727Z",
+      "liquidityUsd": 296731.7044176074,
+      "vaultSize": 165
+    },
+    "GEOD": {
+      "mint": "7JA5eZdCzztSfQbJvS8aVVxMFfd81Rs9VvwnocV1mKHu",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=7JA5eZdCzztSfQbJvS8aVVxMFfd81Rs9VvwnocV1mKHu",
+      "price": 0.2281,
+      "priceObservedAt": "2026-09-08T00:05:22.058Z",
+      "liquidityUsd": 319122.56121859787,
+      "vaultSize": 165
+    },
+    "PYTH": {
+      "mint": "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
+      "price": 0.05403,
+      "priceObservedAt": "2026-09-08T00:05:24.123Z",
+      "liquidityUsd": 301807.3918008167,
+      "vaultSize": 165
+    },
+    "W": {
+      "mint": "85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ",
+      "price": 0.010286079160143667,
+      "priceObservedAt": "2026-09-08T00:05:26.361Z",
+      "liquidityUsd": 122276.64840792686,
+      "vaultSize": 165
+    }
+  },
+  "baskets": [
+    {
+      "symbol": "AIDX",
+      "status": "blocked",
+      "blockers": [
+        "AKT and FET: no verified liquid Solana representation established. TAO wrapper issuer/redemption also needs verification."
+      ]
+    },
+    {
+      "symbol": "SOLB",
+      "status": "deployed-verified",
+      "blockers": [],
+      "initialNavUsd": 0.9999998323052547,
+      "index": "9ygmCquFaAixBkBx3uvxaq8GzAhoVpmnR1hw3XT7KkVy",
+      "indexMint": "H2jm7yDPS2T1Zn6hFPR7YaRvxmrEoWXDH9XZQ4FaYQub"
+    },
+    {
+      "symbol": "DPIN",
+      "status": "blocked",
+      "blockers": [
+        "Legacy IOT and MOBILE have thin liquidity following HIP 138; IOT reported approximately $344 of total liquidity. Preserve composition but do not launch until liquidity and executable routes improve."
+      ]
+    },
+    {
+      "symbol": "MEME",
+      "status": "deployed-verified",
+      "blockers": [],
+      "initialNavUsd": 1.0000000944574041,
+      "index": "A3s2uxoPcumtMPrE5qwrLmmy2k8yvt68Xcmtpesfz7mp",
+      "indexMint": "6vauJxt5S8Z3yX1RVg3csLkdcvNmXpWg1AuqPhhGQtMG"
+    },
+    {
+      "symbol": "RWAX",
+      "status": "blocked",
+      "blockers": [
+        "OUSG requires onboarded eligible holders; vault eligibility has not been established. STBT is an Ethereum rebasing token. ONDO Solana representation is unverified; PAXG wrapper provenance also needs verification."
+      ]
+    },
+    {
+      "symbol": "LSTY",
+      "status": "deployed-verified",
+      "blockers": [],
+      "initialNavUsd": 0.9999999096299999,
+      "index": "GELb5kmthjeHYCUgNZ7pgdhQE7d7Wx2PbLrx3jW2biuA",
+      "indexMint": "DWeDRAvPAPVYrrcMRewsRsycuCzZp2BWE2w1Qt5RJPEG"
+    },
+    {
+      "symbol": "DEXS",
+      "status": "deployed-verified",
+      "blockers": [],
+      "initialNavUsd": 0.9999995154000001,
+      "index": "GqyVAY6FE2WEC7wwsKyVhiA7xJvpniqsMemdxvVDCCYJ",
+      "indexMint": "DVFfPNMurjpefW6Kb9vHpKUQUeXRJwj33QLNdiXTQ3j8"
+    },
+    {
+      "symbol": "STKG",
+      "status": "deployed-verified",
+      "blockers": [],
+      "initialNavUsd": 1.0000000000381044,
+      "index": "FvoJYntKAF8imoumMT14bYL9xG4M4rFN7u23PNfNWKPK",
+      "indexMint": "5givvncYcw6ARTQKnw74QAJcWBGuim9Xcq3KUsoVf2Af"
+    },
+    {
+      "symbol": "USDX",
+      "status": "deployed-verified",
+      "blockers": [],
+      "initialNavUsd": 0.9999997274656737,
+      "index": "DNHwK2BbDrVrUUe9rwVuuyYvjtgEWVk3WE4SjiSB316F",
+      "indexMint": "DwUnTJWwqarinCDKYvPGp3C3L9aF7cvYbJ414yuLCyny"
+    },
+    {
+      "symbol": "SOLC",
+      "status": "deployed-verified",
+      "blockers": [],
+      "initialNavUsd": 1.000000081073,
+      "index": "6XgwFb4z8LzXcXhXt5k16mvY4ZpgKBvYD3hpMN4A18i9",
+      "indexMint": "FPryGGJjuyef8SkTCQarQ68T42boqPh4D3YfeWh1M6U3"
+    },
+    {
+      "symbol": "AISP",
+      "status": "deployed-verified",
+      "blockers": [],
+      "initialNavUsd": 1.0000000045712818,
+      "index": "BRqmKCwgyv84qVWKycza9vHEM9nChdmPk7Lai5dLx6qC",
+      "indexMint": "D7iEQvJTy4EPBLUTEmeTpy7iQotjkue18NZQUi2RGffW"
+    },
+    {
+      "symbol": "DEFI",
+      "status": "deployed-verified",
+      "blockers": [],
+      "initialNavUsd": 0.999999935203646,
+      "index": "5CxWvEbRLErpS1NUna5G6TwrWiFnrs978JrzVoqkKSA9",
+      "indexMint": "3oTtRdYtChiJHDy74ygnAZwcnaLRm8Z8V1zvEmFdc79s"
+    },
+    {
+      "symbol": "MAJR",
+      "status": "deployed-verified",
+      "initialNavUsd": 1.000000279121592,
+      "index": "9D85fNTUnc4NXG9mHTqEZnduTkm3YiztUUUoHkkdpgE4",
+      "indexMint": "FNHrRwHf6iYH1xitFkuSKhyf2m74n838S8Aaqmn7KmZx",
+      "estimatedLamports": 34013929,
+      "components": [
+        {
+          "symbol": "cbBTC",
+          "mint": "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij",
+          "unitsPerIndex": "569",
+          "price": 79097.81,
+          "targetWeightBps": 0
+        },
+        {
+          "symbol": "ETH",
+          "mint": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+          "unitsPerIndex": "12059",
+          "price": 2487.7748358199847,
+          "targetWeightBps": 0
+        },
+        {
+          "symbol": "SOL",
+          "mint": "So11111111111111111111111111111111111111112",
+          "unitsPerIndex": "1928695",
+          "price": 103.69704529231431,
+          "targetWeightBps": 0
+        },
+        {
+          "symbol": "USDC",
+          "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "unitsPerIndex": "49933",
+          "price": 1,
+          "targetWeightBps": 0
+        }
+      ]
+    },
+    {
+      "symbol": "PHYS",
+      "status": "deployed-verified",
+      "initialNavUsd": 1.0000000000366138,
+      "index": "5wg3iyBHy7khPamWXPzn9kU8Ab5VitM14QebJwmhvUcJ",
+      "indexMint": "8KxSMN47HdmynpyZ6U4CdN9Sa39Mw77YHNmYB2BYpvM8",
+      "estimatedLamports": 29492167,
+      "components": [
+        {
+          "symbol": "HNT",
+          "mint": "hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux",
+          "unitsPerIndex": "111480408",
+          "price": 0.538211162604566,
+          "targetWeightBps": 0
+        },
+        {
+          "symbol": "GEOD",
+          "mint": "7JA5eZdCzztSfQbJvS8aVVxMFfd81Rs9VvwnocV1mKHu",
+          "unitsPerIndex": "1753616835",
+          "price": 0.2281,
+          "targetWeightBps": 0
+        }
+      ]
+    },
+    {
+      "symbol": "DATA",
+      "status": "deployed-verified",
+      "initialNavUsd": 1.0000000121747994,
+      "index": "7WBpHbrdErPtwRVcMKLbmewyceLswLPBChVqbVDxCZZb",
+      "indexMint": "5B4KEpSwMa6AtkQaNkXkgW5iVrFjsyLZMqpWeWd23Xd8",
+      "estimatedLamports": 29492167,
+      "components": [
+        {
+          "symbol": "PYTH",
+          "mint": "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
+          "unitsPerIndex": "11104942",
+          "price": 0.05403,
+          "targetWeightBps": 0
+        },
+        {
+          "symbol": "W",
+          "mint": "85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ",
+          "unitsPerIndex": "38887509",
+          "price": 0.010286079160143667,
+          "targetWeightBps": 0
+        }
+      ]
+    }
+  ],
+  "estimatedRequiredLamports": 92998263,
+  "fundingShortfallLamports": 0,
+  "finalWalletLamports": 365381565,
+  "finalVerifiedAt": "2026-09-08T00:06:14.908Z"
+}

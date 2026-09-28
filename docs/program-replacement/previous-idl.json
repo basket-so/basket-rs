@@ -1,0 +1,7601 @@
+{
+  "address": "9LNEoShrH93XekWQTFmZBdUdMu8ugJxBr5cbfqJQC1mw",
+  "metadata": {
+    "name": "basket",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Fixed-ratio basket index protocol on Solana"
+  },
+  "instructions": [
+    {
+      "name": "cancel_expired_large_basket_intent",
+      "discriminator": [
+        186,
+        236,
+        8,
+        219,
+        32,
+        133,
+        158,
+        217
+      ],
+      "accounts": [
+        {
+          "name": "index",
+          "writable": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index_mint",
+          "writable": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "intent_lock",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116,
+                  45,
+                  108,
+                  111,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              },
+              {
+                "kind": "account",
+                "path": "intent.owner",
+                "account": "LargeBasketIntent"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_index_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_rebalance",
+      "discriminator": [
+        178,
+        91,
+        137,
+        146,
+        99,
+        67,
+        151,
+        110
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_unfilled_large_basket_mint_intent",
+      "discriminator": [
+        178,
+        81,
+        101,
+        6,
+        93,
+        59,
+        230,
+        44
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "intent_lock",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116,
+                  45,
+                  108,
+                  111,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_unfilled_large_basket_redeem_intent",
+      "discriminator": [
+        220,
+        33,
+        170,
+        180,
+        248,
+        67,
+        154,
+        229
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index_mint",
+          "writable": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "intent_lock",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116,
+                  45,
+                  108,
+                  111,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_index_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_fees",
+      "discriminator": [
+        82,
+        251,
+        233,
+        156,
+        12,
+        52,
+        184,
+        202
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index"
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_staking_rewards",
+      "discriminator": [
+        229,
+        141,
+        170,
+        69,
+        111,
+        94,
+        6,
+        72
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "staking_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  45,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "staking_pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reward_vault",
+          "writable": true
+        },
+        {
+          "name": "owner_reward_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "collect_large_basket_intent_fees",
+      "discriminator": [
+        12,
+        130,
+        24,
+        213,
+        215,
+        116,
+        168,
+        166
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "quote_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        {
+          "name": "owner_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "fee_recipient_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "creator_fee_recipient_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "staking_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_reward_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_index",
+      "discriminator": [
+        205,
+        71,
+        124,
+        117,
+        143,
+        136,
+        104,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "arg",
+                "path": "args.symbol"
+              }
+            ]
+          }
+        },
+        {
+          "name": "index_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120,
+                  45,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CreateIndexArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_index_metadata",
+      "discriminator": [
+        193,
+        28,
+        162,
+        52,
+        159,
+        106,
+        202,
+        225
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "metadata",
+          "writable": true
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "metadata_program",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "IndexMetadataArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_large_basket_index",
+      "discriminator": [
+        163,
+        198,
+        147,
+        2,
+        187,
+        52,
+        151,
+        198
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "arg",
+                "path": "args.symbol"
+              }
+            ]
+          }
+        },
+        {
+          "name": "index_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120,
+                  45,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CreateLargeBasketIndexArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "execute_large_basket_mint_batch",
+      "discriminator": [
+        129,
+        98,
+        226,
+        204,
+        84,
+        234,
+        215,
+        38
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index",
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        {
+          "name": "owner_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "jupiter_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "quote_token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteLargeBasketMintBatchArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "execute_large_basket_mint_component",
+      "discriminator": [
+        190,
+        171,
+        230,
+        252,
+        255,
+        23,
+        186,
+        27
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index",
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        {
+          "name": "owner_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "jupiter_program"
+        },
+        {
+          "name": "component_page",
+          "writable": true
+        },
+        {
+          "name": "component_mint"
+        },
+        {
+          "name": "component_vault",
+          "writable": true
+        },
+        {
+          "name": "component_token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "quote_token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteLargeBasketMintComponentArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "execute_large_basket_redeem_batch",
+      "discriminator": [
+        59,
+        88,
+        24,
+        212,
+        88,
+        228,
+        138,
+        215
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index",
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        {
+          "name": "owner_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "jupiter_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "quote_token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteLargeBasketRedeemBatchArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "execute_large_basket_redeem_component",
+      "discriminator": [
+        39,
+        186,
+        170,
+        247,
+        184,
+        146,
+        49,
+        169
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index",
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        {
+          "name": "owner_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "jupiter_program"
+        },
+        {
+          "name": "component_page",
+          "writable": true
+        },
+        {
+          "name": "component_mint"
+        },
+        {
+          "name": "component_vault",
+          "writable": true
+        },
+        {
+          "name": "component_token_program"
+        },
+        {
+          "name": "quote_token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteLargeBasketRedeemComponentArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "execute_rebalance",
+      "discriminator": [
+        36,
+        232,
+        110,
+        192,
+        96,
+        226,
+        100,
+        120
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "jupiter_program"
+        },
+        {
+          "name": "switchboard_queue"
+        },
+        {
+          "name": "switchboard_quote"
+        },
+        {
+          "name": "slothashes"
+        },
+        {
+          "name": "instructions_sysvar"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteRebalanceArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "finalize_large_basket_config",
+      "discriminator": [
+        182,
+        101,
+        62,
+        118,
+        30,
+        157,
+        11,
+        22
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "finalize_large_basket_mint_intent",
+      "discriminator": [
+        129,
+        73,
+        50,
+        145,
+        66,
+        177,
+        208,
+        118
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index_mint",
+          "writable": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "intent_lock",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116,
+                  45,
+                  108,
+                  111,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_index_token_account",
+          "writable": true
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "finalize_large_basket_redeem_intent",
+      "discriminator": [
+        182,
+        1,
+        66,
+        37,
+        216,
+        224,
+        75,
+        215
+      ],
+      "accounts": [
+        {
+          "name": "index",
+          "writable": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "intent_lock",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116,
+                  45,
+                  108,
+                  111,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              },
+              {
+                "kind": "account",
+                "path": "intent.owner",
+                "account": "LargeBasketIntent"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "fund_staking_rewards",
+      "discriminator": [
+        107,
+        76,
+        182,
+        217,
+        248,
+        168,
+        136,
+        146
+      ],
+      "accounts": [
+        {
+          "name": "funder",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "staking_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "funder_reward_token_account",
+          "writable": true
+        },
+        {
+          "name": "reward_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "FundStakingRewardsArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize_large_basket_component_page",
+      "discriminator": [
+        245,
+        190,
+        178,
+        235,
+        67,
+        105,
+        19,
+        154
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index"
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "page",
+          "writable": true
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitializeLargeBasketComponentPageArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize_protocol",
+      "discriminator": [
+        188,
+        233,
+        252,
+        106,
+        134,
+        146,
+        202,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "program",
+          "address": "9LNEoShrH93XekWQTFmZBdUdMu8ugJxBr5cbfqJQC1mw"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitializeProtocolArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize_staking_pool",
+      "discriminator": [
+        231,
+        155,
+        216,
+        76,
+        185,
+        211,
+        34,
+        151
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "protocol_config"
+          ]
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket_mint",
+          "address": "5yTFbtAE5RDjxpiVpDfyWuzcCWgwh659CEu7a7ZQtSpk"
+        },
+        {
+          "name": "reward_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        {
+          "name": "stake_vault",
+          "writable": true
+        },
+        {
+          "name": "reward_vault",
+          "writable": true
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_vaults",
+      "discriminator": [
+        234,
+        84,
+        214,
+        3,
+        128,
+        195,
+        81,
+        125
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "index"
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "migrate_index_metadata_authority",
+      "discriminator": [
+        85,
+        215,
+        182,
+        182,
+        25,
+        181,
+        57,
+        235
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "metadata_authority",
+          "signer": true
+        },
+        {
+          "name": "index"
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "metadata",
+          "writable": true
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "metadata_program",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "mint_index",
+      "discriminator": [
+        105,
+        223,
+        80,
+        228,
+        4,
+        250,
+        161,
+        35
+      ],
+      "accounts": [
+        {
+          "name": "depositor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "index",
+          "writable": true
+        },
+        {
+          "name": "index_mint",
+          "writable": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "depositor_index_token_account",
+          "writable": true
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "MintIndexArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "mint_index_with_jupiter",
+      "discriminator": [
+        224,
+        76,
+        71,
+        238,
+        214,
+        23,
+        233,
+        174
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "index",
+          "writable": true
+        },
+        {
+          "name": "index_mint",
+          "writable": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "user_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "fee_recipient_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "creator_fee_recipient_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "user_index_token_account",
+          "writable": true
+        },
+        {
+          "name": "jupiter_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "quote_token_program"
+        },
+        {
+          "name": "index_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "MintIndexWithJupiterArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "open_large_basket_mint_intent",
+      "discriminator": [
+        110,
+        34,
+        239,
+        141,
+        112,
+        129,
+        225,
+        202
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "index",
+          "writable": true
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "quote_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        {
+          "name": "staking_pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "intent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "args.nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "intent_lock",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116,
+                  45,
+                  108,
+                  111,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "OpenLargeBasketMintIntentArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "open_large_basket_redeem_intent",
+      "discriminator": [
+        92,
+        39,
+        255,
+        137,
+        0,
+        199,
+        123,
+        231
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "index",
+          "writable": true
+        },
+        {
+          "name": "index_mint",
+          "docs": [
+            "burns index tokens, which decrements the mint supply."
+          ],
+          "writable": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "owner_index_token_account",
+          "docs": [
+            "Mutable: the open burns the redeemed index tokens from it."
+          ],
+          "writable": true
+        },
+        {
+          "name": "quote_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        {
+          "name": "staking_pool",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "intent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "args.nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "intent_lock",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116,
+                  45,
+                  108,
+                  111,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "OpenLargeBasketRedeemIntentArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "propose_rebalance",
+      "discriminator": [
+        11,
+        89,
+        222,
+        191,
+        238,
+        93,
+        94,
+        177
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "switchboard_queue"
+        },
+        {
+          "name": "switchboard_quote"
+        },
+        {
+          "name": "slothashes"
+        },
+        {
+          "name": "instructions_sysvar"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ProposeRebalanceArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "quote_mint_index",
+      "discriminator": [
+        215,
+        201,
+        53,
+        66,
+        232,
+        168,
+        218,
+        128
+      ],
+      "accounts": [
+        {
+          "name": "index"
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "QuoteIndexArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "quote_redeem_index",
+      "discriminator": [
+        222,
+        58,
+        23,
+        101,
+        26,
+        209,
+        112,
+        148
+      ],
+      "accounts": [
+        {
+          "name": "index"
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "QuoteIndexArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "rebalance_fixed_weights_with_jupiter",
+      "discriminator": [
+        153,
+        47,
+        211,
+        248,
+        181,
+        115,
+        166,
+        90
+      ],
+      "accounts": [
+        {
+          "name": "executor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "index",
+          "writable": true
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "vault_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "jupiter_program"
+        },
+        {
+          "name": "switchboard_queue"
+        },
+        {
+          "name": "switchboard_quote"
+        },
+        {
+          "name": "slothashes"
+        },
+        {
+          "name": "instructions_sysvar"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "quote_token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "RebalanceFixedWeightsWithJupiterArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "redeem_index",
+      "discriminator": [
+        97,
+        229,
+        184,
+        138,
+        226,
+        23,
+        20,
+        217
+      ],
+      "accounts": [
+        {
+          "name": "redeemer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "index",
+          "writable": true
+        },
+        {
+          "name": "index_mint",
+          "writable": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "redeemer_index_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "RedeemIndexArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "redeem_index_with_jupiter",
+      "discriminator": [
+        102,
+        105,
+        129,
+        90,
+        110,
+        90,
+        23,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "index"
+        },
+        {
+          "name": "index_mint",
+          "writable": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "user_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "fee_recipient_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "creator_fee_recipient_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "user_index_token_account",
+          "writable": true
+        },
+        {
+          "name": "jupiter_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "quote_token_program"
+        },
+        {
+          "name": "index_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "RedeemIndexWithJupiterArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "set_large_basket_component_oracle_pair",
+      "discriminator": [
+        79,
+        147,
+        170,
+        80,
+        227,
+        85,
+        232,
+        222
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index"
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "page",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "SetLargeBasketComponentOraclePairArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "stake_basket",
+      "discriminator": [
+        197,
+        59,
+        126,
+        212,
+        52,
+        231,
+        124,
+        211
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "staking_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  45,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "staking_pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_basket_token_account",
+          "writable": true
+        },
+        {
+          "name": "stake_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "StakeBasketArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "unstake_basket",
+      "discriminator": [
+        7,
+        44,
+        135,
+        48,
+        89,
+        73,
+        147,
+        112
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "staking_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101,
+                  45,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "staking_pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_basket_token_account",
+          "writable": true
+        },
+        {
+          "name": "stake_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "UnstakeBasketArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_authority",
+      "discriminator": [
+        32,
+        46,
+        64,
+        28,
+        149,
+        75,
+        243,
+        88
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "UpdateAuthorityArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_config",
+      "discriminator": [
+        29,
+        158,
+        252,
+        191,
+        10,
+        83,
+        219,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "UpdateConfigArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_fees",
+      "discriminator": [
+        225,
+        27,
+        13,
+        6,
+        69,
+        84,
+        172,
+        191
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "UpdateFeesArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_fixed_weight_config",
+      "discriminator": [
+        162,
+        15,
+        102,
+        107,
+        204,
+        223,
+        211,
+        49
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "UpdateFixedWeightConfigArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_index_creator_whitelist",
+      "discriminator": [
+        152,
+        125,
+        168,
+        46,
+        69,
+        75,
+        190,
+        181
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "protocol_config"
+          ]
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "UpdateIndexCreatorWhitelistArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_index_metadata",
+      "discriminator": [
+        150,
+        199,
+        25,
+        237,
+        8,
+        76,
+        217,
+        103
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "metadata",
+          "writable": true
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "metadata_program",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "IndexMetadataArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_protocol_config",
+      "discriminator": [
+        197,
+        97,
+        123,
+        54,
+        221,
+        168,
+        11,
+        135
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "protocol_config"
+          ]
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "UpdateProtocolConfigArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "verify_large_basket_mint_component_price",
+      "discriminator": [
+        210,
+        2,
+        242,
+        221,
+        91,
+        57,
+        200,
+        252
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index",
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "component_page"
+        },
+        {
+          "name": "switchboard_queue"
+        },
+        {
+          "name": "switchboard_quote"
+        },
+        {
+          "name": "slothashes"
+        },
+        {
+          "name": "instructions_sysvar"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "VerifyLargeBasketComponentPriceArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "verify_large_basket_redeem_component_price",
+      "discriminator": [
+        149,
+        188,
+        173,
+        220,
+        56,
+        33,
+        229,
+        207
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index",
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "component_page"
+        },
+        {
+          "name": "switchboard_queue"
+        },
+        {
+          "name": "switchboard_quote"
+        },
+        {
+          "name": "slothashes"
+        },
+        {
+          "name": "instructions_sysvar"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "VerifyLargeBasketComponentPriceArgs"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "IndexState",
+      "discriminator": [
+        39,
+        84,
+        33,
+        207,
+        234,
+        99,
+        126,
+        210
+      ]
+    },
+    {
+      "name": "LargeBasketComponentPage",
+      "discriminator": [
+        123,
+        10,
+        150,
+        245,
+        77,
+        126,
+        106,
+        101
+      ]
+    },
+    {
+      "name": "LargeBasketIntent",
+      "discriminator": [
+        150,
+        152,
+        206,
+        12,
+        87,
+        62,
+        140,
+        8
+      ]
+    },
+    {
+      "name": "LargeBasketIntentLock",
+      "discriminator": [
+        10,
+        184,
+        152,
+        92,
+        16,
+        235,
+        126,
+        226
+      ]
+    },
+    {
+      "name": "ProtocolConfig",
+      "discriminator": [
+        207,
+        91,
+        250,
+        28,
+        152,
+        179,
+        215,
+        209
+      ]
+    },
+    {
+      "name": "StakePosition",
+      "discriminator": [
+        78,
+        165,
+        30,
+        111,
+        171,
+        125,
+        11,
+        220
+      ]
+    },
+    {
+      "name": "StakingPool",
+      "discriminator": [
+        203,
+        19,
+        214,
+        220,
+        220,
+        154,
+        24,
+        102
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "BasketStaked",
+      "discriminator": [
+        241,
+        191,
+        207,
+        152,
+        42,
+        141,
+        64,
+        212
+      ]
+    },
+    {
+      "name": "BasketUnstaked",
+      "discriminator": [
+        41,
+        208,
+        131,
+        129,
+        29,
+        5,
+        223,
+        47
+      ]
+    },
+    {
+      "name": "FixedWeightConfigUpdated",
+      "discriminator": [
+        151,
+        96,
+        102,
+        148,
+        118,
+        247,
+        254,
+        41
+      ]
+    },
+    {
+      "name": "FixedWeightRebalanceExecuted",
+      "discriminator": [
+        132,
+        142,
+        163,
+        235,
+        104,
+        205,
+        227,
+        255
+      ]
+    },
+    {
+      "name": "IndexAuthorityUpdated",
+      "discriminator": [
+        193,
+        216,
+        165,
+        249,
+        81,
+        166,
+        130,
+        229
+      ]
+    },
+    {
+      "name": "IndexConfigUpdated",
+      "discriminator": [
+        226,
+        190,
+        234,
+        3,
+        54,
+        139,
+        82,
+        214
+      ]
+    },
+    {
+      "name": "IndexCreated",
+      "discriminator": [
+        172,
+        84,
+        43,
+        253,
+        171,
+        30,
+        254,
+        244
+      ]
+    },
+    {
+      "name": "IndexCreatorWhitelistUpdated",
+      "discriminator": [
+        23,
+        170,
+        140,
+        139,
+        103,
+        215,
+        239,
+        37
+      ]
+    },
+    {
+      "name": "IndexFeesClaimed",
+      "discriminator": [
+        9,
+        202,
+        3,
+        145,
+        22,
+        74,
+        59,
+        128
+      ]
+    },
+    {
+      "name": "IndexFeesUpdated",
+      "discriminator": [
+        136,
+        16,
+        126,
+        197,
+        104,
+        184,
+        121,
+        113
+      ]
+    },
+    {
+      "name": "IndexMetadataAuthorityMigrated",
+      "discriminator": [
+        173,
+        252,
+        79,
+        8,
+        156,
+        144,
+        120,
+        171
+      ]
+    },
+    {
+      "name": "IndexMetadataUpdated",
+      "discriminator": [
+        248,
+        137,
+        132,
+        246,
+        210,
+        217,
+        224,
+        26
+      ]
+    },
+    {
+      "name": "IndexMintQuote",
+      "discriminator": [
+        227,
+        59,
+        93,
+        183,
+        176,
+        181,
+        71,
+        73
+      ]
+    },
+    {
+      "name": "IndexMinted",
+      "discriminator": [
+        125,
+        192,
+        74,
+        111,
+        87,
+        28,
+        26,
+        177
+      ]
+    },
+    {
+      "name": "IndexRebalanceCancelled",
+      "discriminator": [
+        6,
+        125,
+        40,
+        102,
+        71,
+        91,
+        21,
+        15
+      ]
+    },
+    {
+      "name": "IndexRebalanceProposed",
+      "discriminator": [
+        24,
+        144,
+        111,
+        159,
+        58,
+        122,
+        2,
+        25
+      ]
+    },
+    {
+      "name": "IndexRebalanced",
+      "discriminator": [
+        3,
+        190,
+        86,
+        116,
+        8,
+        116,
+        143,
+        229
+      ]
+    },
+    {
+      "name": "IndexRedeemQuote",
+      "discriminator": [
+        175,
+        134,
+        139,
+        220,
+        56,
+        12,
+        225,
+        21
+      ]
+    },
+    {
+      "name": "IndexRedeemed",
+      "discriminator": [
+        209,
+        234,
+        247,
+        252,
+        232,
+        192,
+        196,
+        253
+      ]
+    },
+    {
+      "name": "LargeBasketComponentFilled",
+      "discriminator": [
+        14,
+        133,
+        196,
+        206,
+        72,
+        3,
+        48,
+        45
+      ]
+    },
+    {
+      "name": "LargeBasketComponentOraclePairUpdated",
+      "discriminator": [
+        178,
+        66,
+        176,
+        60,
+        119,
+        119,
+        153,
+        103
+      ]
+    },
+    {
+      "name": "LargeBasketComponentPageInitialized",
+      "discriminator": [
+        188,
+        97,
+        252,
+        148,
+        198,
+        212,
+        18,
+        185
+      ]
+    },
+    {
+      "name": "LargeBasketConfigFinalized",
+      "discriminator": [
+        58,
+        177,
+        227,
+        82,
+        194,
+        182,
+        4,
+        151
+      ]
+    },
+    {
+      "name": "LargeBasketIntentFinalized",
+      "discriminator": [
+        96,
+        233,
+        186,
+        38,
+        135,
+        191,
+        64,
+        206
+      ]
+    },
+    {
+      "name": "LargeBasketIntentOpened",
+      "discriminator": [
+        103,
+        59,
+        112,
+        231,
+        225,
+        241,
+        102,
+        36
+      ]
+    },
+    {
+      "name": "ProtocolConfigInitialized",
+      "discriminator": [
+        243,
+        69,
+        27,
+        238,
+        111,
+        169,
+        87,
+        231
+      ]
+    },
+    {
+      "name": "ProtocolConfigUpdated",
+      "discriminator": [
+        20,
+        99,
+        32,
+        237,
+        111,
+        86,
+        195,
+        199
+      ]
+    },
+    {
+      "name": "StakingPoolInitialized",
+      "discriminator": [
+        37,
+        74,
+        85,
+        228,
+        94,
+        35,
+        82,
+        95
+      ]
+    },
+    {
+      "name": "StakingRewardsAccrued",
+      "discriminator": [
+        53,
+        226,
+        219,
+        158,
+        154,
+        10,
+        60,
+        156
+      ]
+    },
+    {
+      "name": "StakingRewardsClaimed",
+      "discriminator": [
+        251,
+        169,
+        50,
+        96,
+        7,
+        92,
+        141,
+        137
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "EmptyName",
+      "msg": "The index name cannot be empty."
+    },
+    {
+      "code": 6001,
+      "name": "EmptySymbol",
+      "msg": "The index symbol cannot be empty."
+    },
+    {
+      "code": 6002,
+      "name": "NameTooLong",
+      "msg": "The index name is too long."
+    },
+    {
+      "code": 6003,
+      "name": "SymbolTooLong",
+      "msg": "The index symbol is too long."
+    },
+    {
+      "code": 6004,
+      "name": "InvalidComponentCount",
+      "msg": "The component list must contain at least one asset."
+    },
+    {
+      "code": 6005,
+      "name": "TooManyComponents",
+      "msg": "The component list exceeds the maximum supported size."
+    },
+    {
+      "code": 6006,
+      "name": "DuplicateComponentMint",
+      "msg": "Component mints must be unique."
+    },
+    {
+      "code": 6007,
+      "name": "ZeroComponentUnits",
+      "msg": "Each component must contribute a non-zero amount per index token."
+    },
+    {
+      "code": 6008,
+      "name": "UnsupportedIndexDecimals",
+      "msg": "The index decimals exceed the current supported maximum."
+    },
+    {
+      "code": 6009,
+      "name": "InvalidRemainingAccounts",
+      "msg": "The provided remaining accounts do not match the basket definition."
+    },
+    {
+      "code": 6010,
+      "name": "InvalidComponentMint",
+      "msg": "A component mint account does not match the index definition."
+    },
+    {
+      "code": 6011,
+      "name": "InvalidVaultAccount",
+      "msg": "A vault token account does not match the expected ATA."
+    },
+    {
+      "code": 6012,
+      "name": "InvalidUserTokenAccount",
+      "msg": "A user token account does not match the expected owner or mint."
+    },
+    {
+      "code": 6013,
+      "name": "InvalidIndexAmount",
+      "msg": "The requested index amount must be greater than zero."
+    },
+    {
+      "code": 6014,
+      "name": "NonIntegralBasketAmount",
+      "msg": "The requested amount would require fractional underlying token atoms."
+    },
+    {
+      "code": 6015,
+      "name": "ArithmeticOverflow",
+      "msg": "An arithmetic overflow occurred."
+    },
+    {
+      "code": 6016,
+      "name": "IndexMintMismatch",
+      "msg": "The provided index mint does not match the stored configuration."
+    },
+    {
+      "code": 6017,
+      "name": "InvalidQuoteMint",
+      "msg": "The provided quote mint is not supported for this flow."
+    },
+    {
+      "code": 6018,
+      "name": "InvalidTokenMint",
+      "msg": "The provided token mint is invalid."
+    },
+    {
+      "code": 6019,
+      "name": "InvalidTokenProgram",
+      "msg": "The provided token program account is invalid."
+    },
+    {
+      "code": 6020,
+      "name": "QuoteBudgetExceeded",
+      "msg": "The quote budget would be exceeded."
+    },
+    {
+      "code": 6021,
+      "name": "InvalidUserComponentTokenAccount",
+      "msg": "The provided user component token account is invalid."
+    },
+    {
+      "code": 6022,
+      "name": "InvalidAssociatedTokenProgram",
+      "msg": "The provided associated token program account is invalid."
+    },
+    {
+      "code": 6023,
+      "name": "UnauthorizedAuthority",
+      "msg": "Only the index authority can perform this action."
+    },
+    {
+      "code": 6024,
+      "name": "InvalidFeeBps",
+      "msg": "The requested fee is outside the supported range."
+    },
+    {
+      "code": 6025,
+      "name": "InvalidCreatorFeeRecipientTokenAccount",
+      "msg": "The provided creator fee recipient token account is invalid."
+    },
+    {
+      "code": 6026,
+      "name": "MetadataUriTooLong",
+      "msg": "The metadata URI is too long."
+    },
+    {
+      "code": 6027,
+      "name": "InvalidRebalanceDelay",
+      "msg": "The requested rebalance delay is outside the supported range."
+    },
+    {
+      "code": 6028,
+      "name": "MintingPaused",
+      "msg": "Minting is currently paused for this index."
+    },
+    {
+      "code": 6029,
+      "name": "RedeemingPaused",
+      "msg": "Redeeming is currently paused for this index."
+    },
+    {
+      "code": 6030,
+      "name": "RebalancingPaused",
+      "msg": "Rebalancing is currently paused for this index."
+    },
+    {
+      "code": 6031,
+      "name": "SupplyCapExceeded",
+      "msg": "The mint would exceed this index's supply cap."
+    },
+    {
+      "code": 6032,
+      "name": "NoPendingRebalance",
+      "msg": "There is no pending rebalance proposal."
+    },
+    {
+      "code": 6033,
+      "name": "RebalanceTimelockActive",
+      "msg": "The pending rebalance proposal is still timelocked."
+    },
+    {
+      "code": 6034,
+      "name": "InvalidMetadataAccount",
+      "msg": "The provided metadata account is invalid."
+    },
+    {
+      "code": 6035,
+      "name": "InvalidFeeRecipientTokenAccount",
+      "msg": "The provided fee recipient token account is invalid."
+    },
+    {
+      "code": 6036,
+      "name": "InvalidAuthority",
+      "msg": "The provided authority cannot be the default public key."
+    },
+    {
+      "code": 6037,
+      "name": "InvalidProgramData",
+      "msg": "The provided program data account is invalid."
+    },
+    {
+      "code": 6038,
+      "name": "UnauthorizedIndexCreator",
+      "msg": "Only an approved index creator can create indexes."
+    },
+    {
+      "code": 6039,
+      "name": "IndexCreatorWhitelistFull",
+      "msg": "The index creator whitelist is full."
+    },
+    {
+      "code": 6040,
+      "name": "InvalidRebalanceSwap",
+      "msg": "The rebalance swap plan is invalid."
+    },
+    {
+      "code": 6041,
+      "name": "RebalanceWouldSellTargetBacking",
+      "msg": "A rebalance swap would sell assets required by the target basket."
+    },
+    {
+      "code": 6042,
+      "name": "RebalanceTargetNotMet",
+      "msg": "The rebalance did not produce enough assets to satisfy the target basket."
+    },
+    {
+      "code": 6043,
+      "name": "TooManyRebalanceSwaps",
+      "msg": "The rebalance swap list exceeds the maximum supported size."
+    },
+    {
+      "code": 6044,
+      "name": "InvalidRebalancePriceInput",
+      "msg": "The provided rebalance price input is invalid."
+    },
+    {
+      "code": 6045,
+      "name": "PriceOutsideOracleTolerance",
+      "msg": "The explicit price is outside the allowed oracle tolerance."
+    },
+    {
+      "code": 6046,
+      "name": "RebalanceNavMismatch",
+      "msg": "The old and new rebalance NAV differ outside the allowed tolerance."
+    },
+    {
+      "code": 6047,
+      "name": "InvalidNavTolerance",
+      "msg": "The NAV tolerance is outside the supported range."
+    },
+    {
+      "code": 6048,
+      "name": "InvalidOraclePriceTolerance",
+      "msg": "The oracle price tolerance is outside the supported range."
+    },
+    {
+      "code": 6049,
+      "name": "VaultBelowTargetBacking",
+      "msg": "A component vault is below the supply-scaled target backing."
+    },
+    {
+      "code": 6050,
+      "name": "InvalidFixedWeightConfig",
+      "msg": "The fixed-weight index configuration is invalid."
+    },
+    {
+      "code": 6051,
+      "name": "InvalidIndexKind",
+      "msg": "The requested instruction is not supported for this index kind."
+    },
+    {
+      "code": 6052,
+      "name": "RebalanceNotNeeded",
+      "msg": "The fixed-weight index has not reached its time or drift rebalance trigger."
+    },
+    {
+      "code": 6053,
+      "name": "VaultSurplusClaimDisabled",
+      "msg": "Vault surplus belongs to index holders under pro-rata accounting."
+    },
+    {
+      "code": 6054,
+      "name": "InvalidBasketMint",
+      "msg": "The provided BASKET mint is invalid."
+    },
+    {
+      "code": 6055,
+      "name": "InvalidRewardMint",
+      "msg": "The provided staking reward mint is invalid."
+    },
+    {
+      "code": 6056,
+      "name": "InvalidStakingVault",
+      "msg": "The provided staking vault is invalid."
+    },
+    {
+      "code": 6057,
+      "name": "InvalidStakePosition",
+      "msg": "The staking position does not belong to the signer or pool."
+    },
+    {
+      "code": 6058,
+      "name": "InvalidStakeAmount",
+      "msg": "The stake amount must be greater than zero."
+    },
+    {
+      "code": 6059,
+      "name": "InvalidRewardAmount",
+      "msg": "The staking reward amount must be greater than zero."
+    },
+    {
+      "code": 6060,
+      "name": "InsufficientStakedAmount",
+      "msg": "The staking position does not have enough staked tokens."
+    },
+    {
+      "code": 6061,
+      "name": "NoStakedTokens",
+      "msg": "Staking rewards cannot be accrued while no BASKET is staked."
+    },
+    {
+      "code": 6062,
+      "name": "NoRewardsToClaim",
+      "msg": "There are no staking rewards to claim."
+    },
+    {
+      "code": 6063,
+      "name": "FeesRequireUsdcQuote",
+      "msg": "Nonzero fees are disabled for the current Jupiter-only protocol."
+    },
+    {
+      "code": 6064,
+      "name": "InvalidJupiterProgram",
+      "msg": "The provided Jupiter program account is invalid."
+    },
+    {
+      "code": 6065,
+      "name": "InvalidJupiterRoute",
+      "msg": "The provided Jupiter route instruction is invalid."
+    },
+    {
+      "code": 6066,
+      "name": "SwitchboardVerificationFailed",
+      "msg": "Switchboard oracle verification failed."
+    },
+    {
+      "code": 6067,
+      "name": "InvalidSwitchboardMaxAge",
+      "msg": "The requested Switchboard quote maximum age is outside the supported range."
+    },
+    {
+      "code": 6068,
+      "name": "MissingSwitchboardFeed",
+      "msg": "The required Switchboard feed was not present in the verified quote."
+    },
+    {
+      "code": 6069,
+      "name": "InvalidSwitchboardPrice",
+      "msg": "The Switchboard oracle price is invalid."
+    },
+    {
+      "code": 6070,
+      "name": "ExecutionPriceOutsideOracleTolerance",
+      "msg": "The Jupiter execution price is outside the configured oracle tolerance."
+    },
+    {
+      "code": 6071,
+      "name": "StakingFeesRequireLargeBasketIntent",
+      "msg": "Staking fee distribution requires the large-basket intent flow."
+    },
+    {
+      "code": 6072,
+      "name": "InvalidLargeBasketIntent",
+      "msg": "The large-basket intent is invalid."
+    },
+    {
+      "code": 6073,
+      "name": "LargeBasketIntentExpired",
+      "msg": "The large-basket intent has expired."
+    },
+    {
+      "code": 6074,
+      "name": "InvalidLargeBasketIntentExpiry",
+      "msg": "The large-basket intent expiry is outside the supported range."
+    },
+    {
+      "code": 6075,
+      "name": "InvalidLargeBasketComponentPage",
+      "msg": "The large-basket component page is invalid."
+    },
+    {
+      "code": 6076,
+      "name": "LargeBasketNotConfigured",
+      "msg": "The large-basket index is not fully configured."
+    },
+    {
+      "code": 6077,
+      "name": "LargeBasketComponentAlreadyFilled",
+      "msg": "The large-basket component has already been filled for this intent."
+    },
+    {
+      "code": 6078,
+      "name": "LargeBasketComponentNotFilled",
+      "msg": "The large-basket component has not been filled for this intent."
+    },
+    {
+      "code": 6079,
+      "name": "ComponentTransferAmountMismatch",
+      "msg": "The component transfer did not credit the required token amount."
+    },
+    {
+      "code": 6080,
+      "name": "LargeBasketOracleUpdateRequiresZeroSupply",
+      "msg": "A large-basket component oracle pair can only be updated while the index supply is zero."
+    },
+    {
+      "code": 6081,
+      "name": "LargeBasketComponentAlreadyVerified",
+      "msg": "The large-basket component price has already been verified for this intent."
+    },
+    {
+      "code": 6082,
+      "name": "LargeBasketComponentNotVerified",
+      "msg": "All filled large-basket components must be price-verified before finalizing."
+    }
+  ],
+  "types": [
+    {
+      "name": "BasketStaked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "total_staked",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BasketUnstaked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "total_staked",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ComponentAmountQuote",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "gross_amount",
+            "type": "u64"
+          },
+          {
+            "name": "fee_amount",
+            "type": "u64"
+          },
+          {
+            "name": "net_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreateIndexArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string"
+          },
+          {
+            "name": "metadata_uri",
+            "type": "string"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          },
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "max_supply",
+            "type": "u64"
+          },
+          {
+            "name": "rebalance_delay_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "IndexKind"
+              }
+            }
+          },
+          {
+            "name": "fixed_weight_quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "fixed_weight_rebalance_interval_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "fixed_weight_drift_threshold_bps",
+            "type": "u16"
+          },
+          {
+            "name": "fixed_weight_spot_ema_max_deviation_bps",
+            "type": "u16"
+          },
+          {
+            "name": "components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "IndexComponentInput"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreateLargeBasketIndexArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string"
+          },
+          {
+            "name": "metadata_uri",
+            "type": "string"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          },
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "max_supply",
+            "type": "u64"
+          },
+          {
+            "name": "rebalance_delay_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "IndexKind"
+              }
+            }
+          },
+          {
+            "name": "fixed_weight_quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "fixed_weight_rebalance_interval_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "fixed_weight_drift_threshold_bps",
+            "type": "u16"
+          },
+          {
+            "name": "fixed_weight_spot_ema_max_deviation_bps",
+            "type": "u16"
+          },
+          {
+            "name": "component_count",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExecuteLargeBasketMintBatchArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "entries",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "LargeBasketMintBatchEntry"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExecuteLargeBasketMintComponentArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "max_quote_in",
+            "type": "u64"
+          },
+          {
+            "name": "max_oracle_slippage_bps",
+            "type": "u16"
+          },
+          {
+            "name": "swap",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "LargeBasketSwapPlan"
+                }
+              }
+            }
+          },
+          {
+            "name": "switchboard_max_age_slots",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExecuteLargeBasketRedeemBatchArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "entries",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "LargeBasketRedeemBatchEntry"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExecuteLargeBasketRedeemComponentArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "min_quote_out",
+            "type": "u64"
+          },
+          {
+            "name": "max_oracle_slippage_bps",
+            "type": "u16"
+          },
+          {
+            "name": "swap",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "LargeBasketSwapPlan"
+                }
+              }
+            }
+          },
+          {
+            "name": "switchboard_max_age_slots",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExecuteRebalanceArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "swaps",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "JupiterRebalanceSwapPlan"
+                }
+              }
+            }
+          },
+          {
+            "name": "prices",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "RebalancePriceInput"
+                }
+              }
+            }
+          },
+          {
+            "name": "switchboard_max_age_slots",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FixedWeightConfigUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "components",
+            "type": "u8"
+          },
+          {
+            "name": "rebalance_interval_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "drift_threshold_bps",
+            "type": "u16"
+          },
+          {
+            "name": "spot_ema_max_deviation_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FixedWeightRebalanceExecuted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "executor",
+            "type": "pubkey"
+          },
+          {
+            "name": "supply",
+            "type": "u64"
+          },
+          {
+            "name": "total_nav_nad",
+            "type": "u128"
+          },
+          {
+            "name": "max_drift_bps",
+            "type": "u16"
+          },
+          {
+            "name": "time_triggered",
+            "type": "bool"
+          },
+          {
+            "name": "drift_triggered",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FundStakingRewardsArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexAuthorityUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexComponent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "units_per_index",
+            "type": "u64"
+          },
+          {
+            "name": "target_weight_bps",
+            "type": "u16"
+          },
+          {
+            "name": "oracle_pair",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexComponentInput",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "units_per_index",
+            "type": "u64"
+          },
+          {
+            "name": "target_weight_bps",
+            "type": "u16"
+          },
+          {
+            "name": "oracle_pair",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexConfigUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "max_supply",
+            "type": "u64"
+          },
+          {
+            "name": "rebalance_delay_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "minting_paused",
+            "type": "bool"
+          },
+          {
+            "name": "redeeming_paused",
+            "type": "bool"
+          },
+          {
+            "name": "rebalancing_paused",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "index_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "IndexKind"
+              }
+            }
+          },
+          {
+            "name": "components",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexCreatorWhitelistUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "whitelisted",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexFeesClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "amounts",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ComponentAmountQuote"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexFeesUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_redeem_fee_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexKind",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "FixedUnits"
+          },
+          {
+            "name": "FixedWeights"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexMetadataArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "uri",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexMetadataAuthorityMigrated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "metadata",
+            "type": "pubkey"
+          },
+          {
+            "name": "update_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexMetadataUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "metadata",
+            "type": "pubkey"
+          },
+          {
+            "name": "uri",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexMintQuote",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ComponentAmountQuote"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexMinted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "depositor",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexRebalanceCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexRebalanceProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "components",
+            "type": "u8"
+          },
+          {
+            "name": "available_at",
+            "type": "i64"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_nav_nad",
+            "type": "u128"
+          },
+          {
+            "name": "new_nav_nad",
+            "type": "u128"
+          },
+          {
+            "name": "oracle_price_tolerance_bps",
+            "type": "u16"
+          },
+          {
+            "name": "nav_tolerance_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexRebalanced",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "components",
+            "type": "u8"
+          },
+          {
+            "name": "supply",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexRedeemQuote",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ComponentAmountQuote"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexRedeemed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "redeemer",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "index_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_authority_bump",
+            "type": "u8"
+          },
+          {
+            "name": "index_bump",
+            "type": "u8"
+          },
+          {
+            "name": "index_mint_bump",
+            "type": "u8"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "IndexKind"
+              }
+            }
+          },
+          {
+            "name": "component_count",
+            "type": "u8"
+          },
+          {
+            "name": "large_basket_component_count",
+            "type": "u8"
+          },
+          {
+            "name": "large_basket_page_count",
+            "type": "u8"
+          },
+          {
+            "name": "large_basket_configured",
+            "type": "bool"
+          },
+          {
+            "name": "large_basket_operation_in_progress",
+            "type": "bool"
+          },
+          {
+            "name": "pending_component_count",
+            "type": "u8"
+          },
+          {
+            "name": "mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "max_supply",
+            "type": "u64"
+          },
+          {
+            "name": "rebalance_delay_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "fixed_weight_rebalance_interval_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "fixed_weight_last_rebalanced_at",
+            "type": "i64"
+          },
+          {
+            "name": "pending_rebalance_available_at",
+            "type": "i64"
+          },
+          {
+            "name": "pending_rebalance_nonce",
+            "type": "u64"
+          },
+          {
+            "name": "pending_rebalance_quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "fixed_weight_quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_rebalance_oracle_price_tolerance_bps",
+            "type": "u16"
+          },
+          {
+            "name": "pending_rebalance_nav_tolerance_bps",
+            "type": "u16"
+          },
+          {
+            "name": "fixed_weight_drift_threshold_bps",
+            "type": "u16"
+          },
+          {
+            "name": "fixed_weight_spot_ema_max_deviation_bps",
+            "type": "u16"
+          },
+          {
+            "name": "minting_paused",
+            "type": "bool"
+          },
+          {
+            "name": "redeeming_paused",
+            "type": "bool"
+          },
+          {
+            "name": "rebalancing_paused",
+            "type": "bool"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                1
+              ]
+            }
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string"
+          },
+          {
+            "name": "metadata_uri",
+            "type": "string"
+          },
+          {
+            "name": "components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "IndexComponent"
+                }
+              }
+            }
+          },
+          {
+            "name": "pending_components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "IndexComponent"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeLargeBasketComponentPageArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "page_index",
+            "type": "u8"
+          },
+          {
+            "name": "start_component_index",
+            "type": "u16"
+          },
+          {
+            "name": "components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "IndexComponentInput"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeProtocolArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index_creator",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JupiterAccountMetaInput",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "account_index",
+            "type": "u8"
+          },
+          {
+            "name": "is_signer",
+            "type": "bool"
+          },
+          {
+            "name": "is_writable",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "JupiterCompactSwapPlan",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "instruction_data",
+            "type": "bytes"
+          },
+          {
+            "name": "accounts",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "JupiterAccountMetaInput"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "JupiterRebalanceSwapPlan",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "input_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "output_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "source_token_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "destination_token_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "max_oracle_slippage_bps",
+            "type": "u16"
+          },
+          {
+            "name": "instruction_data",
+            "type": "bytes"
+          },
+          {
+            "name": "accounts",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "JupiterAccountMetaInput"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketComponent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "units_per_index",
+            "type": "u64"
+          },
+          {
+            "name": "target_weight_bps",
+            "type": "u16"
+          },
+          {
+            "name": "oracle_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "accounted_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketComponentFilled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "intent",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "quote_atoms",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketComponentOraclePairUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "page",
+            "type": "pubkey"
+          },
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "component_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle_pair",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketComponentPage",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "page_index",
+            "type": "u8"
+          },
+          {
+            "name": "start_component_index",
+            "type": "u16"
+          },
+          {
+            "name": "component_count",
+            "type": "u16"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "finalized",
+            "type": "bool"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "LargeBasketComponent"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketComponentPageInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "page",
+            "type": "pubkey"
+          },
+          {
+            "name": "page_index",
+            "type": "u8"
+          },
+          {
+            "name": "start_component_index",
+            "type": "u16"
+          },
+          {
+            "name": "component_count",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketConfigFinalized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "component_count",
+            "type": "u8"
+          },
+          {
+            "name": "page_count",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketIntent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "LargeBasketIntentKind"
+              }
+            }
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "LargeBasketIntentStatus"
+              }
+            }
+          },
+          {
+            "name": "index_amount",
+            "type": "u64"
+          },
+          {
+            "name": "supply_snapshot",
+            "type": "u64"
+          },
+          {
+            "name": "post_supply",
+            "type": "u64"
+          },
+          {
+            "name": "quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_basis_usdc_atoms",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fee_usdc_atoms",
+            "type": "u64"
+          },
+          {
+            "name": "creator_fee_usdc_atoms",
+            "type": "u64"
+          },
+          {
+            "name": "staking_fee_usdc_atoms",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "staking_pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "opened_at",
+            "type": "i64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "component_count",
+            "type": "u16"
+          },
+          {
+            "name": "completed_components",
+            "type": "u16"
+          },
+          {
+            "name": "component_fill_bitmap",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
+            "name": "component_amounts",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "quote_atoms_executed",
+            "type": "u64"
+          },
+          {
+            "name": "max_quote_in",
+            "type": "u64"
+          },
+          {
+            "name": "min_quote_out",
+            "type": "u64"
+          },
+          {
+            "name": "fees_collected",
+            "type": "bool"
+          },
+          {
+            "name": "protocol_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "component_quote_atoms",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "component_verified_bitmap",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                25
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketIntentFinalized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "intent",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "LargeBasketIntentKind"
+              }
+            }
+          },
+          {
+            "name": "index_amount",
+            "type": "u64"
+          },
+          {
+            "name": "quote_atoms_executed",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketIntentKind",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Mint"
+          },
+          {
+            "name": "Redeem"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketIntentLock",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "active_intent",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                31
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketIntentOpened",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "intent",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "LargeBasketIntentKind"
+              }
+            }
+          },
+          {
+            "name": "index_amount",
+            "type": "u64"
+          },
+          {
+            "name": "fee_basis_usdc_atoms",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fee_usdc_atoms",
+            "type": "u64"
+          },
+          {
+            "name": "creator_fee_usdc_atoms",
+            "type": "u64"
+          },
+          {
+            "name": "staking_fee_usdc_atoms",
+            "type": "u64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketIntentStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Finalized"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketMintBatchEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "max_quote_in",
+            "type": "u64"
+          },
+          {
+            "name": "route_account_count",
+            "type": "u8"
+          },
+          {
+            "name": "swap",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "LargeBasketSwapPlan"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketRedeemBatchEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "min_quote_out",
+            "type": "u64"
+          },
+          {
+            "name": "route_account_count",
+            "type": "u8"
+          },
+          {
+            "name": "swap",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "LargeBasketSwapPlan"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketSwapPlan",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "instruction_data",
+            "type": "bytes"
+          },
+          {
+            "name": "accounts",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MintIndexArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MintIndexWithJupiterArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index_amount_out",
+            "type": "u64"
+          },
+          {
+            "name": "max_quote_in",
+            "type": "u64"
+          },
+          {
+            "name": "swaps",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "JupiterCompactSwapPlan"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "OpenLargeBasketMintIntentArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index_amount_out",
+            "type": "u64"
+          },
+          {
+            "name": "max_quote_in",
+            "type": "u64"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OpenLargeBasketRedeemIntentArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index_amount_in",
+            "type": "u64"
+          },
+          {
+            "name": "min_quote_out",
+            "type": "u64"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposeRebalanceArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "IndexComponentInput"
+                }
+              }
+            }
+          },
+          {
+            "name": "quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "prices",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "RebalancePriceInput"
+                }
+              }
+            }
+          },
+          {
+            "name": "oracle_price_tolerance_bps",
+            "type": "u16"
+          },
+          {
+            "name": "nav_tolerance_bps",
+            "type": "u16"
+          },
+          {
+            "name": "switchboard_max_age_slots",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "index_creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "permissionless_index_creation",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                30
+              ]
+            }
+          },
+          {
+            "name": "index_creator_whitelist",
+            "type": {
+              "vec": "pubkey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolConfigInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "index_creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "permissionless_index_creation",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolConfigUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "old_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_index_creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_index_creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_permissionless_index_creation",
+            "type": "bool"
+          },
+          {
+            "name": "new_permissionless_index_creation",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "QuoteIndexArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RebalanceFixedWeightsWithJupiterArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "max_quote_dust",
+            "type": "u64"
+          },
+          {
+            "name": "max_post_rebalance_drift_bps",
+            "type": "u16"
+          },
+          {
+            "name": "switchboard_max_age_slots",
+            "type": "u64"
+          },
+          {
+            "name": "swaps",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "JupiterRebalanceSwapPlan"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RebalancePriceInput",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "price_nad",
+            "type": {
+              "option": "u64"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RedeemIndexArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RedeemIndexWithJupiterArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index_amount_in",
+            "type": "u64"
+          },
+          {
+            "name": "min_quote_out",
+            "type": "u64"
+          },
+          {
+            "name": "swaps",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "JupiterCompactSwapPlan"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SetLargeBasketComponentOraclePairArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "page_index",
+            "type": "u8"
+          },
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "component_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle_pair",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakeBasketArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakePosition",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "staking_pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount_staked",
+            "type": "u64"
+          },
+          {
+            "name": "pending_rewards",
+            "type": "u64"
+          },
+          {
+            "name": "reward_per_token_checkpoint",
+            "type": "u128"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "pending_rewards_scaled",
+            "type": "u128"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                15
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakingPool",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "basket_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "staking_authority_bump",
+            "type": "u8"
+          },
+          {
+            "name": "total_staked",
+            "type": "u64"
+          },
+          {
+            "name": "reward_per_token_accumulator",
+            "type": "u128"
+          },
+          {
+            "name": "unallocated_rewards",
+            "type": "u64"
+          },
+          {
+            "name": "reward_remainder_scaled",
+            "type": "u128"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                48
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakingPoolInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "basket_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_mint",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakingRewardsAccrued",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "source",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "total_staked",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakingRewardsClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UnstakeBasketArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateAuthorityArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "new_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateConfigArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "max_supply",
+            "type": "u64"
+          },
+          {
+            "name": "rebalance_delay_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "minting_paused",
+            "type": "bool"
+          },
+          {
+            "name": "redeeming_paused",
+            "type": "bool"
+          },
+          {
+            "name": "rebalancing_paused",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateFeesArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_redeem_fee_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateFixedWeightConfigArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fixed_weight_quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "fixed_weight_rebalance_interval_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "fixed_weight_drift_threshold_bps",
+            "type": "u16"
+          },
+          {
+            "name": "fixed_weight_spot_ema_max_deviation_bps",
+            "type": "u16"
+          },
+          {
+            "name": "components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "IndexComponentInput"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateIndexCreatorWhitelistArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "whitelisted",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateProtocolConfigArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "index_creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "permissionless_index_creation",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VerifyLargeBasketComponentPriceArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "max_oracle_slippage_bps",
+            "type": "u16"
+          },
+          {
+            "name": "switchboard_max_age_slots",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

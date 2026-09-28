@@ -54,6 +54,6 @@ pub const MAX_REBALANCE_DELAY_SECONDS: i64 = 30 * 24 * 60 * 60;
 pub const BPS_DENOMINATOR: u16 = 10_000;
 pub const REWARD_PER_TOKEN_SCALE: u128 = 1_000_000_000_000_000_000;
 
-pub const BASKET_MINT: Pubkey = pubkey!("5yTFbtAE5RDjxpiVpDfyWuzcCWgwh659CEu7a7ZQtSpk");
+pub const BASKET_MINT: Pubkey = pubkey!("2rNBaMg5VAr1aMNCwAPdDZVgzzdTaNDebUnNqPFNmeta");
 pub const USDC_MINT: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 pub const USDC_DECIMALS: u8 = 6;

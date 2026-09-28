@@ -5,7 +5,6 @@
 //   open_rebalance_intent
 //     -> execute_rebalance_sell_batch ×N   (component -> USDC, Jupiter, ExactIn)
 //     -> execute_rebalance_buy_batch  ×N   (USDC -> component, Jupiter, ExactOut)
-//     -> verify_rebalance_component_price ×(legs)  (deferred per-leg oracle bound)
 //     -> finalize_rebalance
 //     -> close_rebalance_intent             (reclaim the intent rent)
 // and, when it finds a stuck/expired intent, unwind_rebalance to release the lock.
@@ -13,7 +12,7 @@
 // SAFETY: dry-run by default. It reads chain state, fetches prices/quotes, builds the
 // full plan (and, with --preview-swaps, the real Jupiter swap encodings) and prints it,
 // but sends NOTHING unless you pass --execute. Sending real transactions spends the
-// keeper's funds (swap fees + slippage) and moves basket assets.
+// keeper's SOL (transaction fees + rent) and moves basket assets.
 //
 // To avoid stranding an open intent, the --execute path builds and VALIDATES every swap
 // batch (tx size + Jupiter route account scope) BEFORE sending any execute tx; if a leg
@@ -27,11 +26,16 @@
 //   node scripts/rebalance-bot.mjs --watch         # loop forever (poll every --interval s)
 //
 // Env: SOLANA_RPC_URL (default mainnet-beta; discovery needs a getProgramAccounts-capable RPC),
+//      KEEPER_KEYPAIR (secret key JSON array; takes precedence over ANCHOR_WALLET),
 //      ANCHOR_WALLET (default deployer-keypair.json), JUPITER_SWAP_API, JUPITER_PRICE_API.
+//
+// In --watch mode SIGTERM/SIGINT stop the loop after the index being processed, so a
+// restart doesn't abandon a rebalance mid-flight (see fly.toml kill_timeout).
 //
 // NOTE: build the program (anchor build, regenerates target/idl/basket.json) and deploy it
 // before the --execute path works against a real basket.
 
+import { installGatewayFallback } from "./lib/switchboard-gateway.mjs";
 import anchor from "@coral-xyz/anchor";
 import {
   ComputeBudgetProgram,
@@ -55,10 +59,11 @@ import { CrossbarClient, CrossbarNetwork } from "@switchboard-xyz/common";
 import { OracleQuote, getDefaultQueue } from "@switchboard-xyz/on-demand";
 import fs from "fs";
 import path from "path";
+import { pathToFileURL } from "node:url";
 
 // --- constants ---------------------------------------------------------------
 
-const PROGRAM_ID = new PublicKey("9LNEoShrH93XekWQTFmZBdUdMu8ugJxBr5cbfqJQC1mw");
+const PROGRAM_ID = new PublicKey("bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv");
 const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 const JUPITER_V6 = new PublicKey("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4");
 
@@ -106,7 +111,7 @@ const BATCH_SIZE = Math.max(
   Math.min(MAX_REBALANCE_SWAPS_PER_BATCH, Number(flagValue("--batch-size", "2"))),
 );
 const SLIPPAGE_BPS = Number(flagValue("--slippage-bps", "100"));
-// The deferred per-leg verify bounds the realized fill vs a FRESH oracle. That budget must
+// Each swap atomically bounds the realized fill vs a FRESH oracle. That budget must
 // cover the execution slippage already allowed PLUS the Jupiter-mid-vs-oracle basis and any
 // intra-window oracle drift — so it is execution slippage + a buffer, NOT just the slippage.
 const VERIFY_ORACLE_BUFFER_BPS = Number(flagValue("--verify-buffer-bps", "300"));
@@ -125,6 +130,10 @@ const INTENT_TTL_S = Math.max(
   60,
   Math.min(MAX_INTENT_TTL_SECONDS - TTL_SKEW_MARGIN_S, Number(flagValue("--ttl", "600"))),
 );
+const REBROADCAST_INTERVAL_MS = 2_000;
+// After a failed rebalance attempt, leave that basket alone this long so a persistent failure
+// can't drain the keeper's SOL on every poll.
+const FAILURE_COOLDOWN_S = Number(flagValue("--failure-cooldown", "1800"));
 
 const RPC_URL = process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
 const WALLET_PATH = process.env.ANCHOR_WALLET ?? "deployer-keypair.json";
@@ -192,10 +201,16 @@ function isSwitchboardStaleError(error) {
   return /switchboard|verification|stale|quote/i.test(String(error?.message ?? error));
 }
 
+// The blockhash expired before the tx landed, so it never can: safe to rebuild and resend.
+function isExpiredError(error) {
+  return /block height exceeded|has expired/i.test(String(error?.message ?? error));
+}
+
 // --- chain context -----------------------------------------------------------
 
 function loadKeypair(filePath) {
-  return Keypair.fromSecretKey(Uint8Array.from(readJson(filePath)));
+  const secret = process.env.KEEPER_KEYPAIR ? JSON.parse(process.env.KEEPER_KEYPAIR) : readJson(filePath);
+  return Keypair.fromSecretKey(Uint8Array.from(secret));
 }
 
 function loadProgram(connection, payer) {
@@ -376,7 +391,13 @@ function compiledSize(payer, instructions, lookupTables = []) {
     recentBlockhash: PublicKey.default.toBase58(),
     instructions,
   }).compileToV0Message(lookupTables);
-  return new VersionedTransaction(message).serialize().length;
+  try {
+    return new VersionedTransaction(message).serialize().length;
+  } catch (error) {
+    // web3.js uses fixed serialization buffers; an oversized candidate must split.
+    if (error instanceof RangeError && /encoding overruns Uint8Array|offset is outside the bounds/i.test(error.message)) return Infinity;
+    throw error;
+  }
 }
 
 async function sendV0(connection, payer, instructions, label, lookupTables = []) {
@@ -398,18 +419,31 @@ async function sendV0(connection, payer, instructions, label, lookupTables = [])
     preflightCommitment: "confirmed",
     maxRetries: 5,
   });
-  await connection.confirmTransaction(
-    { signature: sig, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
-    "confirmed",
-  );
+  // RPCs drop transactions under load. Rebroadcast the same signed tx until it confirms or
+  // its blockhash expires; it can never land twice.
+  const rebroadcast = setInterval(() => {
+    connection.sendTransaction(tx, { skipPreflight: true, maxRetries: 0 }).catch(() => {});
+  }, REBROADCAST_INTERVAL_MS);
+  let confirmation;
+  try {
+    confirmation = await connection.confirmTransaction(
+      { signature: sig, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
+      "confirmed",
+    );
+  } finally {
+    clearInterval(rebroadcast);
+  }
+  if (confirmation.value.err) {
+    throw new Error(`${label}: transaction ${sig} failed: ${JSON.stringify(confirmation.value.err)}`);
+  }
   log(`    [ok] ${label}: ${sig}`);
   return sig;
 }
 
 // Send a managed Switchboard update then the consuming program ix, retrying the PAIR if the
 // consumer reverts on a stale quote (the two are separate txs, so a congested gap can lapse
-// the 150-slot freshness window).
-async function sendWithFreshQuote(env, feedIds, label, buildConsumerIx, cuLimit, attempts = 2) {
+// the 150-slot freshness window) or expires without landing.
+async function sendWithFreshQuote(env, feedIds, label, buildConsumerIx, cuLimit, attempts = 2, lookupTables = []) {
   const { connection, crossbar, payer } = env;
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -417,11 +451,11 @@ async function sendWithFreshQuote(env, feedIds, label, buildConsumerIx, cuLimit,
     await sendV0(connection, payer, update.instructions, `${label}: switchboard update`);
     const ix = await buildConsumerIx(update);
     try {
-      return await sendV0(connection, payer, [...budgetIxs(cuLimit), ix], label);
+      return await sendV0(connection, payer, [...budgetIxs(cuLimit), ix], label, lookupTables);
     } catch (error) {
       lastError = error;
-      if (attempt < attempts && isSwitchboardStaleError(error)) {
-        log(`    ${label} reverted (stale quote?), retrying with a fresh quote`);
+      if (attempt < attempts && (isSwitchboardStaleError(error) || isExpiredError(error))) {
+        log(`    ${label} failed (${isExpiredError(error) ? "expired" : "stale quote?"}), retrying with a fresh quote`);
         continue;
       }
       throw error;
@@ -500,7 +534,7 @@ async function jupiterQuote({ inputMint, outputMint, amount, swapMode }) {
     `${JUPITER_SWAP_API}/quote?inputMint=${inputMint.toBase58()}` +
     `&outputMint=${outputMint.toBase58()}&amount=${amount.toString()}` +
     `&swapMode=${swapMode}&slippageBps=${SLIPPAGE_BPS}&onlyDirectRoutes=false` +
-    `&restrictIntermediateTokens=true`;
+    `&restrictIntermediateTokens=true&maxAccounts=16`;
   return fetchJson(url, { headers: { accept: "application/json" } });
 }
 
@@ -607,9 +641,17 @@ function dedupeTables(tables) {
   return [...seen.values()];
 }
 
-function executeBatchIx(program, ctx, method, batch) {
-  return program.methods[method]({ entries: batch.map((b) => b.entry) })
+function executeBatchIx(program, ctx, method, batch, update) {
+  return program.methods[method]({
+    entries: batch.map((b) => b.entry),
+    switchboardMaxAgeSlots: new anchor.BN(SWITCHBOARD_MAX_AGE_SLOTS),
+    maxOracleSlippageBps: Math.min(MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS, SLIPPAGE_BPS + VERIFY_ORACLE_BUFFER_BPS),
+  })
     .accounts({
+      switchboardQueue: update.queue.pubkey,
+      switchboardQuote: update.quoteAccount,
+      slothashes: SYSVAR_SLOT_HASHES_PUBKEY,
+      instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
       keeper: ctx.keeper,
       index: ctx.index,
       intent: ctx.intent,
@@ -627,11 +669,11 @@ function executeBatchIx(program, ctx, method, batch) {
 
 // Greedily pack entries into batches that fit BOTH the per-batch swap cap and the 1232-byte
 // tx limit. Throws (RebalanceBuildError) if a single entry can't fit alone.
-async function packBatches(program, ctx, method, entries) {
+async function packBatches(connection, program, ctx, method, entries) {
   const batches = [];
   let cur = [];
   const fits = async (group) => {
-    const ix = await executeBatchIx(program, ctx, method, group);
+    const ix = await executeBatchIx(program, ctx, method, group, await batchOracle(connection, group));
     const tables = dedupeTables(group.flatMap((b) => b.lookupTables));
     const size = compiledSize({ publicKey: ctx.keeper }, [...budgetIxs(1_400_000), ix], tables);
     return size <= TX_LIMIT;
@@ -663,18 +705,22 @@ function batchCuLimit(legCount) {
   return Math.min(1_400_000, 250_000 + legCount * 450_000);
 }
 
-async function sendBatches(connection, program, payer, ctx, method, batches) {
+async function batchOracle(connection, batch) {
+  const queue = await getQueue(connection);
+  const feedIds = [...new Set(batch.map((b) => feedIdHexFromOraclePair(b.component.oraclePair)))];
+  const [quoteAccount] = OracleQuote.getCanonicalPubkey(queue.pubkey, feedIds);
+  return { queue, quoteAccount, feedIds };
+}
+
+async function sendBatches(env, ctx, method, batches) {
   for (let i = 0; i < batches.length; i += 1) {
     const batch = batches[i];
-    const ix = await executeBatchIx(program, ctx, method, batch);
+    const { feedIds } = await batchOracle(env.connection, batch);
     const tables = dedupeTables(batch.flatMap((b) => b.lookupTables));
-    await sendV0(
-      connection,
-      payer,
-      [...budgetIxs(batchCuLimit(batch.length)), ix],
-      `${method} batch ${i + 1}/${batches.length} (${batch.length} legs)`,
-      tables,
-    );
+    await sendWithFreshQuote(env, feedIds,
+      `${method} batch ${i + 1}/${batches.length}`,
+      (update) => executeBatchIx(env.program, ctx, method, batch, update),
+      batchCuLimit(batch.length), 2, tables);
   }
 }
 
@@ -743,38 +789,6 @@ async function openIntent(env, ctx, components, pagePdas, driftThresholdBps, now
     400_000,
   );
   return intent;
-}
-
-async function verifyLeg(env, ctx, component) {
-  const feedId = feedIdHexFromOraclePair(component.oraclePair);
-  const maxOracleSlippageBps = Math.min(
-    MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS,
-    SLIPPAGE_BPS + VERIFY_ORACLE_BUFFER_BPS,
-  );
-  await sendWithFreshQuote(
-    env,
-    [feedId],
-    `verify component ${component.globalIndex}`,
-    (update) =>
-      env.program.methods
-        .verifyRebalanceComponentPrice({
-          componentIndex: component.globalIndex,
-          maxOracleSlippageBps,
-          switchboardMaxAgeSlots: new anchor.BN(SWITCHBOARD_MAX_AGE_SLOTS),
-        })
-        .accounts({
-          keeper: ctx.keeper,
-          index: ctx.index,
-          intent: ctx.intent,
-          componentPage: component.pagePda,
-          switchboardQueue: update.queue.pubkey,
-          switchboardQuote: update.quoteAccount,
-          slothashes: SYSVAR_SLOT_HASHES_PUBKEY,
-          instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
-        })
-        .instruction(),
-    200_000,
-  );
 }
 
 async function finalize(env, ctx, components, pagePdas) {
@@ -867,9 +881,9 @@ async function previewSwaps(connection, program, payer, ctx, legs) {
     }
     if (!entries.length) continue;
     try {
-      const batches = await packBatches(program, pctx, method, entries);
+      const batches = await packBatches(connection, program, pctx, method, entries);
       for (let i = 0; i < batches.length; i += 1) {
-        const ix = await executeBatchIx(program, pctx, method, batches[i]);
+        const ix = await executeBatchIx(program, pctx, method, batches[i], await batchOracle(connection, batches[i]));
         const tables = dedupeTables(batches[i].flatMap((b) => b.lookupTables));
         const size = compiledSize(payer, [...budgetIxs(batchCuLimit(batches[i].length)), ix], tables);
         log(`    [preview] ${method} batch ${i + 1}/${batches.length}: ${batches[i].length} legs, ${size} tx bytes, ${tables.length} ALT(s)`);
@@ -881,6 +895,9 @@ async function previewSwaps(connection, program, payer, ctx, legs) {
 }
 
 // --- per-index processing ----------------------------------------------------
+
+// index pubkey -> epoch ms before which a failed rebalance is not retried.
+const rebalanceRetryAt = new Map();
 
 async function processIndex(env, indexPk) {
   const { connection, program, payer } = env;
@@ -927,6 +944,9 @@ async function processIndex(env, indexPk) {
     return;
   }
 
+  if (!components.some((c) => c.isQuote)) {
+    return void log("  skip: register the USDC reserve component with scripts/register-rebalance-quote.mjs before rebalancing");
+  }
   if (indexState.rebalancingPaused) return void log("  skip: rebalancing is paused for this index");
 
   const nonQuote = components.filter((c) => !c.isQuote).map((c) => c.mint);
@@ -984,7 +1004,46 @@ async function processIndex(env, indexPk) {
     return;
   }
 
-  await executeRebalance(env, ctx, components, pagePdas, driftThresholdBps, now);
+  const key = indexPk.toBase58();
+  const retryAt = rebalanceRetryAt.get(key) ?? 0;
+  if (Date.now() < retryAt) {
+    return void log(`  skip: last attempt failed; next try after ${new Date(retryAt).toISOString()}`);
+  }
+  try {
+    await executeRebalance(env, ctx, components, pagePdas, driftThresholdBps, now);
+  } catch (error) {
+    rebalanceRetryAt.set(key, Date.now() + FAILURE_COOLDOWN_S * 1000);
+    throw error;
+  }
+}
+
+// Reduce total target backing by at most the intent's NAV tolerance. Match the
+// program's integer rounding, retaining at least one atom for each buy leg.
+function buyAmount(open, leg, costBps) {
+  const reduction = ((open + leg) * BigInt(costBps)) / 10_000n;
+  return leg > reduction ? leg - reduction : 1n;
+}
+
+async function affordableBuys(components, targets, opens, tolerance, budget, build) {
+  const plan = async (bps) => {
+    const entries = [];
+    for (const c of components) {
+      entries.push(await build(c, buyAmount(opens[c.globalIndex], targets[c.globalIndex], bps)));
+    }
+    return { entries, cost: entries.reduce((sum, b) => sum + BigInt(b.entry.quoteLimit.toString()), 0n) };
+  };
+  let best = await plan(0);
+  if (best.cost <= budget) return best.entries;
+  best = await plan(tolerance);
+  if (best.cost > budget) throw new RebalanceBuildError("Buy budget exceeds guaranteed USDC proceeds even at the permitted cost allowance");
+  let low = 0, high = tolerance;
+  while (high - low > 1) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = await plan(mid);
+    if (candidate.cost <= budget) { high = mid; best = candidate; }
+    else low = mid;
+  }
+  return best.entries;
 }
 
 async function executeRebalance(env, ctx, components, pagePdas, driftThresholdBps, nowOnChain) {
@@ -1008,10 +1067,14 @@ async function executeRebalance(env, ctx, components, pagePdas, driftThresholdBp
   try {
     const sellEntries = [];
     for (const c of sellComponents) sellEntries.push(await buildLegEntry(connection, ctx, c, targets[c.globalIndex], "sell"));
-    const buyEntries = [];
-    for (const c of buyComponents) buyEntries.push(await buildLegEntry(connection, ctx, c, targets[c.globalIndex], "buy"));
-    sellBatches = await packBatches(program, ctx, "executeRebalanceSellBatch", sellEntries);
-    buyBatches = await packBatches(program, ctx, "executeRebalanceBuyBatch", buyEntries);
+    const scratch = parseTokenAmount(await connection.getAccountInfo(ctx.vaultQuote, "confirmed"));
+    const budget = scratch + sellEntries.reduce((sum, b) => sum + BigInt(b.entry.quoteLimit.toString()), 0n);
+    const buyEntries = await affordableBuys(buyComponents, targets,
+      intent.componentOpenAmounts.map((bn) => BigInt(bn.toString())),
+      Number(intent.navToleranceBps), budget,
+      (c, atoms) => buildLegEntry(connection, ctx, c, atoms, "buy"));
+    sellBatches = await packBatches(connection, program, ctx, "executeRebalanceSellBatch", sellEntries);
+    buyBatches = await packBatches(connection, program, ctx, "executeRebalanceBuyBatch", buyEntries);
   } catch (error) {
     log(`  build/validation failed (${error.message ?? error}); cancelling the un-executed intent`);
     await cancelIntent(connection, program, payer, ctx, intentPk).catch((e) =>
@@ -1021,21 +1084,33 @@ async function executeRebalance(env, ctx, components, pagePdas, driftThresholdBp
     throw error;
   }
 
-  log("  sending sell batches...");
-  await sendBatches(connection, program, payer, ctx, "executeRebalanceSellBatch", sellBatches);
-  log("  sending buy batches...");
-  await sendBatches(connection, program, payer, ctx, "executeRebalanceBuyBatch", buyBatches);
+  try {
+    log("  sending sell batches...");
+    await sendBatches(env, ctx, "executeRebalanceSellBatch", sellBatches);
+    log("  sending buy batches...");
+    await sendBatches(env, ctx, "executeRebalanceBuyBatch", buyBatches);
 
-  log("  verifying legs...");
-  for (const c of [...sellComponents, ...buyComponents]) await verifyLeg(env, ctx, c);
-
-  log("  finalizing...");
-  await finalize(env, ctx, components, pagePdas);
+    log("  finalizing...");
+    await finalize(env, ctx, components, pagePdas);
+  } catch (error) {
+    // cancel_rebalance only succeeds while no leg has executed (the program enforces it);
+    // otherwise the intent holds the lock until expiry and a later pass unwinds it.
+    log(`  execution failed (${error.message ?? error}); cancelling the intent if no leg executed`);
+    try {
+      await cancelIntent(connection, program, payer, ctx, intentPk);
+      await closeIntent(connection, program, payer, intentPk);
+    } catch (e) {
+      log(`  [warn] cancel failed, intent will be unwound after expiry: ${e.message ?? e}`);
+    }
+    throw error;
+  }
   await closeIntent(connection, program, payer, intentPk);
   log(`  DONE: rebalanced ${ctx.index.toBase58()}`);
 }
 
 // --- main --------------------------------------------------------------------
+
+let stopRequested = false;
 
 async function runOnce(env) {
   let indexes;
@@ -1057,6 +1132,7 @@ async function runOnce(env) {
     log(`found ${indexes.length} FixedWeights index(es)`);
   }
   for (const indexPk of indexes) {
+    if (stopRequested) return;
     try {
       await processIndex(env, indexPk);
     } catch (error) {
@@ -1078,6 +1154,7 @@ async function main() {
   const program = loadProgram(connection, payer);
   const crossbar = CrossbarClient.default();
   crossbar.setNetwork(CrossbarNetwork.SolanaMainnet);
+  installGatewayFallback(crossbar, () => getQueue(connection), log);
 
   if (!program.programId.equals(PROGRAM_ID)) {
     throw new Error(`IDL program id ${program.programId.toBase58()} != ${PROGRAM_ID.toBase58()}`);
@@ -1087,7 +1164,7 @@ async function main() {
     JSON.stringify(
       {
         mode: EXECUTE ? "EXECUTE (will send transactions)" : "dry-run (read-only)",
-        rpc: RPC_URL,
+        rpc: new URL(RPC_URL).origin,
         keeper: payer.publicKey.toBase58(),
         watch: WATCH,
         batchSize: BATCH_SIZE,
@@ -1103,15 +1180,31 @@ async function main() {
 
   const env = { connection, program, crossbar, payer };
   if (WATCH) {
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
+    let wake = () => {};
+    const stop = (signal) => {
+      log(`${signal} received; stopping after the current index`);
+      stopRequested = true;
+      wake();
+    };
+    process.once("SIGTERM", () => stop("SIGTERM"));
+    process.once("SIGINT", () => stop("SIGINT"));
+    while (!stopRequested) {
       await runOnce(env).catch((e) => log(`run error: ${e.message ?? e}`));
+      if (stopRequested) break;
       log(`\nsleeping ${WATCH_INTERVAL_S}s...\n`);
-      await new Promise((r) => setTimeout(r, WATCH_INTERVAL_S * 1000));
+      await new Promise((r) => {
+        wake = r;
+        setTimeout(r, WATCH_INTERVAL_S * 1000);
+      });
     }
+    log("stopped");
+    process.exit(0);
   } else {
     await runOnce(env);
   }
 }
 
-await main();
+export { compiledSize, PROGRAM_ID, sendV0, executeBatchIx, affordableBuys, buyAmount };
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  await main();
+}

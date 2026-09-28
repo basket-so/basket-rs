@@ -25,3 +25,6 @@ pub use update_config::*;
 pub use update_fees::*;
 pub use update_index_creator_whitelist::*;
 pub use update_protocol_config::*;
+
+pub mod register_rebalance_quote;
+pub use register_rebalance_quote::*;

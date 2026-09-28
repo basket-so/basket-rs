@@ -1,0 +1,1160 @@
+{
+  "address": "9LNEoShrH93XekWQTFmZBdUdMu8ugJxBr5cbfqJQC1mw",
+  "metadata": {
+    "name": "basket",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Fixed-ratio basket index protocol on Solana"
+  },
+  "instructions": [
+    {
+      "name": "create_index",
+      "discriminator": [
+        205,
+        71,
+        124,
+        117,
+        143,
+        136,
+        104,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "arg",
+                "path": "args.symbol"
+              }
+            ]
+          }
+        },
+        {
+          "name": "index_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120,
+                  45,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CreateIndexArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_index_metadata",
+      "discriminator": [
+        193,
+        28,
+        162,
+        52,
+        159,
+        106,
+        202,
+        225
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "metadata",
+          "writable": true
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "metadata_program",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "IndexMetadataArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize_vaults",
+      "discriminator": [
+        234,
+        84,
+        214,
+        3,
+        128,
+        195,
+        81,
+        125
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "index"
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "IndexState",
+      "discriminator": [
+        39,
+        84,
+        33,
+        207,
+        234,
+        99,
+        126,
+        210
+      ]
+    },
+    {
+      "name": "ProtocolConfig",
+      "discriminator": [
+        207,
+        91,
+        250,
+        28,
+        152,
+        179,
+        215,
+        209
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "EmptyName",
+      "msg": "The index name cannot be empty."
+    },
+    {
+      "code": 6001,
+      "name": "EmptySymbol",
+      "msg": "The index symbol cannot be empty."
+    },
+    {
+      "code": 6002,
+      "name": "NameTooLong",
+      "msg": "The index name is too long."
+    },
+    {
+      "code": 6003,
+      "name": "SymbolTooLong",
+      "msg": "The index symbol is too long."
+    },
+    {
+      "code": 6004,
+      "name": "InvalidComponentCount",
+      "msg": "The component list must contain at least one asset."
+    },
+    {
+      "code": 6005,
+      "name": "TooManyComponents",
+      "msg": "The component list exceeds the maximum supported size."
+    },
+    {
+      "code": 6006,
+      "name": "DuplicateComponentMint",
+      "msg": "Component mints must be unique."
+    },
+    {
+      "code": 6007,
+      "name": "ZeroComponentUnits",
+      "msg": "Each component must contribute a non-zero amount per index token."
+    },
+    {
+      "code": 6008,
+      "name": "UnsupportedIndexDecimals",
+      "msg": "The index decimals exceed the current supported maximum."
+    },
+    {
+      "code": 6009,
+      "name": "InvalidRemainingAccounts",
+      "msg": "The provided remaining accounts do not match the basket definition."
+    },
+    {
+      "code": 6010,
+      "name": "InvalidComponentMint",
+      "msg": "A component mint account does not match the index definition."
+    },
+    {
+      "code": 6011,
+      "name": "InvalidVaultAccount",
+      "msg": "A vault token account does not match the expected ATA."
+    },
+    {
+      "code": 6012,
+      "name": "InvalidUserTokenAccount",
+      "msg": "A user token account does not match the expected owner or mint."
+    },
+    {
+      "code": 6013,
+      "name": "InvalidIndexAmount",
+      "msg": "The requested index amount must be greater than zero."
+    },
+    {
+      "code": 6014,
+      "name": "NonIntegralBasketAmount",
+      "msg": "The requested amount would require fractional underlying token atoms."
+    },
+    {
+      "code": 6015,
+      "name": "ArithmeticOverflow",
+      "msg": "An arithmetic overflow occurred."
+    },
+    {
+      "code": 6016,
+      "name": "IndexMintMismatch",
+      "msg": "The provided index mint does not match the stored configuration."
+    },
+    {
+      "code": 6017,
+      "name": "InvalidQuoteMint",
+      "msg": "The provided quote mint is not supported for this flow."
+    },
+    {
+      "code": 6018,
+      "name": "InvalidTokenMint",
+      "msg": "The provided token mint is invalid."
+    },
+    {
+      "code": 6019,
+      "name": "InvalidTokenProgram",
+      "msg": "The provided token program account is invalid."
+    },
+    {
+      "code": 6020,
+      "name": "QuoteBudgetExceeded",
+      "msg": "The quote budget would be exceeded."
+    },
+    {
+      "code": 6021,
+      "name": "InvalidUserComponentTokenAccount",
+      "msg": "The provided user component token account is invalid."
+    },
+    {
+      "code": 6022,
+      "name": "InvalidAssociatedTokenProgram",
+      "msg": "The provided associated token program account is invalid."
+    },
+    {
+      "code": 6023,
+      "name": "UnauthorizedAuthority",
+      "msg": "Only the index authority can perform this action."
+    },
+    {
+      "code": 6024,
+      "name": "InvalidFeeBps",
+      "msg": "The requested fee is outside the supported range."
+    },
+    {
+      "code": 6025,
+      "name": "InvalidCreatorFeeRecipientTokenAccount",
+      "msg": "The provided creator fee recipient token account is invalid."
+    },
+    {
+      "code": 6026,
+      "name": "MetadataUriTooLong",
+      "msg": "The metadata URI is too long."
+    },
+    {
+      "code": 6027,
+      "name": "InvalidRebalanceDelay",
+      "msg": "The requested rebalance delay is outside the supported range."
+    },
+    {
+      "code": 6028,
+      "name": "MintingPaused",
+      "msg": "Minting is currently paused for this index."
+    },
+    {
+      "code": 6029,
+      "name": "RedeemingPaused",
+      "msg": "Redeeming is currently paused for this index."
+    },
+    {
+      "code": 6030,
+      "name": "RebalancingPaused",
+      "msg": "Rebalancing is currently paused for this index."
+    },
+    {
+      "code": 6031,
+      "name": "SupplyCapExceeded",
+      "msg": "The mint would exceed this index's supply cap."
+    },
+    {
+      "code": 6032,
+      "name": "NoPendingRebalance",
+      "msg": "There is no pending rebalance proposal."
+    },
+    {
+      "code": 6033,
+      "name": "RebalanceTimelockActive",
+      "msg": "The pending rebalance proposal is still timelocked."
+    },
+    {
+      "code": 6034,
+      "name": "InvalidMetadataAccount",
+      "msg": "The provided metadata account is invalid."
+    },
+    {
+      "code": 6035,
+      "name": "InvalidFeeRecipientTokenAccount",
+      "msg": "The provided fee recipient token account is invalid."
+    },
+    {
+      "code": 6036,
+      "name": "InvalidAuthority",
+      "msg": "The provided authority cannot be the default public key."
+    },
+    {
+      "code": 6037,
+      "name": "InvalidProgramData",
+      "msg": "The provided program data account is invalid."
+    },
+    {
+      "code": 6038,
+      "name": "UnauthorizedIndexCreator",
+      "msg": "Only an approved index creator can create indexes."
+    },
+    {
+      "code": 6039,
+      "name": "IndexCreatorWhitelistFull",
+      "msg": "The index creator whitelist is full."
+    },
+    {
+      "code": 6040,
+      "name": "InvalidRebalanceSwap",
+      "msg": "The rebalance swap plan is invalid."
+    },
+    {
+      "code": 6041,
+      "name": "RebalanceWouldSellTargetBacking",
+      "msg": "A rebalance swap would sell assets required by the target basket."
+    },
+    {
+      "code": 6042,
+      "name": "RebalanceTargetNotMet",
+      "msg": "The rebalance did not produce enough assets to satisfy the target basket."
+    },
+    {
+      "code": 6043,
+      "name": "TooManyRebalanceSwaps",
+      "msg": "The rebalance swap list exceeds the maximum supported size."
+    },
+    {
+      "code": 6044,
+      "name": "InvalidRebalancePriceInput",
+      "msg": "The provided rebalance price input is invalid."
+    },
+    {
+      "code": 6045,
+      "name": "PriceOutsideOracleTolerance",
+      "msg": "The explicit price is outside the allowed oracle tolerance."
+    },
+    {
+      "code": 6046,
+      "name": "RebalanceNavMismatch",
+      "msg": "The old and new rebalance NAV differ outside the allowed tolerance."
+    },
+    {
+      "code": 6047,
+      "name": "InvalidNavTolerance",
+      "msg": "The NAV tolerance is outside the supported range."
+    },
+    {
+      "code": 6048,
+      "name": "InvalidOraclePriceTolerance",
+      "msg": "The oracle price tolerance is outside the supported range."
+    },
+    {
+      "code": 6049,
+      "name": "VaultBelowTargetBacking",
+      "msg": "A component vault is below the supply-scaled target backing."
+    },
+    {
+      "code": 6050,
+      "name": "InvalidFixedWeightConfig",
+      "msg": "The fixed-weight index configuration is invalid."
+    },
+    {
+      "code": 6051,
+      "name": "InvalidIndexKind",
+      "msg": "The requested instruction is not supported for this index kind."
+    },
+    {
+      "code": 6052,
+      "name": "RebalanceNotNeeded",
+      "msg": "The fixed-weight index has not reached its time or drift rebalance trigger."
+    },
+    {
+      "code": 6053,
+      "name": "VaultSurplusClaimDisabled",
+      "msg": "Vault surplus belongs to index holders under pro-rata accounting."
+    },
+    {
+      "code": 6054,
+      "name": "InvalidBasketMint",
+      "msg": "The provided BASKET mint is invalid."
+    },
+    {
+      "code": 6055,
+      "name": "InvalidRewardMint",
+      "msg": "The provided staking reward mint is invalid."
+    },
+    {
+      "code": 6056,
+      "name": "InvalidStakingVault",
+      "msg": "The provided staking vault is invalid."
+    },
+    {
+      "code": 6057,
+      "name": "InvalidStakePosition",
+      "msg": "The staking position does not belong to the signer or pool."
+    },
+    {
+      "code": 6058,
+      "name": "InvalidStakeAmount",
+      "msg": "The stake amount must be greater than zero."
+    },
+    {
+      "code": 6059,
+      "name": "InvalidRewardAmount",
+      "msg": "The staking reward amount must be greater than zero."
+    },
+    {
+      "code": 6060,
+      "name": "InsufficientStakedAmount",
+      "msg": "The staking position does not have enough staked tokens."
+    },
+    {
+      "code": 6061,
+      "name": "NoStakedTokens",
+      "msg": "Staking rewards cannot be accrued while no BASKET is staked."
+    },
+    {
+      "code": 6062,
+      "name": "NoRewardsToClaim",
+      "msg": "There are no staking rewards to claim."
+    },
+    {
+      "code": 6063,
+      "name": "FeesRequireUsdcQuote",
+      "msg": "Nonzero fees are disabled for the current Jupiter-only protocol."
+    },
+    {
+      "code": 6064,
+      "name": "InvalidJupiterProgram",
+      "msg": "The provided Jupiter program account is invalid."
+    },
+    {
+      "code": 6065,
+      "name": "InvalidJupiterRoute",
+      "msg": "The provided Jupiter route instruction is invalid."
+    },
+    {
+      "code": 6066,
+      "name": "SwitchboardVerificationFailed",
+      "msg": "Switchboard oracle verification failed."
+    },
+    {
+      "code": 6067,
+      "name": "InvalidSwitchboardMaxAge",
+      "msg": "The requested Switchboard quote maximum age is outside the supported range."
+    },
+    {
+      "code": 6068,
+      "name": "MissingSwitchboardFeed",
+      "msg": "The required Switchboard feed was not present in the verified quote."
+    },
+    {
+      "code": 6069,
+      "name": "InvalidSwitchboardPrice",
+      "msg": "The Switchboard oracle price is invalid."
+    },
+    {
+      "code": 6070,
+      "name": "ExecutionPriceOutsideOracleTolerance",
+      "msg": "The Jupiter execution price is outside the configured oracle tolerance."
+    },
+    {
+      "code": 6071,
+      "name": "StakingFeesRequireLargeBasketIntent",
+      "msg": "Staking fee distribution requires the large-basket intent flow."
+    },
+    {
+      "code": 6072,
+      "name": "InvalidLargeBasketIntent",
+      "msg": "The large-basket intent is invalid."
+    },
+    {
+      "code": 6073,
+      "name": "LargeBasketIntentExpired",
+      "msg": "The large-basket intent has expired."
+    },
+    {
+      "code": 6074,
+      "name": "InvalidLargeBasketIntentExpiry",
+      "msg": "The large-basket intent expiry is outside the supported range."
+    },
+    {
+      "code": 6075,
+      "name": "InvalidLargeBasketComponentPage",
+      "msg": "The large-basket component page is invalid."
+    },
+    {
+      "code": 6076,
+      "name": "LargeBasketNotConfigured",
+      "msg": "The large-basket index is not fully configured."
+    },
+    {
+      "code": 6077,
+      "name": "LargeBasketComponentAlreadyFilled",
+      "msg": "The large-basket component has already been filled for this intent."
+    },
+    {
+      "code": 6078,
+      "name": "LargeBasketComponentNotFilled",
+      "msg": "The large-basket component has not been filled for this intent."
+    },
+    {
+      "code": 6079,
+      "name": "ComponentTransferAmountMismatch",
+      "msg": "The component transfer did not credit the required token amount."
+    },
+    {
+      "code": 6080,
+      "name": "LargeBasketOracleUpdateRequiresZeroSupply",
+      "msg": "A large-basket component oracle pair can only be updated while the index supply is zero."
+    },
+    {
+      "code": 6081,
+      "name": "LargeBasketComponentAlreadyVerified",
+      "msg": "The large-basket component price has already been verified for this intent."
+    },
+    {
+      "code": 6082,
+      "name": "LargeBasketComponentNotVerified",
+      "msg": "All filled large-basket components must be price-verified before finalizing."
+    }
+  ],
+  "types": [
+    {
+      "name": "CreateIndexArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string"
+          },
+          {
+            "name": "metadata_uri",
+            "type": "string"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          },
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "max_supply",
+            "type": "u64"
+          },
+          {
+            "name": "rebalance_delay_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "IndexKind"
+              }
+            }
+          },
+          {
+            "name": "fixed_weight_quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "fixed_weight_rebalance_interval_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "fixed_weight_drift_threshold_bps",
+            "type": "u16"
+          },
+          {
+            "name": "fixed_weight_spot_ema_max_deviation_bps",
+            "type": "u16"
+          },
+          {
+            "name": "components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "IndexComponentInput"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexComponent",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "units_per_index",
+            "type": "u64"
+          },
+          {
+            "name": "target_weight_bps",
+            "type": "u16"
+          },
+          {
+            "name": "oracle_pair",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexComponentInput",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "units_per_index",
+            "type": "u64"
+          },
+          {
+            "name": "target_weight_bps",
+            "type": "u16"
+          },
+          {
+            "name": "oracle_pair",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexKind",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "FixedUnits"
+          },
+          {
+            "name": "FixedWeights"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexMetadataArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "uri",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "index_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_authority_bump",
+            "type": "u8"
+          },
+          {
+            "name": "index_bump",
+            "type": "u8"
+          },
+          {
+            "name": "index_mint_bump",
+            "type": "u8"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "IndexKind"
+              }
+            }
+          },
+          {
+            "name": "component_count",
+            "type": "u8"
+          },
+          {
+            "name": "large_basket_component_count",
+            "type": "u8"
+          },
+          {
+            "name": "large_basket_page_count",
+            "type": "u8"
+          },
+          {
+            "name": "large_basket_configured",
+            "type": "bool"
+          },
+          {
+            "name": "large_basket_operation_in_progress",
+            "type": "bool"
+          },
+          {
+            "name": "pending_component_count",
+            "type": "u8"
+          },
+          {
+            "name": "mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "max_supply",
+            "type": "u64"
+          },
+          {
+            "name": "rebalance_delay_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "fixed_weight_rebalance_interval_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "fixed_weight_last_rebalanced_at",
+            "type": "i64"
+          },
+          {
+            "name": "pending_rebalance_available_at",
+            "type": "i64"
+          },
+          {
+            "name": "pending_rebalance_nonce",
+            "type": "u64"
+          },
+          {
+            "name": "pending_rebalance_quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "fixed_weight_quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_rebalance_oracle_price_tolerance_bps",
+            "type": "u16"
+          },
+          {
+            "name": "pending_rebalance_nav_tolerance_bps",
+            "type": "u16"
+          },
+          {
+            "name": "fixed_weight_drift_threshold_bps",
+            "type": "u16"
+          },
+          {
+            "name": "fixed_weight_spot_ema_max_deviation_bps",
+            "type": "u16"
+          },
+          {
+            "name": "minting_paused",
+            "type": "bool"
+          },
+          {
+            "name": "redeeming_paused",
+            "type": "bool"
+          },
+          {
+            "name": "rebalancing_paused",
+            "type": "bool"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                1
+              ]
+            }
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string"
+          },
+          {
+            "name": "metadata_uri",
+            "type": "string"
+          },
+          {
+            "name": "components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "IndexComponent"
+                }
+              }
+            }
+          },
+          {
+            "name": "pending_components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "IndexComponent"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "index_creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "permissionless_index_creation",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                30
+              ]
+            }
+          },
+          {
+            "name": "index_creator_whitelist",
+            "type": {
+              "vec": "pubkey"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

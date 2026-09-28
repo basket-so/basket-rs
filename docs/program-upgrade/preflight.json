@@ -1,0 +1,47 @@
+{
+  "checkedAt": "2026-09-21T06:41:55.920Z",
+  "status": "blocked_on_funding",
+  "program": "bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv",
+  "programData": "7oun82SN1xo8aPe6GZREG86TizvhBQGE5eUaYiL751y9",
+  "genesis": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
+  "authority": "HF6Qk5JnBTfa4MyL4RX2KJUaD9nRG7maNt7xJH9QUVk2",
+  "wallet": "HF6Qk5JnBTfa4MyL4RX2KJUaD9nRG7maNt7xJH9QUVk2",
+  "walletLamports": 1541320551,
+  "bufferRentLamports": 7417475640,
+  "additionalProgramRentLamports": 0,
+  "binaryBytes": 1459968,
+  "binarySha256": "f6292ae72bf1d8329a537876d8d9c5f67f2adf9ef67ad055a1145f6fc21e427f",
+  "previousCapacityBytes": 1422640,
+  "additionalCapacityBytes": 37328,
+  "sourceCommit": "9b784de0c9bcbdd57f28730e2227c27f88f72e60",
+  "sourceHasUncommittedChanges": true,
+  "activeOperations": [],
+  "migrations": [
+    {
+      "symbol": "DEFI",
+      "index": "2XUsdyUwJLHLhz9qp1HPKS8oEVYKj8AS9CqDHRr7ypgk",
+      "componentCount": 6
+    },
+    {
+      "symbol": "DEXS",
+      "index": "AbbQSMuESNUA9CG46JSH2ykbsbfk2TpRHNXRf2C9gvmQ",
+      "componentCount": 3
+    },
+    {
+      "symbol": "AISP",
+      "index": "FBnDbdzWgNAH5L1wHUnoKL5uzKBwcSJTiMaCBp66Jgd7",
+      "componentCount": 3
+    },
+    {
+      "symbol": "LSTY",
+      "index": "FwmoaDwDCcSBMyxPty6pewCZXET7rEuinRoRFbuKMcMP",
+      "componentCount": 5
+    }
+  ],
+  "tests": {
+    "rust": 96,
+    "keeper": 4,
+    "localValidator": "passed: migration, page boundary, cash accounting, cancellation, mint/redemption and staking lifecycles"
+  },
+  "transactions": []
+}

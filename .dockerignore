@@ -1,0 +1,7 @@
+# Allowlist: the build context holds only what Dockerfile.rebalance-bot copies.
+*
+!package.json
+!package-lock.json
+!scripts/rebalance-bot.mjs
+!scripts/lib/switchboard-gateway.mjs
+!docs/program-upgrade/basket.idl.json

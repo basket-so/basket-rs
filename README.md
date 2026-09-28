@@ -42,7 +42,8 @@ Switchboard feed id. The field name is legacy.
 
 A fixed-weight index stores target weights in basis points on each component.
 Target weights are a rebalance policy, not a redemption formula.
-Each component must also specify nonzero `units_per_index` at creation time.
+Each component must specify nonzero `units_per_index` at creation time, except
+a zero-weight USDC reserve in a FixedWeights basket.
 Those units define the initial basket used by the first mint while supply is
 zero; later mints and redeems use pro-rata vault-share accounting, and
 fixed-weight rebalances refresh stored units from the post-rebalance vault
@@ -50,14 +51,13 @@ balances.
 
 Fixed-weight rebalancing runs on a batched intent flow
 (`open_rebalance_intent` -> `execute_rebalance_sell_batch` /
-`execute_rebalance_buy_batch` -> `verify_rebalance_component_price` ->
-`finalize_rebalance`), so the swaps span multiple transactions. It:
+`execute_rebalance_buy_batch` -> `finalize_rebalance`), so the swaps span multiple transactions. It:
 
 - uses Switchboard USD prices to compute current weights and target amounts
 - uses native Solana USDC as the quote leg
 - sells overweight components to USDC, then buys underweight components
 - verifies every Jupiter route's mints, token accounts, protected vault scope,
-  vault balance deltas, deferred per-leg execution price, quote dust, one-sided
+  vault balance deltas, atomic per-leg execution price, quote dust, one-sided
   NAV preservation, and final drift
 - counts USDC parked in the vault-authority quote ATA toward NAV so leftover
   quote (for example from an unwound rebalance) is recycled into components
@@ -94,8 +94,8 @@ Fixed-weight rebalancing runs on a batched intent flow
 - `cancel_unfilled_large_basket_mint_intent` / `cancel_unfilled_large_basket_redeem_intent`: owner aborts an intent before any component fills; redeem restores reserves and re-mints the burned tokens
 - `cancel_expired_large_basket_intent`: permissionless after expiry; returns filled mint backing (or unfilled redeem backing) to the owner and releases the lock
 - `open_rebalance_intent`: permissionlessly opens a fixed-weight rebalance when the drift or time trigger fires; prices NAV via Switchboard, derives per-component sell/buy legs, and takes the operation lock
-- `execute_rebalance_sell_batch` / `execute_rebalance_buy_batch`: execute batched Jupiter swap legs (component->USDC, then USDC->component) and record each leg's quote and fill atoms; blocked after expiry or while rebalancing is paused
-- `verify_rebalance_component_price`: bounds an executed leg's effective price against a fresh single-feed Switchboard quote
+- `execute_rebalance_sell_batch` / `execute_rebalance_buy_batch`: execute batched Jupiter swap legs (component->USDC, then USDC->component) validate execution prices atomically, and record each leg's quote and fill atoms; blocked after expiry or while rebalancing is paused
+- `verify_rebalance_component_price`: legacy separate price check; new executions are already verified atomically
 - `finalize_rebalance`: requires every leg executed and verified, enforces post-rebalance drift, one-sided NAV preservation, and quote dust, then rewrites page units/reserves and releases the lock
 - `cancel_rebalance`: initiator-only cancel before any leg has executed
 - `unwind_rebalance`: abandons a stuck rebalance (permissionless after expiry, index authority any time), re-syncing page accounting from live vault balances and releasing the lock
@@ -122,7 +122,7 @@ skimmed in the component token itself at execute time, with the staking share fo
 into the protocol share so rewards stay a single token.
 
 The BASKET staking mint is fixed at
-`5yTFbtAE5RDjxpiVpDfyWuzcCWgwh659CEu7a7ZQtSpk`. Staking rewards are funded
+`2rNBaMg5VAr1aMNCwAPdDZVgzzdTaNDebUnNqPFNmeta`. Staking rewards are funded
 through `fund_staking_rewards`, which accrues deposited USDC only when BASKET is
 already staked. Component vault surplus belongs to index holders under pro-rata
 accounting.
@@ -147,18 +147,18 @@ cannot immediately re-trigger (a drift-loop guard). To keep that range
 non-empty, a drift-enabled index must be configured with a drift threshold
 strictly above `MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS`.
 
-The binding per-rebalance value protection is the per-leg
-`verify_rebalance_component_price` check, which caps each executed leg's
-effective price against a fresh single-feed Switchboard quote. The finalize
+The binding per-rebalance value protection is the atomic per-leg execution
+check, which caps each swap's effective price against verified Switchboard
+prices before the transaction can commit. The finalize
 NAV-preservation gate is a one-sided aggregate backstop: it re-prices the
 original holdings and the post-rebalance holdings at the same fresh oracle (so
 market drift over the intent's life nets out), but because the keeper selects
 the finalize quote it cannot tighten below the per-leg bound and should not be
 read as a hard standalone NAV guarantee.
 
-Swap legs execute in batches and record their effective quote/fill amounts; the
-per-leg oracle price check is deferred to `verify_rebalance_component_price`
-(the swap and the Switchboard quote do not fit one transaction together).
+Swap legs execute in batches and validate their effective quote/fill amounts
+against Switchboard in the same transaction. Keep batches small enough for the
+oracle update and swap to fit together; oversized batches must be split.
 Execution stops at `expires_at` (at most 30 minutes after open) and while the
 authority has paused rebalancing.
 
@@ -272,7 +272,8 @@ Remaining accounts are per-entry groups of
 `[component page, component mint, component vault, component token program,
 ...route accounts]`. Each sell route must spend exactly the leg from its
 component vault into the vault-authority USDC ATA; each buy route must spend
-from that USDC ATA and deliver at least the leg into its component vault.
+from that USDC ATA within the protocol oracle-value spending cap and deliver at
+least the cost-adjusted minimum into its component vault.
 Vault-authority-owned token accounts other than the declared source and
 destination are rejected from every route.
 
@@ -309,8 +310,8 @@ per leg → `finalize_rebalance`. It also detects a stuck/expired intent and cal
 `unwind_rebalance` to release the operation lock.
 
 It is **dry-run by default** — it reads chain state, fetches quotes, and prints the plan but
-sends no transactions. Pass `--execute` to send. `--execute` spends the keeper's funds (swap
-fees + slippage) and moves basket assets, so validate with the dry run first.
+sends no transactions. Pass `--execute` to send. `--execute` spends the keeper's SOL (transaction
+fees + rent) and moves basket assets; trading costs are paid from basket assets, so validate with the dry run first.
 
 ```bash
 node scripts/rebalance-bot.mjs                 # detect-only, scan all FixedWeights baskets
@@ -325,7 +326,19 @@ buy batch *before* sending any execute transaction; if a leg can't be built/size
 cancels the just-opened (zero-legs-executed) intent and reclaims its rent rather than
 stranding the operation lock. It derives time from the on-chain clock, keeps the intent TTL
 under the program cap, sizes compute units per batch, and retries a step if its Switchboard
-quote goes stale.
+quote goes stale. Each batch includes its oracle accounts in transaction sizing and
+refreshes its managed quote before execution. Failed transaction confirmations stop execution.
+
+Before selling, the worker bounds total buy cost by existing USDC plus minimum sell
+proceeds. If needed, it reduces buy targets within the intent's NAV tolerance, using
+integer rounding that matches the program. If no affordable plan exists, it cancels
+before any trade. Buy fills must retain at least the original target backing less
+that tolerance (and acquire at least one atom); final NAV, drift, and dust gates still
+apply. This requires deploying the updated buy-fill handler; the account layout is unchanged.
+Market movement or route failures can still interrupt a multi-transaction rebalance.
+`--verify-buffer-bps` now configures the buffer for atomic execution-price checks.
+
+Run keeper regression checks with `npm run test:keeper` after generating the current IDL.
 
 Env: `SOLANA_RPC_URL` (default mainnet-beta; discovery needs a `getProgramAccounts`-capable
 RPC), `ANCHOR_WALLET` (keeper keypair, default `deployer-keypair.json`), `JUPITER_SWAP_API`,
@@ -350,6 +363,32 @@ rustc scripts/rustc-wrapper.rs -o scripts/rustc-wrapper.exe
 
 ## Mainnet Deployment
 
+### Curated index catalog
+
+`docs/catalog/baskets.json` contains the six landing-page basket definitions and
+nine additional researched baskets, each targeting a $1 initial NAV. See
+[`docs/catalog/RESEARCH.md`](docs/catalog/RESEARCH.md) for allocations, sources,
+weight policies, and launch blockers. This is a separate, explicitly invoked
+index-creation flow; it is not part of program deployment.
+
+```bash
+npm run test:catalog
+npm run catalog:check
+npm run catalog:deploy
+# Optional subset:
+npm run catalog:deploy -- --symbols=SOLB,MEME
+```
+
+The default is read-only. Execution uses `SOLANA_RPC_URL` and `ANCHOR_WALLET`
+(default `deployer-keypair.json`), validates live prices/routes/oracles, and
+requires sufficient SOL for the eligible batch. It records results in
+`docs/catalog/readiness.json` and confirmed creation transactions in
+`docs/catalog/deployment.json`. Catalog entries with unresolved asset or
+liquidity blockers are never created. The $1 is an initialization valuation,
+not a peg or a guarantee of the price at a later first mint.
+
+### Program deployment
+
 Mainnet deployment is intentionally program-only. It must not call
 `create_large_basket_index`, `initialize_large_basket_component_page`,
 `finalize_large_basket_config`, or any bootstrap script that creates an index. The
@@ -358,7 +397,7 @@ after the program and protocol config are initialized.
 
 Current mainnet ID:
 
-- Basket: `5PYVGshoLQrcawa8zyUCe4qTCe1AQJt6Nxkk89yVgkxu`
+- Basket: `9LNEoShrH93XekWQTFmZBdUdMu8ugJxBr5cbfqJQC1mw`
 
 Safe sequence:
 
@@ -368,3 +407,45 @@ Safe sequence:
 4. Verify `permissionless_index_creation` is false.
 5. Stop. Do not create an index as part of deployment.
 6. Create the first curated index manually through the admin flow.
+
+## Fresh mainnet deployment
+
+The replacement program is `bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv`.
+See `docs/program-replacement` for its deployment journal and review.
+Rebalance batch execution now requires `switchboard_max_age_slots`,
+`max_oracle_slippage_bps`, and the Switchboard queue, quote, slot-hashes and
+instruction-sysvar accounts. Execution validates the realized price atomically
+and marks the leg verified. Size batches to fit the oracle update and swap in
+one transaction; a deferred check cannot protect an already committed swap.
+
+## USDC reserve accounting migration
+
+FixedWeights baskets must include native USDC as a component, even when its target
+weight and initial units are zero. This accounts for cash remaining after a rebalance
+or unwind in every proportional mint, redemption, fee, and cancellation. The reserve
+uses the existing vault USDC ATA and does not change any other component's target weight.
+New configurations without USDC are rejected. Existing configurations without it
+cannot open mint, redemption, or rebalance intents until migrated.
+
+Before upgrading, pause new operations and finish or cancel all outstanding intents.
+After upgrading, run the migration for each fixed-weight basket missing USDC:
+
+```sh
+node scripts/register-rebalance-quote.mjs --index <address>
+node scripts/register-rebalance-quote.mjs --index <address> --execute
+```
+
+The first command builds the instruction without sending it. The second appends the
+cash component, initializes its accounted reserve from the live USDC balance, and
+checks the result. It pays rent only if a new page or ATA is needed. Existing component
+indexes remain unchanged. Accounts retain their existing layouts. Refresh cached page
+and component counts in clients before resuming operations. Migration refuses an active
+operation or duplicate USDC component; a basket already at the 50-component limit needs
+a separate capacity migration before it can append cash. Reserve one of the 50 slots
+for USDC in new baskets.
+
+Rebalance buys also have a protocol-enforced spending ceiling: the original buy leg's
+value at the execution oracle, plus the bounded execution slippage. A keeper's quote
+limit can tighten this ceiling but cannot increase it. Over-delivery at a better price
+remains valid, while spending the whole cash reserve on a small buy is rejected before
+any swap transaction can commit. The final NAV/drift checks and unwind remain in place.

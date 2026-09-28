@@ -1,0 +1,124 @@
+{
+  "oldProgram": "9LNEoShrH93XekWQTFmZBdUdMu8ugJxBr5cbfqJQC1mw",
+  "newProgram": "bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv",
+  "stakingMint": "2rNBaMg5VAr1aMNCwAPdDZVgzzdTaNDebUnNqPFNmeta",
+  "transactions": [
+    {
+      "action": "program close",
+      "output": "\nClosed Program Id 9LNEoShrH93XekWQTFmZBdUdMu8ugJxBr5cbfqJQC1mw, 11.7050844 SOL reclaimed\n\n",
+      "exitCode": 0,
+      "at": "2026-09-08T03:54:39.519Z"
+    },
+    {
+      "action": "program deploy",
+      "output": "Error: Data writes to account failed: Custom error: Max retries exceeded\n",
+      "exitCode": 1,
+      "at": "2026-09-08T04:04:30.039Z"
+    },
+    {
+      "action": "program deploy",
+      "output": "Program Id: bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv\n\nSignature: 5YZqXJPxvYNyq3RHgrFGVftErfNMjPinz9kBkQsM1aoBRaMVC4smhcSekvpKY3n3pvZwR8U2oV6UJMDicdA2qqWB\n\n",
+      "exitCode": 0,
+      "at": "2026-09-08T04:07:11.113Z"
+    },
+    {
+      "action": "initialize protocol",
+      "signature": "4DM3AH7D6zFfYZ9NQHehBSFVSoaV1anmCjbWpvRpnfHWZ4pXJwWohHVVHnqm83JyTSMAHTcN92onsk5SHmd6d8f5",
+      "at": "2026-09-08T04:07:12.364Z"
+    },
+    {
+      "action": "initialize staking pool",
+      "signature": "3AmsvUjhbAUFo8RYMFs6CmVPuGDLRxKN3CHBKqvqyzNXYN4QkbqCyd4w1dURCwPfFrKz6wrefDEwsNtAFvVvAac5",
+      "at": "2026-09-08T04:07:13.328Z"
+    }
+  ],
+  "approvedStranding": {
+    "authorization": "User explicitly instructed: Leave them stranded. They were my tokens and those amounts arent worth even cents.",
+    "index": "EGumJABbMjKDZRLDeEq17QvZbc8yzABnKpyXVzdXJfSh",
+    "blockers": [
+      "Vault 2zxjZrLo4xdDTpM1CzzKhRkFgGGJki87FtY2snXZN66f contains 5073 atoms of XsgSaSvNSqLTtFuyWPBhK9196Xb9Bbdyjj4fH3cPJGo",
+      "Vault 3WajmPb8B7ymgWHafUMw3mbracj3acCU6gbdAwiNhBXM contains 10278 atoms of Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+      "Vault 8AZpUJyMymqC5hnEpWbCHMKbutMuJB2UgceqDct7s9nG contains 5035 atoms of XspzcW1PRtgf6Wj92HCiZdjzKCyFekVD8P5Ueh3dRMX",
+      "Vault 8awBnVsLg7P9Q4ffHCP3e3xfVZGH6RgdJRf9RL6VHv31 contains 8553 atoms of Xs3eBt7uRfJX8QUs4suhyU8p2M6DoUDrJyWBa8LLZsg",
+      "Vault AbEUzYFJaWswQUD3boEp6iastdAq4CjVedLifczmHVkA contains 14091 atoms of XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ",
+      "Vault Aj2ycLt5XjKrvuVpkxHNG9FVAVukxKxvUum6wbc9zDpw contains 6105 atoms of XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN",
+      "Vault B36uFe1tzm7mfYNtATfbq32iGhmNaJBUMtwCmWA69c7t contains 7451 atoms of XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",
+      "Vault DCTWxZcxkfSkWao3egHce9S5vKThmXcoGv4gYop6Dj1F contains 4856 atoms of Xs6B6zawENwAbWVi7w92rjazLuAr5Az59qgWKcNb45x",
+      "Vault Drcj1o6GLpSiXPm2CCFZ66cKYE1dRuvazEBp55WN2vSh contains 5316 atoms of XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+      "Vault EJve5rWe6j3ZaVPMoxmF5qe6W75VsibECda7JsM32Zyr contains 3659 atoms of Xsa62P5mvPszXL1krVUnU5ar38bBSVcWAB6fmPCo5Zu"
+    ],
+    "vaults": [
+      {
+        "address": "2zxjZrLo4xdDTpM1CzzKhRkFgGGJki87FtY2snXZN66f",
+        "authority": "2tDtM1e16ogxrVxV7xorz2WgpRtL2ByXwwjZb4dd1X8Y",
+        "mint": "XsgSaSvNSqLTtFuyWPBhK9196Xb9Bbdyjj4fH3cPJGo",
+        "amount": "5073"
+      },
+      {
+        "address": "3WajmPb8B7ymgWHafUMw3mbracj3acCU6gbdAwiNhBXM",
+        "authority": "2tDtM1e16ogxrVxV7xorz2WgpRtL2ByXwwjZb4dd1X8Y",
+        "mint": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+        "amount": "10278"
+      },
+      {
+        "address": "8AZpUJyMymqC5hnEpWbCHMKbutMuJB2UgceqDct7s9nG",
+        "authority": "2tDtM1e16ogxrVxV7xorz2WgpRtL2ByXwwjZb4dd1X8Y",
+        "mint": "XspzcW1PRtgf6Wj92HCiZdjzKCyFekVD8P5Ueh3dRMX",
+        "amount": "5035"
+      },
+      {
+        "address": "8awBnVsLg7P9Q4ffHCP3e3xfVZGH6RgdJRf9RL6VHv31",
+        "authority": "2tDtM1e16ogxrVxV7xorz2WgpRtL2ByXwwjZb4dd1X8Y",
+        "mint": "Xs3eBt7uRfJX8QUs4suhyU8p2M6DoUDrJyWBa8LLZsg",
+        "amount": "8553"
+      },
+      {
+        "address": "AbEUzYFJaWswQUD3boEp6iastdAq4CjVedLifczmHVkA",
+        "authority": "2tDtM1e16ogxrVxV7xorz2WgpRtL2ByXwwjZb4dd1X8Y",
+        "mint": "XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ",
+        "amount": "14091"
+      },
+      {
+        "address": "Aj2ycLt5XjKrvuVpkxHNG9FVAVukxKxvUum6wbc9zDpw",
+        "authority": "2tDtM1e16ogxrVxV7xorz2WgpRtL2ByXwwjZb4dd1X8Y",
+        "mint": "XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN",
+        "amount": "6105"
+      },
+      {
+        "address": "B36uFe1tzm7mfYNtATfbq32iGhmNaJBUMtwCmWA69c7t",
+        "authority": "2tDtM1e16ogxrVxV7xorz2WgpRtL2ByXwwjZb4dd1X8Y",
+        "mint": "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp",
+        "amount": "7451"
+      },
+      {
+        "address": "DCTWxZcxkfSkWao3egHce9S5vKThmXcoGv4gYop6Dj1F",
+        "authority": "2tDtM1e16ogxrVxV7xorz2WgpRtL2ByXwwjZb4dd1X8Y",
+        "mint": "Xs6B6zawENwAbWVi7w92rjazLuAr5Az59qgWKcNb45x",
+        "amount": "4856"
+      },
+      {
+        "address": "Drcj1o6GLpSiXPm2CCFZ66cKYE1dRuvazEBp55WN2vSh",
+        "authority": "2tDtM1e16ogxrVxV7xorz2WgpRtL2ByXwwjZb4dd1X8Y",
+        "mint": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+        "amount": "5316"
+      },
+      {
+        "address": "EJve5rWe6j3ZaVPMoxmF5qe6W75VsibECda7JsM32Zyr",
+        "authority": "2tDtM1e16ogxrVxV7xorz2WgpRtL2ByXwwjZb4dd1X8Y",
+        "mint": "Xsa62P5mvPszXL1krVUnU5ar38bBSVcWAB6fmPCo5Zu",
+        "amount": "3659"
+      }
+    ]
+  },
+  "binarySha256": "9c3eb0d80fb899977bb676a0ac60300a53d4092f1253ed76d3da9f343aaa5a49",
+  "oldClosedAt": "2026-09-08T03:54:39.598Z",
+  "deployedAt": "2026-09-08T04:07:11.586Z",
+  "accounts": {
+    "programData": "7oun82SN1xo8aPe6GZREG86TizvhBQGE5eUaYiL751y9",
+    "protocolConfig": "3pWjMUvCf6edb4W1kicbt8tA4DJ5aNxUdcfupYRaD9v2",
+    "stakingPool": "4KYActSwKD9mTbfnw1sXpiqUg9yZxkjK8RWLhxsgXTPX",
+    "stakingAuthority": "7eVACvEGpTr4RCGrGcvcCiZCDfDtutYpsQTKts5LStHB",
+    "stakeVault": "8vgsB41hDXkMLWRkhyVieTPeMf3cAsiqp7M9zsFrPuuk",
+    "rewardVault": "HherjKxSYRoSfi8kQXKpuXLS4uPPw8Bd7vZWT2LzkBGD"
+  }
+}

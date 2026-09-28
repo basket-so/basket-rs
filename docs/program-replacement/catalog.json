@@ -1,0 +1,581 @@
+{
+  "version": 1,
+  "programId": "bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv",
+  "researchedAt": "2026-09-07T23:31:44.457Z",
+  "navToleranceUsd": 1e-05,
+  "tokens": {
+    "SOL": {
+      "mint": "So11111111111111111111111111111111111111112",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=So11111111111111111111111111111111111111112"
+    },
+    "JTO": {
+      "mint": "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL"
+    },
+    "JUP": {
+      "mint": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"
+    },
+    "PYTH": {
+      "mint": "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3"
+    },
+    "RAY": {
+      "mint": "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R"
+    },
+    "ORCA": {
+      "mint": "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE"
+    },
+    "RENDER": {
+      "mint": "rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof",
+      "decimals": 8,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof"
+    },
+    "TAO": {
+      "mint": "taoC6xyv2v8tDLcev4uaGUgV4vdQsWJrGft2kcBRrBY",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=taoC6xyv2v8tDLcev4uaGUgV4vdQsWJrGft2kcBRrBY"
+    },
+    "IO": {
+      "mint": "BZLbGTNCSFfoth2GYDtwr7e4imWzpR5jqcUuGEwr646K",
+      "decimals": 8,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=BZLbGTNCSFfoth2GYDtwr7e4imWzpR5jqcUuGEwr646K"
+    },
+    "GRASS": {
+      "mint": "Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs"
+    },
+    "HNT": {
+      "mint": "hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux",
+      "decimals": 8,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux"
+    },
+    "HONEY": {
+      "mint": "4vMsoUT2BWatFweudnQM1xedRLfJgJ7hswhcpz4xgBTy",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=4vMsoUT2BWatFweudnQM1xedRLfJgJ7hswhcpz4xgBTy"
+    },
+    "MOBILE": {
+      "mint": "mb1eu7TzEc71KxDpsmsKoucSSuuoGLv1drys1oP2jh6",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=mb1eu7TzEc71KxDpsmsKoucSSuuoGLv1drys1oP2jh6"
+    },
+    "IOT": {
+      "mint": "iotEVVZLEywoTn1QdwNPddxPWszn3zFhEot3MfL9fns",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=iotEVVZLEywoTn1QdwNPddxPWszn3zFhEot3MfL9fns"
+    },
+    "GEOD": {
+      "mint": "7JA5eZdCzztSfQbJvS8aVVxMFfd81Rs9VvwnocV1mKHu",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=7JA5eZdCzztSfQbJvS8aVVxMFfd81Rs9VvwnocV1mKHu"
+    },
+    "BONK": {
+      "mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+      "decimals": 5,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+    },
+    "POPCAT": {
+      "mint": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"
+    },
+    "MEW": {
+      "mint": "MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5",
+      "decimals": 5,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5"
+    },
+    "Fartcoin": {
+      "mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"
+    },
+    "PNUT": {
+      "mint": "2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump"
+    },
+    "USDY": {
+      "mint": "A1KLoBrKBde8Ty9qtNQUtq3C2ortoC3u7twggz7sEto6",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=A1KLoBrKBde8Ty9qtNQUtq3C2ortoC3u7twggz7sEto6"
+    },
+    "PAXG": {
+      "mint": "5GgRAEmv8ZxF2PR5hY72Qs5x1bnQ6UK2RbTPoqJ3wSwW",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=5GgRAEmv8ZxF2PR5hY72Qs5x1bnQ6UK2RbTPoqJ3wSwW"
+    },
+    "JitoSOL": {
+      "mint": "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn"
+    },
+    "mSOL": {
+      "mint": "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So"
+    },
+    "bSOL": {
+      "mint": "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1"
+    },
+    "INF": {
+      "mint": "5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm"
+    },
+    "JupSOL": {
+      "mint": "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v"
+    },
+    "KMNO": {
+      "mint": "KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS"
+    },
+    "MNDE": {
+      "mint": "MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey"
+    },
+    "CLOUD": {
+      "mint": "CLoUDKc4Ane7HeQcPpE3YHnznRxhMimJ4MyaUqyHFzAu",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=CLoUDKc4Ane7HeQcPpE3YHnznRxhMimJ4MyaUqyHFzAu"
+    },
+    "USDC": {
+      "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
+    "USDT": {
+      "mint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+    },
+    "WIF": {
+      "mint": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=dogwifhat"
+    },
+    "cbBTC": {
+      "mint": "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij",
+      "decimals": 8,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://www.coinbase.com/cbbtc"
+    },
+    "ETH": {
+      "mint": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+      "decimals": 8,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://github.com/wormhole-foundation/wormhole-token-list/blob/main/content/dest_solana.md"
+    },
+    "W": {
+      "mint": "85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ"
+    }
+  },
+  "baskets": [
+    {
+      "symbol": "SOLB",
+      "name": "Solana Bluechips",
+      "origin": "landing",
+      "kind": "fixedUnits",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 0,
+      "driftThresholdBps": 0,
+      "description": "A unit-pinned ledger of the most liquid Solana-native names. Weights ride with the market \u00e2\u20ac\u201d no rebalancing, ever.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "SOL",
+          "advertisedSymbol": "SOL",
+          "weightBps": 4000
+        },
+        {
+          "symbol": "JTO",
+          "advertisedSymbol": "JTO",
+          "weightBps": 1800
+        },
+        {
+          "symbol": "JUP",
+          "advertisedSymbol": "JUP",
+          "weightBps": 1600
+        },
+        {
+          "symbol": "PYTH",
+          "advertisedSymbol": "PYTH",
+          "weightBps": 1400
+        },
+        {
+          "symbol": "RAY",
+          "advertisedSymbol": "RAY",
+          "weightBps": 700
+        },
+        {
+          "symbol": "ORCA",
+          "advertisedSymbol": "ORCA",
+          "weightBps": 500
+        }
+      ]
+    },
+    {
+      "symbol": "MEME",
+      "name": "Memecoin Almanac",
+      "origin": "landing",
+      "kind": "fixedUnits",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 0,
+      "driftThresholdBps": 0,
+      "description": "Fixed quantities initialized from the advertised value allocations; weights subsequently float.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "WIF",
+          "advertisedSymbol": "WIF",
+          "weightBps": 2200
+        },
+        {
+          "symbol": "BONK",
+          "advertisedSymbol": "BONK",
+          "weightBps": 2000
+        },
+        {
+          "symbol": "POPCAT",
+          "advertisedSymbol": "POPCAT",
+          "weightBps": 1600
+        },
+        {
+          "symbol": "MEW",
+          "advertisedSymbol": "MEW",
+          "weightBps": 1400
+        },
+        {
+          "symbol": "Fartcoin",
+          "advertisedSymbol": "FART",
+          "weightBps": 1400
+        },
+        {
+          "symbol": "PNUT",
+          "advertisedSymbol": "PNUT",
+          "weightBps": 1400
+        }
+      ]
+    },
+    {
+      "symbol": "LSTY",
+      "name": "LST Yield Stack",
+      "origin": "landing",
+      "kind": "fixedWeights",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 2592000,
+      "driftThresholdBps": 500,
+      "description": "Liquid staking tokens curated by net APY and validator decentralization. Targets enforced when drift exceeds 5%.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "JitoSOL",
+          "advertisedSymbol": "JitoSOL",
+          "weightBps": 3000
+        },
+        {
+          "symbol": "mSOL",
+          "advertisedSymbol": "mSOL",
+          "weightBps": 2200
+        },
+        {
+          "symbol": "bSOL",
+          "advertisedSymbol": "bSOL",
+          "weightBps": 1800
+        },
+        {
+          "symbol": "INF",
+          "advertisedSymbol": "INF",
+          "weightBps": 1600
+        },
+        {
+          "symbol": "JupSOL",
+          "advertisedSymbol": "JupSOL",
+          "weightBps": 1400
+        }
+      ]
+    },
+    {
+      "symbol": "DEXS",
+      "name": "Solana Exchange Leaders",
+      "origin": "research",
+      "kind": "fixedWeights",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 2592000,
+      "driftThresholdBps": 500,
+      "description": "Solana trading protocol token exposure. Monthly or 5 percentage-point drift rebalancing limits concentration. Token holdings do not automatically earn trading fees.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "JUP",
+          "weightBps": 5000
+        },
+        {
+          "symbol": "RAY",
+          "weightBps": 3000
+        },
+        {
+          "symbol": "ORCA",
+          "weightBps": 2000
+        }
+      ]
+    },
+    {
+      "symbol": "STKG",
+      "name": "Staking Governance",
+      "origin": "research",
+      "kind": "fixedUnits",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 0,
+      "driftThresholdBps": 0,
+      "description": "Jito, Sanctum and Marinade governance exposure. Fixed units avoid recurring trades in thinner MNDE liquidity. These are governance tokens, not yield-accruing LSTs.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "JTO",
+          "weightBps": 5000
+        },
+        {
+          "symbol": "CLOUD",
+          "weightBps": 3000
+        },
+        {
+          "symbol": "MNDE",
+          "weightBps": 2000
+        }
+      ]
+    },
+    {
+      "symbol": "USDX",
+      "name": "USD Stablecoin Basket",
+      "origin": "research",
+      "kind": "fixedUnits",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 0,
+      "driftThresholdBps": 0,
+      "description": "Two liquid dollar stablecoin issuers. Fixed units avoid automatic purchases into a depeg. No Treasury yield or guarantee of a $1 future NAV.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "USDC",
+          "weightBps": 5000
+        },
+        {
+          "symbol": "USDT",
+          "weightBps": 5000
+        }
+      ]
+    },
+    {
+      "symbol": "SOLC",
+      "name": "Solana Balanced Core",
+      "origin": "research",
+      "kind": "fixedWeights",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 2592000,
+      "driftThresholdBps": 500,
+      "description": "60% initial SOL exposure including liquid staking, with 40% USDC. Monthly or 5 percentage-point drift rebalancing restores the allocation.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "SOL",
+          "weightBps": 4000
+        },
+        {
+          "symbol": "USDC",
+          "weightBps": 4000
+        },
+        {
+          "symbol": "JitoSOL",
+          "weightBps": 2000
+        }
+      ]
+    },
+    {
+      "symbol": "AISP",
+      "name": "Solana AI Infrastructure",
+      "origin": "research",
+      "kind": "fixedWeights",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 2592000,
+      "driftThresholdBps": 500,
+      "description": "Solana-native rendering, compute and data infrastructure. An on-chain alternative to the cross-chain AIDX concept, with monthly or 5 percentage-point drift rebalancing.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "RENDER",
+          "weightBps": 5000
+        },
+        {
+          "symbol": "IO",
+          "weightBps": 2500
+        },
+        {
+          "symbol": "GRASS",
+          "weightBps": 2500
+        }
+      ]
+    },
+    {
+      "symbol": "DEFI",
+      "name": "Solana DeFi Infrastructure",
+      "origin": "research",
+      "kind": "fixedWeights",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 2592000,
+      "driftThresholdBps": 500,
+      "description": "Broad DeFi token exposure across trading, lending, oracles and staking infrastructure. Monthly or 5 percentage-point drift rebalancing. These are protocol tokens; no underlying lending or staking yield is automatically passed through.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "JUP",
+          "weightBps": 2500
+        },
+        {
+          "symbol": "RAY",
+          "weightBps": 2000
+        },
+        {
+          "symbol": "KMNO",
+          "weightBps": 2000
+        },
+        {
+          "symbol": "PYTH",
+          "weightBps": 1500
+        },
+        {
+          "symbol": "JTO",
+          "weightBps": 1000
+        },
+        {
+          "symbol": "ORCA",
+          "weightBps": 1000
+        }
+      ]
+    },
+    {
+      "symbol": "MAJR",
+      "name": "Crypto Majors Reserve",
+      "origin": "research",
+      "kind": "fixedUnits",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 0,
+      "driftThresholdBps": 0,
+      "navRoundingReserve": "USDC",
+      "description": "Bitcoin through Coinbase cbBTC, Ether through Wormhole Portal, SOL and a small USDC reserve. Fixed units let weights move with market prices without recurring turnover. USDC absorbs at most 5 bps of initial atom-rounding dust. Custody, bridge and stablecoin issuer risks apply.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "cbBTC",
+          "weightBps": 4500
+        },
+        {
+          "symbol": "ETH",
+          "weightBps": 3000
+        },
+        {
+          "symbol": "SOL",
+          "weightBps": 2000
+        },
+        {
+          "symbol": "USDC",
+          "weightBps": 500
+        }
+      ]
+    },
+    {
+      "symbol": "PHYS",
+      "name": "Wireless and Location",
+      "origin": "research",
+      "kind": "fixedUnits",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 0,
+      "driftThresholdBps": 0,
+      "description": "Helium wireless connectivity and GEODNET precision positioning. Fixed units let market weights evolve and avoid repeated trades in smaller liquidity pools. Does not operate hardware or earn miner rewards.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "HNT",
+          "weightBps": 6000
+        },
+        {
+          "symbol": "GEOD",
+          "weightBps": 4000
+        }
+      ]
+    },
+    {
+      "symbol": "DATA",
+      "name": "Cross-chain Data Infrastructure",
+      "origin": "research",
+      "kind": "fixedUnits",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 0,
+      "driftThresholdBps": 0,
+      "description": "Pyth financial data and Wormhole cross-chain messaging infrastructure tokens. Fixed units avoid recurring governance-token turnover; market weights evolve. Tokens remain unstaked, with no automatic governance or staking rewards.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "PYTH",
+          "weightBps": 6000
+        },
+        {
+          "symbol": "W",
+          "weightBps": 4000
+        }
+      ]
+    }
+  ],
+  "expandedAt": "2026-09-08T00:04:02.361Z"
+}

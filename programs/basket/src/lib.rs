@@ -12,7 +12,7 @@ pub mod utils;
 
 pub use instructions::*;
 
-declare_id!("9LNEoShrH93XekWQTFmZBdUdMu8ugJxBr5cbfqJQC1mw");
+declare_id!("bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv");
 
 #[program]
 pub mod basket {
@@ -82,6 +82,12 @@ pub mod basket {
         args: FundStakingRewardsArgs,
     ) -> Result<()> {
         FundStakingRewards::handle(ctx, args)
+    }
+
+    pub fn register_rebalance_quote<'info>(
+        ctx: Context<'_, '_, 'info, 'info, RegisterRebalanceQuote<'info>>,
+    ) -> Result<()> {
+        RegisterRebalanceQuote::handle(ctx)
     }
 
     pub fn open_large_basket_mint_intent<'info>(

@@ -47,7 +47,7 @@ pub struct RebalanceIntent {
     // active generation for KeeperDrift, which edits the live pages in place.
     pub target_generation: u64,
     // Per-component swap LEG amount (atoms): for a sell leg, the exact component atoms to
-    // sell to USDC; for a buy leg, the minimum component atoms to acquire with USDC. 0 for
+    // sell to USDC; for a buy leg, desired atoms before the bounded cost allowance. 0 for
     // on-target / quote components. Computed at open from the oracle-priced NAV and the
     // component's target weight; mirrors LargeBasketIntent.component_amounts so the same
     // deferred price-verify machinery applies.

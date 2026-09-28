@@ -2267,6 +2267,9 @@ fn compute_intent_component_amounts<'info>(
     kind: LargeBasketIntentKind,
 ) -> Result<Vec<u64>> {
     let pages = load_ordered_component_pages(index_key, index, page_infos)?;
+    require!(index.kind != crate::state::IndexKind::FixedWeights ||
+        pages.iter().any(|p| p.components.iter().any(|c| c.mint == USDC_MINT)),
+        BasketError::InvalidFixedWeightConfig);
     let base_units = index.index_base_units()?;
     let component_count = usize::from(index.large_basket_component_count);
     let mut component_amounts = vec![0u64; component_count];

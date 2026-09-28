@@ -1,0 +1,434 @@
+{
+  "retrievedAt": "2026-09-07T23:31:44.457Z",
+  "source": "https://lite-api.jup.ag/tokens/v2/search",
+  "results": {
+    "SOL": [
+      {
+        "symbol": "SOL",
+        "name": "Wrapped SOL",
+        "mint": "So11111111111111111111111111111111111111112",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 103.650601348128,
+        "liquidity": 829170344.8838753
+      }
+    ],
+    "JTO": [
+      {
+        "symbol": "JTO",
+        "name": "JITO",
+        "mint": "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.44154463494828156,
+        "liquidity": 211261.0811324501,
+        "website": "https://jito.network"
+      }
+    ],
+    "JUP": [
+      {
+        "symbol": "JUP",
+        "name": "Jupiter",
+        "mint": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+        "decimals": 6,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.25310554107099764,
+        "liquidity": 4244739.238327318,
+        "website": "https://jup.ag"
+      }
+    ],
+    "PYTH": [
+      {
+        "symbol": "PYTH",
+        "name": "Pyth Network",
+        "mint": "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
+        "decimals": 6,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.053894350673643454,
+        "liquidity": 296885.5854190678
+      }
+    ],
+    "RAY": [
+      {
+        "symbol": "RAY",
+        "name": "Raydium",
+        "mint": "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+        "decimals": 6,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 1.1684227241557024,
+        "liquidity": 12663834.130823104
+      }
+    ],
+    "ORCA": [
+      {
+        "symbol": "ORCA",
+        "name": "Orca",
+        "mint": "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
+        "decimals": 6,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 1.531243836813603,
+        "liquidity": 378452.9701414752
+      }
+    ],
+    "RENDER": [
+      {
+        "symbol": "RENDER",
+        "name": "Render Token",
+        "mint": "rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof",
+        "decimals": 8,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 1.5466291802406864,
+        "liquidity": 133183.31138982676
+      }
+    ],
+    "TAO": [
+      {
+        "symbol": "TAO",
+        "name": "Bittensor",
+        "mint": "taoC6xyv2v8tDLcev4uaGUgV4vdQsWJrGft2kcBRrBY",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 257.4551219936481,
+        "liquidity": 294203.0751737496
+      }
+    ],
+    "AKT": [],
+    "FET": [],
+    "IO": [
+      {
+        "symbol": "IO",
+        "name": "IO",
+        "mint": "BZLbGTNCSFfoth2GYDtwr7e4imWzpR5jqcUuGEwr646K",
+        "decimals": 8,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.14017274603462265,
+        "liquidity": 42998.278708734426
+      }
+    ],
+    "GRASS": [
+      {
+        "symbol": "GRASS",
+        "name": "Grass",
+        "mint": "Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.33527412589236566,
+        "liquidity": 59308.601719388185,
+        "website": "https://getgrass.io"
+      }
+    ],
+    "HNT": [
+      {
+        "symbol": "HNT",
+        "name": "Helium Network Token",
+        "mint": "hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux",
+        "decimals": 8,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.5324737213594459,
+        "liquidity": 294995.2820845539,
+        "website": "https://helium.com"
+      }
+    ],
+    "HONEY": [
+      {
+        "symbol": "HONEY",
+        "name": "HONEY",
+        "mint": "4vMsoUT2BWatFweudnQM1xedRLfJgJ7hswhcpz4xgBTy",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.0013916584820218272,
+        "liquidity": 9364.151541088137
+      }
+    ],
+    "MOBILE": [
+      {
+        "symbol": "MOBILE",
+        "name": "Helium Mobile",
+        "mint": "mb1eu7TzEc71KxDpsmsKoucSSuuoGLv1drys1oP2jh6",
+        "decimals": 6,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.00007774150198198887,
+        "liquidity": 4496.075343097145
+      }
+    ],
+    "IOT": [
+      {
+        "symbol": "IOT",
+        "name": "Helium IOT",
+        "mint": "iotEVVZLEywoTn1QdwNPddxPWszn3zFhEot3MfL9fns",
+        "decimals": 6,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.00008051590302926477,
+        "liquidity": 344.2708801494564,
+        "website": "https://helium.com"
+      }
+    ],
+    "GEOD": [
+      {
+        "symbol": "GEOD",
+        "name": "Geodnet Token",
+        "mint": "7JA5eZdCzztSfQbJvS8aVVxMFfd81Rs9VvwnocV1mKHu",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.2299949833860545,
+        "liquidity": 326536.09371927625,
+        "website": "https://geodnet.com/"
+      }
+    ],
+    "WIF": [],
+    "BONK": [
+      {
+        "symbol": "Bonk",
+        "name": "Bonk",
+        "mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        "decimals": 5,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.000003130073643792513,
+        "liquidity": 1050234.4165442518
+      }
+    ],
+    "POPCAT": [
+      {
+        "symbol": "POPCAT",
+        "name": "Popcat",
+        "mint": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.05180448424935569,
+        "liquidity": 4432196.554708241
+      }
+    ],
+    "MEW": [
+      {
+        "symbol": "MEW",
+        "name": "cat in a dogs world",
+        "mint": "MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5",
+        "decimals": 5,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.000436848275563159,
+        "liquidity": 9033422.849969493
+      }
+    ],
+    "Fartcoin": [
+      {
+        "symbol": "Fartcoin",
+        "name": "Fartcoin",
+        "mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
+        "decimals": 6,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.17035435011657257,
+        "liquidity": 6168969.536464025
+      }
+    ],
+    "PNUT": [
+      {
+        "symbol": "Pnut",
+        "name": "Peanut the Squirrel",
+        "mint": "2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump",
+        "decimals": 6,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.05063522466937821,
+        "liquidity": 3343811.311221829,
+        "website": "https://www.change.org/p/return-p-nut-the-beloved-squirrel-to-his-rightful-home?fbclid=PAZXh0bgNhZW0CMTEAAaY5fhbirfmm3r9IKhUH_DM6ONraf0BqQwn0aeGC0-CliWxqrljBQ8rXI-w_aem_ntFZBEK60MKAtA8LG3oh6w"
+      }
+    ],
+    "OUSG": [],
+    "USDY": [
+      {
+        "symbol": "USDY",
+        "name": "Ondo US Dollar Yield",
+        "mint": "A1KLoBrKBde8Ty9qtNQUtq3C2ortoC3u7twggz7sEto6",
+        "decimals": 6,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 1.1411447302273618,
+        "liquidity": 2940877.8303899844
+      }
+    ],
+    "ONDO": [],
+    "STBT": [],
+    "PAXG": [
+      {
+        "symbol": "PAXG",
+        "name": "PAX Gold",
+        "mint": "5GgRAEmv8ZxF2PR5hY72Qs5x1bnQ6UK2RbTPoqJ3wSwW",
+        "decimals": 6,
+        "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        "verified": true,
+        "usdPrice": 4415.849467363723,
+        "liquidity": 558906.5863921006
+      }
+    ],
+    "JitoSOL": [
+      {
+        "symbol": "JitoSOL",
+        "name": "Jito Staked SOL",
+        "mint": "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 134.75700510336367,
+        "liquidity": 1063630919.8298815,
+        "website": "https://jito.network"
+      }
+    ],
+    "mSOL": [
+      {
+        "symbol": "mSOL",
+        "name": "Marinade staked SOL (mSOL)",
+        "mint": "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 145.41037046706518,
+        "liquidity": 238818167.3999658
+      }
+    ],
+    "bSOL": [
+      {
+        "symbol": "bSOL",
+        "name": "BlazeStake Staked SOL (bSOL)",
+        "mint": "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 136.16341171845193,
+        "liquidity": 95487830.93922152
+      }
+    ],
+    "INF": [
+      {
+        "symbol": "INF",
+        "name": "Infinity",
+        "mint": "5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 150.10059283066983,
+        "liquidity": 197774547.93266702,
+        "website": "https://sanctum.so"
+      }
+    ],
+    "JupSOL": [
+      {
+        "symbol": "JupSOL",
+        "name": "Jupiter Staked SOL",
+        "mint": "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 125.12989633686676,
+        "liquidity": 536739104.7585421,
+        "website": "https://jup.ag/"
+      }
+    ],
+    "KMNO": [
+      {
+        "symbol": "KMNO",
+        "name": "Kamino",
+        "mint": "KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS",
+        "decimals": 6,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.024839152503831157,
+        "liquidity": 1939392.7691338158,
+        "website": "https://www.kamino.finance/"
+      }
+    ],
+    "DRIFT": [
+      {
+        "symbol": "DRIFT",
+        "name": "Drift",
+        "mint": "DriFtupJYLTosbwoN8koMbEYSx54aFAVLddWsbksjwg7",
+        "decimals": 6,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.012090810743668492,
+        "liquidity": 67179.47497633845,
+        "website": "https://www.drift.foundation/"
+      }
+    ],
+    "MNDE": [
+      {
+        "symbol": "MNDE",
+        "name": "Marinade",
+        "mint": "MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.019717954891803856,
+        "liquidity": 18448.027262732623
+      }
+    ],
+    "CLOUD": [
+      {
+        "symbol": "CLOUD",
+        "name": "Cloud",
+        "mint": "CLoUDKc4Ane7HeQcPpE3YHnznRxhMimJ4MyaUqyHFzAu",
+        "decimals": 9,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.036076427493233976,
+        "liquidity": 404767.0217571307,
+        "website": "https://sanctum.so"
+      }
+    ],
+    "USDC": [
+      {
+        "symbol": "USDC",
+        "name": "USD Coin",
+        "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "decimals": 6,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.9998967462961456,
+        "liquidity": 411328405.2414495,
+        "website": "https://www.circle.com/en/usdc"
+      }
+    ],
+    "USDT": [
+      {
+        "symbol": "USDT",
+        "name": "USDT",
+        "mint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+        "decimals": 6,
+        "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "verified": true,
+        "usdPrice": 0.9997838012539295,
+        "liquidity": 41751106.32181298
+      }
+    ],
+    "PYUSD": [
+      {
+        "symbol": "PYUSD",
+        "name": "PayPal USD",
+        "mint": "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+        "decimals": 6,
+        "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        "verified": true,
+        "usdPrice": 0.9999177644317668,
+        "liquidity": 31153958.762961715
+      }
+    ]
+  }
+}

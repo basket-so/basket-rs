@@ -266,7 +266,8 @@ impl<'info> InitializeLargeBasketComponentPage<'info> {
         let mut remaining = ctx.remaining_accounts.iter();
         for component in args.components {
             require!(
-                component.units_per_index > 0,
+                component.units_per_index > 0 || (ctx.accounts.index.kind == IndexKind::FixedWeights
+                    && component.mint == USDC_MINT && component.target_weight_bps == 0),
                 BasketError::ZeroComponentUnits
             );
             require!(
@@ -420,6 +421,8 @@ impl<'info> FinalizeLargeBasketConfig<'info> {
             expected_start == u16::from(ctx.accounts.index.large_basket_component_count),
             BasketError::InvalidLargeBasketComponentPage
         );
+        require!(ctx.accounts.index.kind != IndexKind::FixedWeights || mints.contains(&USDC_MINT),
+            BasketError::InvalidFixedWeightConfig);
         validate_no_self_component(&components, &ctx.accounts.index.index_mint)?;
         validate_index_strategy_config(
             ctx.accounts.index.kind,

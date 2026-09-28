@@ -146,11 +146,11 @@ fn validate_fixed_weight_config(
 
     for component in components {
         require!(
-            component.units_per_index > 0,
+            component.units_per_index > 0 || (component.mint == fixed_weight_quote_mint && component.target_weight_bps == 0),
             BasketError::ZeroComponentUnits
         );
         require!(
-            component.target_weight_bps > 0,
+            component.target_weight_bps > 0 || component.mint == fixed_weight_quote_mint,
             BasketError::InvalidFixedWeightConfig
         );
         total_weight = total_weight
@@ -551,6 +551,20 @@ mod tests {
             0,
         )
         .is_err());
+    }
+
+    #[test]
+    fn fixed_weights_allow_empty_zero_weight_cash_reserve_only() {
+        let cash = Pubkey::new_unique();
+        let mut components = vec![
+            IndexComponent { mint: Pubkey::new_unique(), units_per_index: 1,
+                target_weight_bps: 10_000, oracle_pair: Pubkey::new_unique() },
+            IndexComponent { mint: cash, units_per_index: 0,
+                target_weight_bps: 0, oracle_pair: Pubkey::default() },
+        ];
+        assert!(validate_fixed_weight_config(&components, cash, 60, 500, 0).is_ok());
+        components[1].mint = Pubkey::new_unique();
+        assert!(validate_fixed_weight_config(&components, cash, 60, 500, 0).is_err());
     }
 
     #[test]

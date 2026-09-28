@@ -15,7 +15,7 @@
 //!      MIN/MAX_KEEPER_NAV_TOLERANCE_BPS).
 //!   2. `execute_rebalance_sell_batch` ×N — batched component->USDC swaps (vault authority
 //!      signs); `execute_rebalance_buy_batch` ×N — batched USDC->component swaps funded by
-//!      the proceeds. Each records the per-leg quote + fill for the deferred price check.
+//!      the proceeds. Each checks execution against Switchboard in the same transaction and records the verified fill.
 //!      Blocked once the intent expires or the index pauses rebalancing.
 //!   3. `verify_rebalance_component_price` — bounds each executed leg's effective price
 //!      (recorded quote / recorded fill) against a fresh single-feed oracle quote (the
@@ -104,6 +104,8 @@ pub struct RebalanceBatchEntry {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct ExecuteRebalanceBatchArgs {
     pub entries: Vec<RebalanceBatchEntry>,
+    pub switchboard_max_age_slots: u64,
+    pub max_oracle_slippage_bps: u16,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -192,6 +194,15 @@ pub struct ExecuteRebalanceBatch<'info> {
     pub associated_token_program: UncheckedAccount<'info>,
     pub quote_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
+    /// CHECK: Verified by Switchboard before any swap is executed.
+    pub switchboard_queue: UncheckedAccount<'info>,
+    /// CHECK: Verified by Switchboard and canonical quote-key validation.
+    pub switchboard_quote: UncheckedAccount<'info>,
+    /// CHECK: Switchboard verifier validates this sysvar id.
+    pub slothashes: UncheckedAccount<'info>,
+    /// CHECK: Switchboard verifier validates this sysvar id.
+    pub instructions_sysvar: UncheckedAccount<'info>,
+
 }
 
 #[derive(Accounts)]
@@ -396,6 +407,7 @@ impl<'info> OpenRebalanceIntent<'info> {
             BasketError::InvalidRemainingAccounts
         );
 
+        require!(components.iter().any(|c| c.mint == USDC_MINT), BasketError::InvalidFixedWeightConfig);
         // Pass 1: price every component, accumulate NAV.
         let mut snapshots = Vec::with_capacity(component_count);
         let mut open_amounts = Vec::with_capacity(component_count);
@@ -639,6 +651,19 @@ impl<'info> ExecuteRebalanceBatch<'info> {
             ctx.accounts.quote_token_program.to_account_info(),
         ];
 
+        // Value protection must be atomic with the CPI: deferred verification cannot
+        // undo an already committed bad trade, especially if the intent is unwound.
+        require!(args.max_oracle_slippage_bps <= MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS,
+            BasketError::InvalidOraclePriceTolerance);
+        let prices = verified_switchboard_prices(
+            &ctx.accounts.switchboard_queue.to_account_info(),
+            &ctx.accounts.switchboard_quote.to_account_info(),
+            &ctx.accounts.slothashes.to_account_info(),
+            &ctx.accounts.instructions_sysvar.to_account_info(),
+            Clock::get()?.slot,
+            args.switchboard_max_age_slots,
+        )?;
+
         let mut cursor = 0usize;
         for entry in &args.entries {
             let route_count = usize::from(entry.route_account_count);
@@ -738,8 +763,17 @@ impl<'info> ExecuteRebalanceBatch<'info> {
                 );
                 (source_spent, dest_received)
             } else {
-                // Spent `source_spent` USDC for at least `leg` component.
-                require!(dest_received >= leg, BasketError::RebalanceTargetNotMet);
+                // Buy backing may absorb the bounded trading-cost allowance.
+                let open_amount = *ctx.accounts.intent.component_open_amounts
+                    .get(usize::from(component_index))
+                    .ok_or_else(|| error!(BasketError::InvalidLargeBasketIntent))?;
+                let minimum = minimum_rebalance_buy_amount(
+                    open_amount, leg, ctx.accounts.intent.nav_tolerance_bps)?;
+                require!(dest_received >= minimum, BasketError::RebalanceTargetNotMet);
+                let oracle_price = switchboard_feed_price(&prices, &component.oracle_pair)?;
+                let max_spend = maximum_rebalance_buy_quote(leg, component.decimals,
+                    oracle_price, args.max_oracle_slippage_bps)?;
+                require!(source_spent <= max_spend, BasketError::QuoteBudgetExceeded);
                 require!(
                     source_spent <= entry.quote_limit,
                     BasketError::QuoteBudgetExceeded
@@ -747,10 +781,15 @@ impl<'info> ExecuteRebalanceBatch<'info> {
                 (dest_received, source_spent)
             };
 
-            // Record + mark done.
+            validate_atomic_rebalance_fill(is_sell, quote_atoms, component_atoms,
+                component.decimals, switchboard_feed_price(&prices, &component.oracle_pair)?,
+                args.max_oracle_slippage_bps)?;
+
+            // Only persist completion after the atomic price check succeeds.
             let intent = &mut ctx.accounts.intent;
             set_component_quote_atoms(intent, component_index, quote_atoms)?;
             set_component_fill_atoms(intent, component_index, component_atoms)?;
+            bitmap_set_once(&mut intent.component_verified_bitmap, component_index)?;
             if is_sell {
                 bitmap_set_once(&mut intent.sell_done_bitmap, component_index)?;
                 intent.completed_sells = intent
@@ -1023,7 +1062,7 @@ impl<'info> FinalizeRebalance<'info> {
         // intent's life nets out and a gain never blocks finalize).
         //
         // This is a BACKSTOP, not the binding value bound. The per-leg
-        // `verify_rebalance_component_price` check caps every executed leg's effective
+        // atomic execution-price check caps every executed leg's effective
         // price at `max_oracle_slippage_bps` of that leg's fresh oracle, which is what
         // actually bounds extractable value (≤ that fraction of the traded notional). The
         // aggregate gate here re-marks at the finalize price vector, which the keeper picks
@@ -1150,7 +1189,7 @@ impl<'info> UnwindRebalance<'info> {
     /// value gate that can fail) would reintroduce exactly the liveness hole this hatch
     /// exists to close (a down/stale oracle, or an un-passable bound, must never be able
     /// to keep the operation lock stuck). The exposure between execute and unwind is thus
-    /// the keeper-supplied `quote_limit` on each executed leg, by design.
+    /// bounded by the atomic oracle tolerance on every executed leg.
     ///
     /// remaining_accounts = [writable component pages in page-index order..]
     ///                   ++ [component vaults in global component order..]
@@ -1289,7 +1328,29 @@ fn drift_status(
     ))
 }
 
-/// True if current and target are within 1 bps of each other (avoid forced dust swaps).
+// Cap spending by the intended leg, even if a route over-delivers tokens.
+fn maximum_rebalance_buy_quote(leg: u64, decimals: u8, price: i128, slippage_bps: u16) -> Result<u64> {
+    require!(slippage_bps <= MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS,
+        BasketError::InvalidOraclePriceTolerance);
+    let value = component_value_scaled(leg, decimals, price)?;
+    let numerator = value.checked_mul(10_000 + u128::from(slippage_bps))
+        .and_then(|v| v.checked_mul(1_000_000))
+        .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
+    let denominator = SWITCHBOARD_PRICE_SCALE * 10_000;
+    let atoms = numerator / denominator + u128::from(numerator % denominator != 0);
+    u64::try_from(atoms).map_err(|_| error!(BasketError::ArithmeticOverflow))
+}
+
+// Trading costs may reduce backing only within the existing intent loss allowance.
+fn minimum_rebalance_buy_amount(open: u64, leg: u64, tolerance_bps: u16) -> Result<u64> {
+    require!(tolerance_bps <= MAX_KEEPER_NAV_TOLERANCE_BPS, BasketError::InvalidNavTolerance);
+    let target = open.checked_add(leg)
+        .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
+    let reduction = (u128::from(target) * u128::from(tolerance_bps)) / 10_000;
+    Ok(leg.saturating_sub(reduction as u64).max(1))
+}
+
+/// True if current and target are within 1 bps of each other.
 fn leg_is_dust(current: u64, target: u64) -> bool {
     let diff = current.abs_diff(target);
     if diff == 0 {
@@ -1770,5 +1831,67 @@ mod tests {
         assert!(leg_is_dust(1_000_000, 1_000_050)); // ~0.5 bps off
         assert!(!leg_is_dust(1_000_000, 1_000_200)); // 2 bps off
         assert!(!leg_is_dust(0, 10_000)); // 100% deficit is never dust
+    }
+
+    #[test]
+    fn buy_cost_allowance_is_bounded_and_rounds_conservatively() {
+        assert_eq!(minimum_rebalance_buy_amount(400_000_000, 100_000_000, 50).unwrap(), 97_500_000);
+        assert_eq!(minimum_rebalance_buy_amount(400, 100, 0).unwrap(), 100);
+        assert_eq!(minimum_rebalance_buy_amount(1_000_000, 1, 50).unwrap(), 1);
+        assert_eq!(minimum_rebalance_buy_amount(0, 101, 50).unwrap(), 101);
+        assert!(minimum_rebalance_buy_amount(u64::MAX, 1, 50).is_err());
+        assert!(minimum_rebalance_buy_amount(400, 100, MAX_KEEPER_NAV_TOLERANCE_BPS + 1).is_err());
+        // $100 sold with 0.3% cost funds a smaller buy at 0.3% cost,
+        // while retaining more than the minimum permitted backing.
+        let fill = 99_700_000_u64 * 1000 / 1003;
+        assert!(fill >= minimum_rebalance_buy_amount(400_000_000, 100_000_000, 50).unwrap());
+    }
+
+    #[test]
+    fn buy_spend_cap_rejects_cash_sweep_even_at_fair_execution_price() {
+        let price = SWITCHBOARD_PRICE_SCALE as i128;
+        let cap = maximum_rebalance_buy_quote(10_000_000, 6, price, 500).unwrap();
+        assert_eq!(cap, 10_500_000);
+        // Fair price alone used to accept spending the entire $910 cash vault
+        // on the intended $10 buy, bypassing allocation checks via unwind.
+        assert!(validate_atomic_rebalance_fill(false, 910_000_000, 910_000_000, 6, price, 500).is_ok());
+        assert!(910_000_000 > cap);
+        assert!(10_100_000 <= cap);
+        assert_eq!(maximum_rebalance_buy_quote(1, 9, price, 0).unwrap(), 1);
+        assert_eq!(maximum_rebalance_buy_quote(100_000_000, 8, price * 2, 100).unwrap(), 2_020_000);
+        assert!(maximum_rebalance_buy_quote(1, 6, price, 501).is_err());
+    }
+}
+
+// This check runs after CPI and before commit. Returning an error rolls back the
+// entire batch, including token transfers, so unwind cannot bypass price bounds.
+fn validate_atomic_rebalance_fill(is_sell: bool, quote_atoms: u64, component_atoms: u64,
+    component_decimals: u8, oracle_price: i128, max_slippage_bps: u16) -> Result<()> {
+    require!(max_slippage_bps <= MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS,
+        BasketError::InvalidOraclePriceTolerance);
+    if is_sell {
+        validate_sell_execution_price(quote_atoms, component_atoms, USDC_DECIMALS,
+            component_decimals, oracle_price, max_slippage_bps)
+    } else {
+        validate_buy_execution_price(quote_atoms, component_atoms, USDC_DECIMALS,
+            component_decimals, oracle_price, max_slippage_bps)
+    }
+}
+
+#[cfg(test)]
+mod atomic_execution_tests {
+    use super::*;
+    #[test]
+    fn rejects_keeper_selling_backing_for_dust_or_buying_at_excessive_cost() {
+        let price = SWITCHBOARD_PRICE_SCALE as i128;
+        assert!(validate_atomic_rebalance_fill(true, 1, 1_000_000, 6, price, 100).is_err());
+        assert!(validate_atomic_rebalance_fill(false, 2_000_000, 1_000_000, 6, price, 100).is_err());
+        assert!(validate_atomic_rebalance_fill(true, 990_000, 1_000_000, 6, price, 100).is_ok());
+        assert!(validate_atomic_rebalance_fill(false, 1_010_000, 1_000_000, 6, price, 100).is_ok());
+    }
+    #[test]
+    fn keeper_cannot_disable_atomic_price_bound() {
+        assert!(validate_atomic_rebalance_fill(true, 1, 1_000_000, 6,
+            SWITCHBOARD_PRICE_SCALE as i128, MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS + 1).is_err());
     }
 }

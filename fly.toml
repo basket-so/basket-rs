@@ -1,0 +1,28 @@
+# Fly.io worker for scripts/rebalance-bot.mjs. No HTTP service: a single machine polls
+# every FixedWeights basket and drives any triggered rebalance.
+#
+# Secrets (set before the first deploy):
+#   SOLANA_RPC_URL  mainnet RPC that allows getProgramAccounts (used for basket discovery)
+#   KEEPER_KEYPAIR  keeper secret key as a JSON array; a dedicated wallet funded with a little SOL
+#
+# Deploy with `fly deploy --ha=false` so only one keeper runs.
+app = "basket-rebalance-bot"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+# Room for an in-flight rebalance to finish before the machine is stopped.
+kill_timeout = "300s"
+
+[build]
+  dockerfile = "Dockerfile.rebalance-bot"
+
+[processes]
+  # --execute sends transactions (spends keeper SOL, moves basket assets). Drop it to
+  # go back to a dry-run that only logs what it would do.
+  app = "node scripts/rebalance-bot.mjs --watch --interval 60 --priority-fee 50000 --execute"
+
+[[restart]]
+  policy = "always"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
