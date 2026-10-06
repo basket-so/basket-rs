@@ -28,3 +28,6 @@ pub use update_protocol_config::*;
 
 pub mod register_rebalance_quote;
 pub use register_rebalance_quote::*;
+
+pub mod rebalance_keeper;
+pub use rebalance_keeper::*;

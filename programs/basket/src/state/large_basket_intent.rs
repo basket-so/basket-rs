@@ -17,6 +17,9 @@ pub enum LargeBasketIntentStatus {
     Open,
     Finalized,
     Cancelled,
+    // Expired and partly returned to its owner (see cancel_expired_large_basket_intent);
+    // still counted as open until every owed component is back.
+    Refunding,
 }
 
 impl LargeBasketIntentStatus {
@@ -70,7 +73,15 @@ pub struct LargeBasketIntent {
     // tokens move to/from the owner) instead of being swapped via Jupiter. Fees are
     // skimmed in-kind at execute time, so the USDC collect/budget leg is skipped.
     pub in_kind: bool,
-    pub reserved: [u8; 24],
+    // The basket's supply_era when this intent opened.
+    pub supply_era: u32,
+    // Components already returned by cancel_expired_large_basket_intent, to the owner or
+    // to the refund escrow.
+    pub refunded_bitmap: [u8; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
+    // Components sitting in the refund escrow until the owner claims them
+    // (claim_large_basket_refund).
+    pub escrowed_bitmap: [u8; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
+    pub reserved: [u8; 6],
 }
 
 impl LargeBasketIntent {
@@ -112,7 +123,13 @@ impl LargeBasketIntent {
         + LARGE_BASKET_COMPONENT_BITMAP_BYTES
         // in_kind
         + 1
-        + 24;
+        // supply_era
+        + 4
+        // refunded_bitmap
+        + LARGE_BASKET_COMPONENT_BITMAP_BYTES
+        // escrowed_bitmap
+        + LARGE_BASKET_COMPONENT_BITMAP_BYTES
+        + 6;
 }
 
 #[account]

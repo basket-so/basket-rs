@@ -1,0 +1,1162 @@
+{
+ "0x029b907799f4593aa8f93088cf6137d6323f44febc1ce5b9eae5fb9546535196": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/2ZnVuidTHpi5WWKUwFXauYGhvdT9jRKYv5MDahtbwtYr"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "ORCA/USD"
+ },
+ "0x0cf092bc63abeef6701fcd442654c00310f100e1752275d085c5d0819d8cc11c": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/6UmmUiYoBjSrhakAobJw8BvkmJtDVxaeBtbt7rxWo1mg"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "RAY/USD"
+ },
+ "0x0d266ee08f83d1fd58ed56beb14fb6d08301835eac375b4e250c15233a707bab": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/4gBdoceUxqqcyzgAqkN3wC5FivB34FwFJvTvgdUf6vLz"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "W/USD"
+ },
+ "0x19bae97911839a1a782c57b8c1735fd6d4ecee95d4e1f2d11d893d60be1c472d": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/879F697iuDJGMevRkRcnW21fcXiAeLJK1ffsw2ATebce"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "MEW/USD"
+ },
+ "0x3940d5aa4e7580ff27fcb8a5d730a000e536363ff4deef913072402b5b7886a9": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/CeaZcxBNLpJWtxzt58qQmfMBtJY8pQLvursXTJYGQpbN"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "cbBTC/USD"
+ },
+ "0x54839a959da8a5765d6e556b73c8d75efa87b0aa7b40952f51e473b7238f1a41": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/VeUxoUzPpMPCpvZBP9ysjSPtrTqPo7AJvG6AH2UdXCG"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "USDT/USD"
+ },
+ "0x55f8186d81a09058814e1fc40d340dc75ad481f46a30bc3f188d2eb38cda3c61": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/EP2ib6dYdEeqD8MfE2ezHCxX3kP3K2eLKkirfPm5eyMx"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "WIF/USD"
+ },
+ "0x62b970d5d32beaa650a13770c8819880a12c3a7020be54dbc4ed6f07b543a741": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=BZLbGTNCSFfoth2GYDtwr7e4imWzpR5jqcUuGEwr646K"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['BZLbGTNCSFfoth2GYDtwr7e4imWzpR5jqcUuGEwr646K'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/DeC8TwoqTD8q5iQ9eG8L5syAvzadA4yMXpSgxywA6uxe"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "IO/USD"
+ },
+ "0x676f60a7a7498db83893ec2a5ce85b0648b0c79b1ed162afc02a96b6437aee15": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/Hp53XEtt4S8SvPCXarsLSdGfZBuUr5mMmZmX2DRNXQKp"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "JitoSOL/USD"
+ },
+ "0x6e640096af683d59b7235c0e76935115405b1108ba680448b67ad7bfb28a8088": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=CLoUDKc4Ane7HeQcPpE3YHnznRxhMimJ4MyaUqyHFzAu"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['CLoUDKc4Ane7HeQcPpE3YHnznRxhMimJ4MyaUqyHFzAu'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/F1KKNyUCsQcZLRjwQ4abX6Ri8gDAQ46nHwSHFKA5sFQv"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "CLOUD/USD"
+ },
+ "0x6f17a6ced57abbef654b1b45ec484bf7e363440f916c0db939afbfd0c0b2d074": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/8iibPkw7zbNHMPcihHeBgcL7rDnHteZb2NfvTy8bNm7d"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "INF/USD"
+ },
+ "0x77e68ad3d6e53e62b96248575433e17f59b6267bd2ec218951441cd37feea84f": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/91axdGmMoqQQg2MPUXKxT3bdqX4p2RMLXqZSQgXn2JpM"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "HNT/USD"
+ },
+ "0x80ab331b56317cf8e3e69d6fc678ecd3f71a046726e49be371cfcabe034ba6ba": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/3ndjN1nJVUKGrJBc1hhVpER6kWTZKHdyDrPyCJyX3CXK"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "KMNO/USD"
+ },
+ "0x8a626f282b84260371da11c0dd7a7f1486a46f7ff90021abf6be458971055330": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['So11111111111111111111111111111111111111112'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "SOL/USD"
+ },
+ "0x8b966cc77b59b0ba193482cdf70c77a742d19134889dae5dbcef46e9f6015b1a": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/Bzc9NZfMqkXR6fz1DBph7BDf9BroyEf6pnzESP7v5iiw"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "Fartcoin/USD"
+ },
+ "0x903729b50f8d53a1d49f7e3dd53ac29d8518b04f94b67971e33e4be3031e29b9": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/9n3dSLrERZQp95dHXywft7xV8D8xnGFLaUHtEhQVaXaC"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "PYTH/USD"
+ },
+ "0x998b8f49628b2756cec3686eb7700a15a2ac0e48c14fb6fedc66bed0bd2c4058": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=7JA5eZdCzztSfQbJvS8aVVxMFfd81Rs9VvwnocV1mKHu"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['7JA5eZdCzztSfQbJvS8aVVxMFfd81Rs9VvwnocV1mKHu'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/BkX9RSHoDJGkU7pbHiksv3DprdLM3KWGoDSfGN9cGJ5d"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "GEOD/USD"
+ },
+ "0x9bc504a01c6ed14a7b7eecf9f0e9ec30dd0c63ff736e743c199ce6b8faba0079": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/5zpyutJu9ee6jFymDGoK7F6S5Kczqtc9FomP3ueKuyA9"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "BONK/USD"
+ },
+ "0xa42efb739745b24de1dcf7e663c42046850dc1a7337ea94e9a7b91d37e93d282": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/GTJ2S27UL7yZ3TdTwpKjfNcxeEZRkRPHjpj5Fubwb8Mk"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "GRASS/USD"
+ },
+ "0xa67af5700431ef782599788001865e2d7d92834778f0d2e14667b5528f5619d5": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/FZ8MJvdTPbp8juhtFCCzb7LsKunhexgzShGQ59SUJkNL"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "RENDER/USD"
+ },
+ "0xa6fd5d1371f0cd4d84d5444f4fc705f1dfa613dd45933759ab7ed24af52e2d9d": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/G2FiE1yn9N9ZJx5e1E2LxxMnHvb1H3hCuHLPfKJ98smA"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "JTO/USD"
+ },
+ "0xb3067cc4d6ad28be33912f0baf0693cf70de4e502873d4b6b02ad10a19348c51": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/HcjZvfeSNJbNkfLD4eEcRBr96AD3w1GpmMppaeRZf7ur"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "mSOL/USD"
+ },
+ "0xbc6cef6c91fa390faff87a0c5284102729dc1990306212f96afb3c5cfca71148": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/C8Gr6AUuq9hEdSYJzoEpNcdjpojPZwqG5MtQbeouNNwg"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "JUP/USD"
+ },
+ "0xbfcd53b23d7441a7268f216648ddf3612b4bd08ef491bb9d1dff09ea0a2cce09": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/5cvcHrD2uh2CXhmZnMHsTVWJW1qtyikVaN3MCJNaCKMh"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "JupSOL/USD"
+ },
+ "0xbfed479a55c3dab5fc77c997cf386565061cef0c0923ec5c80d798f5fa8b0ab6": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/8phK65jxmTPEN158xLgSr4oZvssw9SyTErpNZj3g7px4"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "bSOL/USD"
+ },
+ "0xd9031d6cc122769f746a401fe8573f6590a770d813c5ac36a3745c27ccf704c3": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/4AZRPNEfCJ7iw28rJu5aUyeQhYcvdcNm8cswyL51AY9i"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "PNUT/USD"
+ },
+ "0xe8b8b00d243e2740144688734b84acce7d1bf7f41607bc3ae420a93105cbb09f": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/vjHagYsgZwG9icyFLHu2xWHWdtiS5gfeNzRhDcPt5xq"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "MNDE/USD"
+ },
+ "0xf5460dc59f2d013c577157f4c787b823dd274eae7cc5bfad7322f7cbe209de17": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/FRhB8L7Y9Qq41qZXYLtC2nw8An1RJfLLxRF2x9RwLLMo"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "POPCAT/USD"
+ },
+ "0xf5e0ec6cea897baebb390c77672826d45c04813eb1f41a1481a0e8ed0e07505f": {
+  "jobs": [
+   {
+    "tasks": [
+     {
+      "conditionalTask": {
+       "attempt": [
+        {
+         "httpTask": {
+          "url": "https://lite-api.jup.ag/price/v3?ids=7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$['7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs'].usdPrice"
+         }
+        }
+       ],
+       "onFailure": [
+        {
+         "httpTask": {
+          "url": "https://api.dexscreener.com/latest/dex/pairs/solana/HktfL7iwGKT5QHjywQkcDnZXScoh811k7akrMZJkCcEF"
+         }
+        },
+        {
+         "jsonParseTask": {
+          "path": "$.pairs[0].priceUsd"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "maxJobRangePct": "0",
+  "minJobResponses": 1,
+  "minOracleSamples": 1,
+  "name": "ETH/USD"
+ }
+}

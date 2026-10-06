@@ -11,6 +11,7 @@ RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY scripts/rebalance-bot.mjs scripts/
 COPY scripts/lib/switchboard-gateway.mjs scripts/lib/
+COPY scripts/switchboard-feeds.json scripts/
 # The bot loads target/idl/basket.json; ship the IDL recorded for the deployed program.
 COPY docs/program-upgrade/basket.idl.json target/idl/basket.json
 

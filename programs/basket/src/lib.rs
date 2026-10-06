@@ -146,10 +146,10 @@ pub mod basket {
     }
 
     pub fn execute_large_basket_redeem_batch<'info>(
-        ctx: Context<'_, '_, 'info, 'info, ExecuteLargeBasketComponentBatch<'info>>,
+        ctx: Context<'_, '_, 'info, 'info, ExecuteLargeBasketRedeemBatch<'info>>,
         args: ExecuteLargeBasketRedeemBatchArgs,
     ) -> Result<()> {
-        ExecuteLargeBasketComponentBatch::handle_redeem(ctx, args)
+        ExecuteLargeBasketRedeemBatch::handle(ctx, args)
     }
 
     pub fn verify_large_basket_mint_component_price<'info>(
@@ -194,6 +194,12 @@ pub mod basket {
         ctx: Context<'_, '_, 'info, 'info, CancelExpiredLargeBasketIntent<'info>>,
     ) -> Result<()> {
         CancelExpiredLargeBasketIntent::handle(ctx)
+    }
+
+    pub fn claim_large_basket_refund<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ClaimLargeBasketRefund<'info>>,
+    ) -> Result<()> {
+        ClaimLargeBasketRefund::handle(ctx)
     }
 
     pub fn set_large_basket_component_oracle_pair(
@@ -250,6 +256,21 @@ pub mod basket {
 
     pub fn close_rebalance_intent(ctx: Context<CloseRebalanceIntent>) -> Result<()> {
         CloseRebalanceIntent::handle(ctx)
+    }
+
+    pub fn set_rebalance_keeper(
+        ctx: Context<SetRebalanceKeeper>,
+        args: SetRebalanceKeeperArgs,
+    ) -> Result<()> {
+        SetRebalanceKeeper::handle(ctx, args)
+    }
+
+    pub fn request_rebalance(ctx: Context<UpdateRebalanceRequest>) -> Result<()> {
+        UpdateRebalanceRequest::handle_request(ctx)
+    }
+
+    pub fn cancel_rebalance_request(ctx: Context<UpdateRebalanceRequest>) -> Result<()> {
+        UpdateRebalanceRequest::handle_cancel(ctx)
     }
 
     pub fn update_fees(ctx: Context<UpdateFees>, args: UpdateFeesArgs) -> Result<()> {

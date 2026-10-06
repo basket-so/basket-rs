@@ -53,6 +53,10 @@ impl<'info> SetLargeBasketComponentOraclePair<'info> {
             !ctx.accounts.index.large_basket_operation_in_progress,
             BasketError::InvalidLargeBasketIntent
         );
+        require!(
+            ctx.accounts.index.open_intent_count == 0,
+            BasketError::IntentsStillOpen
+        );
         let index_mint = load_mint(&ctx.accounts.index_mint.to_account_info())?;
         require!(
             index_mint.supply == 0,

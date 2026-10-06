@@ -21,7 +21,16 @@ pub const LARGE_BASKET_INTENT_SEED: &[u8] = b"large-basket-intent";
 pub const LARGE_BASKET_INTENT_LOCK_SEED: &[u8] = b"large-basket-intent-lock";
 pub const LARGE_BASKET_COMPONENT_PAGE_SEED: &[u8] = b"large-basket-component-page";
 pub const REBALANCE_INTENT_SEED: &[u8] = b"rebalance-intent";
+// Holds components returned from expired intents until their owners claim them.
+pub const REFUND_ESCROW_SEED: &[u8] = b"refund-escrow";
 pub const MAX_LARGE_BASKET_INTENT_TTL_SECONDS: i64 = 30 * 60;
+// Long enough for every intent open at request time to expire and be cleaned up; after
+// this a request lapses on its own.
+pub const REBALANCE_REQUEST_WINDOW_SECONDS: i64 = MAX_LARGE_BASKET_INTENT_TTL_SECONDS + 10 * 60;
+// Gap after a request's window before the next request, so a request alone can hold new
+// intents back for at most two thirds of any hour. (The authority can remove a keeper that
+// misuses requests or rebalance opens.)
+pub const REBALANCE_REQUEST_COOLDOWN_SECONDS: i64 = 20 * 60;
 pub const MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS: u16 = 500;
 pub const MAX_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS: u16 = 500;
 // Keeper rebalances are permissionless, so the initiator-supplied NAV-loss tolerance is

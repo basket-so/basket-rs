@@ -174,4 +174,16 @@ pub enum BasketError {
     RebalanceIntentNotExpired,
     #[msg("The rebalance intent is still open.")]
     RebalanceIntentStillOpen,
+    #[msg("Swap-path redeems must use execute_large_basket_redeem_batch, which charges fees with the proceeds.")]
+    RedeemRequiresBatchExecution,
+    #[msg("A rebalance is pending or in progress; new mints and redeems reopen when it completes.")]
+    RebalancePending,
+    #[msg("Mint and redeem intents are still open; they must settle before a rebalance can open.")]
+    IntentsStillOpen,
+    #[msg("Only the index authority or its rebalance keeper can do this.")]
+    NotRebalanceOperator,
+    #[msg("The basket emptied after this mint opened; cancel it once expired to recover the deposits.")]
+    MintBasisChanged,
+    #[msg("A rebalance was requested too recently.")]
+    RebalanceRequestCooldown,
 }

@@ -42,3 +42,5 @@ Thumbs.db
 *.sbf-warning-backup
 # Promo video production workspace (kept outside version control)
 /showcase/
+# Program upgrade rollback binaries and buffer keys (kept locally next to each record)
+/docs/program-upgrade*/backup/

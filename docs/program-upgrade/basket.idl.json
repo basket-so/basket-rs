@@ -159,6 +159,30 @@
       "args": []
     },
     {
+      "name": "cancel_rebalance_request",
+      "discriminator": [
+        21,
+        125,
+        136,
+        230,
+        80,
+        235,
+        88,
+        42
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "signer": true
+        },
+        {
+          "name": "index",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "cancel_unfilled_large_basket_mint_intent",
       "discriminator": [
         178,
@@ -425,6 +449,113 @@
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_large_basket_refund",
+      "discriminator": [
+        58,
+        246,
+        173,
+        52,
+        244,
+        107,
+        87,
+        155
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index",
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "intent_lock",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116,
+                  45,
+                  108,
+                  111,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "refund_escrow",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  102,
+                  117,
+                  110,
+                  100,
+                  45,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -1287,6 +1418,7 @@
         },
         {
           "name": "index",
+          "writable": true,
           "relations": [
             "intent"
           ]
@@ -1353,6 +1485,117 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "fee_recipient_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "creator_fee_recipient_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "staking_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_reward_vault",
+          "writable": true
+        },
+        {
+          "name": "intent_lock",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116,
+                  45,
+                  108,
+                  111,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
         }
       ],
       "args": [
@@ -3159,6 +3402,30 @@
       "args": []
     },
     {
+      "name": "request_rebalance",
+      "discriminator": [
+        179,
+        68,
+        100,
+        170,
+        244,
+        117,
+        255,
+        58
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "signer": true
+        },
+        {
+          "name": "index",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "set_large_basket_component_oracle_pair",
       "discriminator": [
         79,
@@ -3198,6 +3465,42 @@
           "type": {
             "defined": {
               "name": "SetLargeBasketComponentOraclePairArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "set_rebalance_keeper",
+      "discriminator": [
+        60,
+        72,
+        100,
+        23,
+        140,
+        173,
+        134,
+        133
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "SetRebalanceKeeperArgs"
             }
           }
         }
@@ -4488,6 +4791,32 @@
       ]
     },
     {
+      "name": "RebalanceKeeperUpdated",
+      "discriminator": [
+        238,
+        111,
+        83,
+        126,
+        178,
+        234,
+        67,
+        80
+      ]
+    },
+    {
+      "name": "RebalanceRequestUpdated",
+      "discriminator": [
+        146,
+        242,
+        110,
+        147,
+        60,
+        89,
+        71,
+        1
+      ]
+    },
+    {
       "name": "StakingPoolInitialized",
       "discriminator": [
         37,
@@ -4957,6 +5286,36 @@
       "code": 6085,
       "name": "RebalanceIntentStillOpen",
       "msg": "The rebalance intent is still open."
+    },
+    {
+      "code": 6086,
+      "name": "RedeemRequiresBatchExecution",
+      "msg": "Swap-path redeems must use execute_large_basket_redeem_batch, which charges fees with the proceeds."
+    },
+    {
+      "code": 6087,
+      "name": "RebalancePending",
+      "msg": "A rebalance is pending or in progress; new mints and redeems reopen when it completes."
+    },
+    {
+      "code": 6088,
+      "name": "IntentsStillOpen",
+      "msg": "Mint and redeem intents are still open; they must settle before a rebalance can open."
+    },
+    {
+      "code": 6089,
+      "name": "NotRebalanceOperator",
+      "msg": "Only the index authority or its rebalance keeper can do this."
+    },
+    {
+      "code": 6090,
+      "name": "MintBasisChanged",
+      "msg": "The basket emptied after this mint opened; cancel it once expired to recover the deposits."
+    },
+    {
+      "code": 6091,
+      "name": "RebalanceRequestCooldown",
+      "msg": "A rebalance was requested too recently."
     }
   ],
   "types": [
@@ -5920,15 +6279,19 @@
             "type": "i64"
           },
           {
-            "name": "pending_rebalance_available_at",
+            "name": "rebalance_requested_at",
             "type": "i64"
           },
           {
-            "name": "pending_rebalance_nonce",
-            "type": "u64"
+            "name": "open_intent_count",
+            "type": "u32"
           },
           {
-            "name": "pending_rebalance_quote_mint",
+            "name": "supply_era",
+            "type": "u32"
+          },
+          {
+            "name": "rebalance_keeper",
             "type": "pubkey"
           },
           {
@@ -5968,7 +6331,7 @@
             "type": "bool"
           },
           {
-            "name": "pending_rebalance_ready",
+            "name": "rebalance_requested",
             "type": "bool"
           },
           {
@@ -6396,11 +6759,33 @@
             "type": "bool"
           },
           {
+            "name": "supply_era",
+            "type": "u32"
+          },
+          {
+            "name": "refunded_bitmap",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
+            "name": "escrowed_bitmap",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
             "name": "reserved",
             "type": {
               "array": [
                 "u8",
-                24
+                6
               ]
             }
           }
@@ -6559,6 +6944,9 @@
           },
           {
             "name": "Cancelled"
+          },
+          {
+            "name": "Refunding"
           }
         ]
       }
@@ -7161,6 +7549,22 @@
       }
     },
     {
+      "name": "RebalanceKeeperUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "RebalanceMode",
       "type": {
         "kind": "enum",
@@ -7170,6 +7574,30 @@
           },
           {
             "name": "KeeperDrift"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RebalanceRequestUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "operator",
+            "type": "pubkey"
+          },
+          {
+            "name": "requested",
+            "type": "bool"
+          },
+          {
+            "name": "requested_at",
+            "type": "i64"
           }
         ]
       }
@@ -7210,6 +7638,21 @@
           },
           {
             "name": "oracle_pair",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SetRebalanceKeeperArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "keeper",
+            "docs": [
+              "Pubkey::default() removes the keeper, leaving rebalances to the authority."
+            ],
             "type": "pubkey"
           }
         ]

@@ -192,9 +192,10 @@ impl<'info> CreateLargeBasketIndex<'info> {
         } else {
             0
         };
-        index.pending_rebalance_available_at = 0;
-        index.pending_rebalance_nonce = 0;
-        index.pending_rebalance_quote_mint = Pubkey::default();
+        index.rebalance_requested_at = 0;
+        index.open_intent_count = 0;
+        index.supply_era = 0;
+        index.rebalance_keeper = Pubkey::default();
         index.fixed_weight_quote_mint = args.fixed_weight_quote_mint;
         index.active_rebalance_intent = Pubkey::default();
         index.pending_rebalance_oracle_price_tolerance_bps = 0;
@@ -205,7 +206,7 @@ impl<'info> CreateLargeBasketIndex<'info> {
         index.minting_paused = false;
         index.redeeming_paused = false;
         index.rebalancing_paused = false;
-        index.pending_rebalance_ready = false;
+        index.rebalance_requested = false;
         index.reserved = [0; 1];
         index.name = args.name;
         index.symbol = args.symbol;

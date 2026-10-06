@@ -9,7 +9,7 @@ use anchor_spl::{
 use crate::{
     constants::{
         LARGE_BASKET_COMPONENT_BITMAP_BYTES, LARGE_BASKET_COMPONENT_PAGE_SEED,
-        LARGE_BASKET_INTENT_LOCK_SEED, LARGE_BASKET_INTENT_SEED,
+        LARGE_BASKET_INTENT_LOCK_SEED, LARGE_BASKET_INTENT_SEED, REFUND_ESCROW_SEED,
         MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS, MAX_LARGE_BASKET_COMPONENTS,
         MAX_LARGE_BASKET_COMPONENTS_PER_PAGE, MAX_LARGE_BASKET_INTENT_TTL_SECONDS,
         STAKING_AUTHORITY_SEED, STAKING_POOL_SEED, USDC_MINT, VAULT_AUTHORITY_SEED,
@@ -23,6 +23,7 @@ use crate::{
     },
     utils::{
         accrue_staking_rewards, associated_token_address,
+        associated_token_address_with_token_program,
         create_associated_token_account_idempotent,
         create_associated_token_account_idempotent_for_token_program,
         invoke_jupiter_swap_with_scratch, large_basket_fee_split, load_interface_token_account,
@@ -32,7 +33,8 @@ use crate::{
         validate_sell_execution_price,
         validate_staking_vault, validate_total_index_fee_bps, validate_user_token_account,
         validate_vault_authority_token_account_scope, verified_switchboard_prices,
-        unpack_account_metas, JupiterInvokeScratch, LargeBasketSwapPlan, ASSOCIATED_TOKEN_ID,
+        unpack_account_metas, bitmap_get, bitmap_set_once, JupiterInvokeScratch,
+        LargeBasketSwapPlan, ASSOCIATED_TOKEN_ID,
     },
 };
 
@@ -294,6 +296,63 @@ pub struct ExecuteLargeBasketComponentBatch<'info> {
     pub system_program: Program<'info, System>,
 }
 
+// Batched swap-path redeem. Each leg's USDC is paid to the owner and that leg's share of
+// the fee is charged in the same instruction, so there is no separate fee step to skip.
+// The leg that completes the intent also finalizes it and releases the basket lock.
+// Known gap: the fee basis is the USDC measured in owner_quote_token_account, and the
+// redeemer chooses the Jupiter route, so a custom route can shrink that basis. Closing it
+// needs a route-independent basis (in-kind skim before the swap, or an oracle floor).
+#[derive(Accounts)]
+pub struct ExecuteLargeBasketRedeemBatch<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    #[account(mut, has_one = index_mint @ BasketError::IndexMintMismatch)]
+    pub index: Account<'info, IndexState>,
+    /// CHECK: Validated as the configured classic SPL index mint.
+    pub index_mint: UncheckedAccount<'info>,
+    #[account(mut, has_one = owner @ BasketError::InvalidLargeBasketIntent, has_one = index @ BasketError::InvalidLargeBasketIntent)]
+    pub intent: Account<'info, LargeBasketIntent>,
+    /// CHECK: PDA authority over component vaults.
+    #[account(
+        seeds = [VAULT_AUTHORITY_SEED, index.key().as_ref()],
+        bump = index.vault_authority_bump
+    )]
+    pub vault_authority: UncheckedAccount<'info>,
+    /// CHECK: Validated as native Solana USDC.
+    #[account(address = USDC_MINT @ BasketError::InvalidQuoteMint)]
+    pub quote_mint: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub owner_quote_token_account: InterfaceAccount<'info, InterfaceTokenAccount>,
+    /// CHECK: Validated against known Jupiter program ids when a swap is supplied.
+    pub jupiter_program: UncheckedAccount<'info>,
+    /// CHECK: Validated as the Associated Token Program.
+    #[account(address = ASSOCIATED_TOKEN_ID @ BasketError::InvalidAssociatedTokenProgram)]
+    pub associated_token_program: UncheckedAccount<'info>,
+    pub quote_token_program: Interface<'info, TokenInterface>,
+    pub system_program: Program<'info, System>,
+    #[account(mut)]
+    pub fee_recipient_quote_token_account: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub creator_fee_recipient_quote_token_account: Account<'info, TokenAccount>,
+    #[account(mut, seeds = [STAKING_POOL_SEED], bump = staking_pool.bump)]
+    pub staking_pool: Account<'info, StakingPool>,
+    /// CHECK: PDA authority over staking vaults.
+    #[account(seeds = [STAKING_AUTHORITY_SEED], bump = staking_pool.staking_authority_bump)]
+    pub staking_authority: UncheckedAccount<'info>,
+    #[account(mut)]
+    pub staking_reward_vault: Account<'info, TokenAccount>,
+    #[account(
+        mut,
+        seeds = [
+            LARGE_BASKET_INTENT_LOCK_SEED,
+            index.key().as_ref(),
+            owner.key().as_ref(),
+        ],
+        bump = intent_lock.bump
+    )]
+    pub intent_lock: Account<'info, LargeBasketIntentLock>,
+}
+
 #[derive(Accounts)]
 pub struct ExecuteLargeBasketRedeemComponent<'info> {
     #[account(mut)]
@@ -514,9 +573,11 @@ impl<'info> OpenLargeBasketMintIntent<'info> {
             ctx.accounts.index.large_basket_configured,
             BasketError::LargeBasketNotConfigured
         );
+        // Intents from different owners run side by side; only a keeper rebalance pauses
+        // new ones. The per-owner intent lock still allows one open intent per owner.
         require!(
-            !ctx.accounts.index.large_basket_operation_in_progress,
-            BasketError::InvalidLargeBasketIntent
+            ctx.accounts.index.accepts_new_intents(Clock::get()?.unix_timestamp),
+            BasketError::RebalancePending
         );
         initialize_or_validate_intent_lock(
             &mut ctx.accounts.intent_lock,
@@ -568,10 +629,11 @@ impl<'info> OpenLargeBasketMintIntent<'info> {
                 component_count: large_basket_intent_component_count(&ctx.accounts.index),
                 expires_at: args.expires_at,
                 in_kind: args.in_kind,
+                supply_era: ctx.accounts.index.supply_era,
                 bump: ctx.bumps.intent,
             },
         )?;
-        ctx.accounts.index.large_basket_operation_in_progress = true;
+        ctx.accounts.index.track_opened_intent()?;
         activate_intent_lock(&mut ctx.accounts.intent_lock, ctx.accounts.intent.key())?;
         Ok(())
     }
@@ -592,8 +654,8 @@ impl<'info> OpenLargeBasketRedeemIntent<'info> {
             BasketError::LargeBasketNotConfigured
         );
         require!(
-            !ctx.accounts.index.large_basket_operation_in_progress,
-            BasketError::InvalidLargeBasketIntent
+            ctx.accounts.index.accepts_new_intents(Clock::get()?.unix_timestamp),
+            BasketError::RebalancePending
         );
         initialize_or_validate_intent_lock(
             &mut ctx.accounts.intent_lock,
@@ -668,10 +730,11 @@ impl<'info> OpenLargeBasketRedeemIntent<'info> {
                 component_count: large_basket_intent_component_count(&ctx.accounts.index),
                 expires_at: args.expires_at,
                 in_kind: args.in_kind,
+                supply_era: ctx.accounts.index.supply_era,
                 bump: ctx.bumps.intent,
             },
         )?;
-        ctx.accounts.index.large_basket_operation_in_progress = true;
+        ctx.accounts.index.track_opened_intent()?;
         activate_intent_lock(&mut ctx.accounts.intent_lock, ctx.accounts.intent.key())?;
         Ok(())
     }
@@ -687,6 +750,12 @@ impl<'info> CollectLargeBasketIntentFees<'info> {
         // collection step for them.
         require!(
             !ctx.accounts.intent.in_kind,
+            BasketError::InvalidLargeBasketIntent
+        );
+        // Swap-path redeems pay their fees with each leg's proceeds in
+        // execute_large_basket_redeem_batch; only mints settle fees here.
+        require!(
+            ctx.accounts.intent.kind == LargeBasketIntentKind::Mint,
             BasketError::InvalidLargeBasketIntent
         );
         require!(
@@ -810,13 +879,18 @@ impl<'info> ExecuteLargeBasketMintComponent<'info> {
             LargeBasketIntentKind::Mint,
             args.component_index,
         )?;
+        // In-kind mints skip the USDC fee collect and finalize on `in_kind`; filling one
+        // through a swap would mint with no fee at all.
+        require!(
+            !ctx.accounts.intent.in_kind,
+            BasketError::InvalidLargeBasketIntent
+        );
         // Design B: fees are collected after execution, so executes no longer
         // require fees_collected. The budget guard in add_mint_quote_spent
         // accounts for the pending fee using the stored bps.
-        validate_mint_supply_snapshot(
-            &ctx.accounts.index_mint.to_account_info(),
-            &ctx.accounts.intent,
-        )?;
+        // Deposits are the amounts fixed at open even if other intents have since moved
+        // supply, as long as the basket has not emptied and restarted (see finalize).
+        require_mint_basis(&ctx.accounts.index, &ctx.accounts.index_mint, &ctx.accounts.intent)?;
         require!(
             !component_filled(&ctx.accounts.intent, args.component_index)?,
             BasketError::LargeBasketComponentAlreadyFilled
@@ -829,12 +903,6 @@ impl<'info> ExecuteLargeBasketMintComponent<'info> {
             &ctx.accounts.component_mint.to_account_info(),
             &ctx.accounts.component_vault.to_account_info(),
             &ctx.accounts.component_token_program.to_account_info(),
-        )?;
-        validate_current_mint_component_amount(
-            &ctx.accounts.index,
-            &ctx.accounts.intent,
-            &component,
-            args.component_index,
         )?;
         create_associated_token_account_idempotent_for_token_program(
             ctx.accounts.associated_token_program.to_account_info(),
@@ -900,10 +968,13 @@ impl<'info> ExecuteLargeBasketComponentBatch<'info> {
             !args.entries.is_empty(),
             BasketError::InvalidRemainingAccounts
         );
-        validate_mint_supply_snapshot(
-            &ctx.accounts.index_mint.to_account_info(),
-            &ctx.accounts.intent,
-        )?;
+        // In-kind mints skip the USDC fee collect and finalize on `in_kind`; filling one
+        // through a swap would mint with no fee at all.
+        require!(
+            !ctx.accounts.intent.in_kind,
+            BasketError::InvalidLargeBasketIntent
+        );
+        require_mint_basis(&ctx.accounts.index, &ctx.accounts.index_mint, &ctx.accounts.intent)?;
 
         // Candidate ordering the Jupiter route indices are resolved against. MUST
         // match the server route compaction exactly (compactLargeBasketComponentPlan):
@@ -960,12 +1031,6 @@ impl<'info> ExecuteLargeBasketComponentBatch<'info> {
                 mint_info,
                 vault_info,
                 token_program_info,
-            )?;
-            validate_current_mint_component_amount(
-                &ctx.accounts.index,
-                &ctx.accounts.intent,
-                &component,
-                entry.component_index,
             )?;
             create_associated_token_account_idempotent_for_token_program(
                 ctx.accounts.associated_token_program.to_account_info(),
@@ -1046,14 +1111,33 @@ impl<'info> ExecuteLargeBasketComponentBatch<'info> {
 
     // Batched redeem: mirror of handle_mint but swaps each component vault -> USDC
     // (vault authority signs). remaining_accounts layout + per-entry scoping identical.
-    pub fn handle_redeem(
-        ctx: Context<'_, '_, 'info, 'info, Self>,
+}
+
+impl<'info> ExecuteLargeBasketRedeemBatch<'info> {
+    pub fn handle(
+        mut ctx: Context<'_, '_, 'info, 'info, Self>,
         args: ExecuteLargeBasketRedeemBatchArgs,
     ) -> Result<()> {
         require!(
             !args.entries.is_empty(),
             BasketError::InvalidRemainingAccounts
         );
+        require_keys_eq!(
+            ctx.accounts.intent.staking_pool,
+            ctx.accounts.staking_pool.key(),
+            BasketError::InvalidStakingVault
+        );
+        require_keys_eq!(
+            ctx.accounts.staking_pool.reward_mint,
+            USDC_MINT,
+            BasketError::InvalidRewardMint
+        );
+        validate_staking_vault(
+            &ctx.accounts.staking_reward_vault,
+            &ctx.accounts.staking_reward_vault.key(),
+            &ctx.accounts.staking_authority.key(),
+            &USDC_MINT,
+        )?;
 
         // Candidate ordering MUST match the server compaction (redeem mode has no
         // associated_token_program/system): [owner, index, index_mint, intent,
@@ -1178,6 +1262,7 @@ impl<'info> ExecuteLargeBasketComponentBatch<'info> {
                 quote_received,
             )?;
             mark_component_filled(&mut ctx.accounts.intent, entry.component_index)?;
+            charge_redeem_leg_fees(&mut ctx)?;
 
             emit!(LargeBasketComponentFilled {
                 intent: ctx.accounts.intent.key(),
@@ -1192,68 +1277,126 @@ impl<'info> ExecuteLargeBasketComponentBatch<'info> {
             cursor == ctx.remaining_accounts.len(),
             BasketError::InvalidRemainingAccounts
         );
+
+        // Every leg has paid its fee (and the last leg passed the min-out check), so settle
+        // now: no later step exists that could be skipped to keep the basket locked.
+        if ctx.accounts.intent.completed_components == ctx.accounts.intent.component_count {
+            let intent_key = ctx.accounts.intent.key();
+            ctx.accounts.intent.fees_collected = true;
+            ctx.accounts.intent.status = LargeBasketIntentStatus::Finalized;
+            ctx.accounts.index.track_closed_intent();
+            clear_intent_lock(&mut ctx.accounts.intent_lock, intent_key)?;
+            emit!(LargeBasketIntentFinalized {
+                intent: intent_key,
+                index: ctx.accounts.index.key(),
+                owner: ctx.accounts.intent.owner,
+                kind: ctx.accounts.intent.kind,
+                index_amount: ctx.accounts.intent.index_amount,
+                quote_atoms_executed: ctx.accounts.intent.quote_atoms_executed,
+            });
+        }
         Ok(())
     }
 }
 
+// Redeem fees accrue leg by leg: the totals are re-derived from the cumulative proceeds and
+// only the increase is charged, so the legs sum to exactly the fee on the whole redeem.
+fn redeem_fee_targets(intent: &LargeBasketIntent, fee_basis: u64) -> Result<(u64, u64, u64)> {
+    let split = large_basket_fee_split(
+        fee_basis,
+        intent.protocol_fee_bps,
+        intent.creator_fee_bps,
+        intent.staking_fee_bps,
+    )?;
+    let (protocol_fee, creator_fee) = route_creator_fee(
+        split.protocol_fee,
+        split.creator_fee,
+        &intent.creator_fee_recipient,
+    )?;
+    Ok((protocol_fee, creator_fee, split.staking_fee))
+}
+
+fn charge_redeem_leg_fees<'info>(
+    ctx: &mut Context<'_, '_, 'info, 'info, ExecuteLargeBasketRedeemBatch<'info>>,
+) -> Result<()> {
+    let intent = &ctx.accounts.intent;
+    let (protocol_fee, creator_fee, staking_fee) =
+        redeem_fee_targets(intent, intent.quote_atoms_executed)?;
+    let due = |target: u64, charged: u64| {
+        target
+            .checked_sub(charged)
+            .ok_or_else(|| error!(BasketError::ArithmeticOverflow))
+    };
+    let protocol_due = due(protocol_fee, intent.protocol_fee_usdc_atoms)?;
+    let creator_due = due(creator_fee, intent.creator_fee_usdc_atoms)?;
+    let staking_due = due(staking_fee, intent.staking_fee_usdc_atoms)?;
+    validate_fee_destination(
+        &ctx.accounts.fee_recipient_quote_token_account,
+        &intent.protocol_fee_recipient,
+        protocol_due,
+        BasketError::InvalidFeeRecipientTokenAccount,
+    )?;
+    validate_fee_destination(
+        &ctx.accounts.creator_fee_recipient_quote_token_account,
+        &intent.creator_fee_recipient,
+        creator_due,
+        BasketError::InvalidCreatorFeeRecipientTokenAccount,
+    )?;
+
+    let fee_recipient = ctx.accounts.fee_recipient_quote_token_account.to_account_info();
+    let creator_fee_recipient = ctx
+        .accounts
+        .creator_fee_recipient_quote_token_account
+        .to_account_info();
+    let staking_reward_vault = ctx.accounts.staking_reward_vault.to_account_info();
+    transfer_redeem_fee(ctx, fee_recipient, protocol_due)?;
+    transfer_redeem_fee(ctx, creator_fee_recipient, creator_due)?;
+    if staking_due > 0 {
+        transfer_redeem_fee(ctx, staking_reward_vault, staking_due)?;
+        accrue_staking_rewards(&mut ctx.accounts.staking_pool, staking_due)?;
+    }
+
+    let intent = &mut ctx.accounts.intent;
+    intent.fee_basis_usdc_atoms = intent.quote_atoms_executed;
+    intent.protocol_fee_usdc_atoms = protocol_fee;
+    intent.creator_fee_usdc_atoms = creator_fee;
+    intent.staking_fee_usdc_atoms = staking_fee;
+    Ok(())
+}
+
+fn transfer_redeem_fee<'info>(
+    ctx: &Context<'_, '_, 'info, 'info, ExecuteLargeBasketRedeemBatch<'info>>,
+    destination: AccountInfo<'info>,
+    amount: u64,
+) -> Result<()> {
+    if amount == 0 || destination.key() == ctx.accounts.owner_quote_token_account.key() {
+        return Ok(());
+    }
+
+    token_interface::transfer_checked(
+        CpiContext::new(
+            ctx.accounts.quote_token_program.to_account_info(),
+            TransferChecked {
+                from: ctx.accounts.owner_quote_token_account.to_account_info(),
+                mint: ctx.accounts.quote_mint.to_account_info(),
+                to: destination,
+                authority: ctx.accounts.owner.to_account_info(),
+            },
+        ),
+        amount,
+        crate::constants::USDC_DECIMALS,
+    )
+}
+
 impl<'info> ExecuteLargeBasketRedeemComponent<'info> {
+    // Closed: this single-leg path paid USDC out with no fee, leaving a separate collect
+    // step the redeemer could skip. execute_large_basket_redeem_batch (one entry is fine)
+    // charges each leg's fee with its proceeds.
     pub fn handle(
-        mut ctx: Context<'_, '_, 'info, 'info, Self>,
-        args: ExecuteLargeBasketRedeemComponentArgs,
+        _ctx: Context<'_, '_, 'info, 'info, Self>,
+        _args: ExecuteLargeBasketRedeemComponentArgs,
     ) -> Result<()> {
-        validate_component_execution_args(args.max_oracle_slippage_bps)?;
-        validate_open_intent(
-            &ctx.accounts.intent,
-            LargeBasketIntentKind::Redeem,
-            args.component_index,
-        )?;
-        // Design B: fees are collected after execution (see mint execute).
-        require!(
-            !component_filled(&ctx.accounts.intent, args.component_index)?,
-            BasketError::LargeBasketComponentAlreadyFilled
-        );
-        let component = validate_component_accounts(
-            &ctx.accounts.index.key(),
-            &ctx.accounts.component_page,
-            &ctx.accounts.component_page.key(),
-            args.component_index,
-            &ctx.accounts.component_mint.to_account_info(),
-            &ctx.accounts.component_vault.to_account_info(),
-            &ctx.accounts.component_token_program.to_account_info(),
-        )?;
-        let amount = intent_component_amount(&ctx.accounts.intent, args.component_index)?;
-        let quote_received = if amount == 0 {
-            0
-        } else if component.mint == ctx.accounts.quote_mint.key() {
-            require!(args.swap.is_none(), BasketError::InvalidJupiterRoute);
-            transfer_checked_from_vault_quote(&ctx, amount)?;
-            amount
-        } else {
-            let swap = args
-                .swap
-                .as_ref()
-                .ok_or_else(|| error!(BasketError::InvalidJupiterRoute))?;
-            execute_redeem_swap(&mut ctx, swap, &component, amount)?
-        };
-        require!(
-            quote_received >= args.min_quote_out,
-            BasketError::QuoteBudgetExceeded
-        );
-        add_redeem_quote_received(&mut ctx.accounts.intent, quote_received)?;
-        // Record this component's USDC received for the deferred oracle price check.
-        set_component_quote_atoms(&mut ctx.accounts.intent, args.component_index, quote_received)?;
-        mark_component_filled(&mut ctx.accounts.intent, args.component_index)?;
-
-        emit!(LargeBasketComponentFilled {
-            intent: ctx.accounts.intent.key(),
-            index: ctx.accounts.index.key(),
-            owner: ctx.accounts.owner.key(),
-            component_index: args.component_index,
-            amount,
-            quote_atoms: quote_received,
-        });
-
-        Ok(())
+        err!(BasketError::RedeemRequiresBatchExecution)
     }
 }
 
@@ -1388,21 +1531,19 @@ impl<'info> FinalizeLargeBasketMintIntent<'info> {
             total_quote <= ctx.accounts.intent.max_quote_in,
             BasketError::QuoteBudgetExceeded
         );
+        // The deposits were fixed at open from the basket's composition then. Other owners'
+        // intents may settle in between, but within one supply era that only moves reserves
+        // per token by rounding dust (rounded in holders' favour) or by donations, so the
+        // requested amount stays backed. Crossing an empty basket would change the basis.
         let index_mint = load_mint(&ctx.accounts.index_mint.to_account_info())?;
-        let post_supply =
-            validate_mint_supply_snapshot_value(&ctx.accounts.intent, index_mint.supply)?;
-        if ctx.accounts.index.max_supply > 0 {
-            require!(
-                post_supply <= ctx.accounts.index.max_supply,
-                BasketError::SupplyCapExceeded
-            );
-        }
-        validate_current_mint_component_amounts(
-            &ctx.accounts.index.key(),
-            &ctx.accounts.index,
-            ctx.remaining_accounts,
-            &ctx.accounts.intent,
-        )?;
+        let opened_era = ctx.accounts.intent.supply_era;
+        let opened_empty = ctx.accounts.intent.supply_snapshot == 0;
+        ctx.accounts
+            .index
+            .settle_mint_era(opened_era, opened_empty, index_mint.supply)?;
+        // max_supply is enforced when intents open. Rechecking here would let whoever settles
+        // first strand other owners' fully paid mints, so concurrent mints may overshoot the
+        // cap by at most what was already in flight.
         account_filled_mint_components(
             &ctx.accounts.index.key(),
             ctx.remaining_accounts,
@@ -1428,7 +1569,7 @@ impl<'info> FinalizeLargeBasketMintIntent<'info> {
             ctx.accounts.intent.index_amount,
         )?;
         ctx.accounts.intent.status = LargeBasketIntentStatus::Finalized;
-        ctx.accounts.index.large_basket_operation_in_progress = false;
+        ctx.accounts.index.track_closed_intent();
         clear_intent_lock(&mut ctx.accounts.intent_lock, ctx.accounts.intent.key())?;
 
         emit!(LargeBasketIntentFinalized {
@@ -1469,7 +1610,7 @@ impl<'info> FinalizeLargeBasketRedeemIntent<'info> {
             );
         }
         ctx.accounts.intent.status = LargeBasketIntentStatus::Finalized;
-        ctx.accounts.index.large_basket_operation_in_progress = false;
+        ctx.accounts.index.track_closed_intent();
         clear_intent_lock(&mut ctx.accounts.intent_lock, ctx.accounts.intent.key())?;
 
         emit!(LargeBasketIntentFinalized {
@@ -1500,7 +1641,7 @@ impl<'info> CancelUnfilledLargeBasketMintIntent<'info> {
             BasketError::LargeBasketComponentAlreadyFilled
         );
         ctx.accounts.intent.status = LargeBasketIntentStatus::Cancelled;
-        ctx.accounts.index.large_basket_operation_in_progress = false;
+        ctx.accounts.index.track_closed_intent();
         clear_intent_lock(&mut ctx.accounts.intent_lock, ctx.accounts.intent.key())?;
         Ok(())
     }
@@ -1535,28 +1676,40 @@ impl<'info> CancelUnfilledLargeBasketRedeemIntent<'info> {
             &ctx.accounts.token_program,
         )?;
         ctx.accounts.intent.status = LargeBasketIntentStatus::Cancelled;
-        ctx.accounts.index.large_basket_operation_in_progress = false;
+        ctx.accounts.index.track_closed_intent();
         clear_intent_lock(&mut ctx.accounts.intent_lock, ctx.accounts.intent.key())?;
         Ok(())
     }
 }
 
 impl<'info> CancelExpiredLargeBasketIntent<'info> {
+    /// Anyone may settle an expired intent, so a stale one can never hold up a rebalance.
+    /// Owed components leave the vaults a few per call, either to a token account the owner
+    /// holds or to the refund escrow, where the owner claims them later
+    /// (claim_large_basket_refund). The intent stays Refunding, still counted as open, until
+    /// every owed component has left the vaults.
     pub fn handle(ctx: Context<'_, '_, 'info, 'info, Self>) -> Result<()> {
+        let status = ctx.accounts.intent.status;
         require!(
-            ctx.accounts.intent.status == LargeBasketIntentStatus::Open,
+            status == LargeBasketIntentStatus::Open || status == LargeBasketIntentStatus::Refunding,
             BasketError::InvalidLargeBasketIntent
         );
         require!(
             Clock::get()?.unix_timestamp > ctx.accounts.intent.expires_at,
             BasketError::InvalidLargeBasketIntentExpiry
         );
+        let kind = ctx.accounts.intent.kind;
+        let completed = ctx.accounts.intent.completed_components;
+        // A fully executed redeem has nothing to return; finalize_large_basket_redeem_intent
+        // (no signer needed) settles it.
+        require!(
+            !(kind == LargeBasketIntentKind::Redeem
+                && completed == ctx.accounts.intent.component_count),
+            BasketError::InvalidLargeBasketIntent
+        );
 
-        if ctx.accounts.intent.kind == LargeBasketIntentKind::Redeem {
-            if ctx.accounts.intent.completed_components == ctx.accounts.intent.component_count {
-                return err!(BasketError::InvalidLargeBasketIntent);
-            }
-            if ctx.accounts.intent.completed_components == 0 {
+        if completed == 0 {
+            if kind == LargeBasketIntentKind::Redeem {
                 restore_unfilled_redeem_components(
                     &ctx.accounts.index.key(),
                     ctx.remaining_accounts,
@@ -1572,34 +1725,139 @@ impl<'info> CancelExpiredLargeBasketIntent<'info> {
                     &ctx.accounts.token_program,
                 )?;
             } else {
-                transfer_unfilled_redeem_components_to_owner(
-                    ctx.accounts.index.key(),
-                    ctx.accounts.index.vault_authority_bump,
-                    &ctx.accounts.vault_authority.to_account_info(),
-                    ctx.remaining_accounts,
-                    &ctx.accounts.intent,
-                )?;
+                require!(
+                    ctx.remaining_accounts.is_empty(),
+                    BasketError::InvalidRemainingAccounts
+                );
             }
-        } else if ctx.accounts.intent.completed_components > 0 {
-            transfer_filled_mint_components_to_owner(
+        } else {
+            // Mints return what they deposited; redeems return what was not yet sold.
+            let selection = if kind == LargeBasketIntentKind::Mint {
+                CancelledComponentSelection::Filled
+            } else {
+                CancelledComponentSelection::Unfilled
+            };
+            let all_returned = return_owed_components(
                 ctx.accounts.index.key(),
                 ctx.accounts.index.vault_authority_bump,
                 &ctx.accounts.vault_authority.to_account_info(),
                 ctx.remaining_accounts,
-                &ctx.accounts.intent,
+                &mut ctx.accounts.intent,
+                selection,
             )?;
-        } else {
-            require!(
-                ctx.remaining_accounts.is_empty(),
-                BasketError::InvalidRemainingAccounts
-            );
+            if !all_returned {
+                ctx.accounts.intent.status = LargeBasketIntentStatus::Refunding;
+                return Ok(());
+            }
         }
 
         ctx.accounts.intent.status = LargeBasketIntentStatus::Cancelled;
-        ctx.accounts.index.large_basket_operation_in_progress = false;
-        clear_intent_lock(&mut ctx.accounts.intent_lock, ctx.accounts.intent.key())?;
+        ctx.accounts.index.track_closed_intent();
+        // With components waiting in escrow the owner's lock keeps pointing here, so their
+        // next visit finds the claim; it only holds back that owner's own new intents.
+        if ctx.accounts.intent.escrowed_bitmap.iter().all(|byte| *byte == 0) {
+            clear_intent_lock(&mut ctx.accounts.intent_lock, ctx.accounts.intent.key())?;
+        }
         Ok(())
     }
+}
+
+#[derive(Accounts)]
+pub struct ClaimLargeBasketRefund<'info> {
+    pub owner: Signer<'info>,
+    pub index: Account<'info, IndexState>,
+    #[account(mut, has_one = owner @ BasketError::InvalidLargeBasketIntent, has_one = index @ BasketError::InvalidLargeBasketIntent)]
+    pub intent: Account<'info, LargeBasketIntent>,
+    #[account(
+        mut,
+        seeds = [
+            LARGE_BASKET_INTENT_LOCK_SEED,
+            index.key().as_ref(),
+            owner.key().as_ref(),
+        ],
+        bump = intent_lock.bump
+    )]
+    pub intent_lock: Account<'info, LargeBasketIntentLock>,
+    /// CHECK: PDA owning the refund escrow token accounts; signs the claim transfers.
+    #[account(seeds = [REFUND_ESCROW_SEED, index.key().as_ref()], bump)]
+    pub refund_escrow: UncheckedAccount<'info>,
+}
+
+impl<'info> ClaimLargeBasketRefund<'info> {
+    /// Moves components an expired intent left in the refund escrow to the owner.
+    /// remaining_accounts: the index's pages, then [mint, escrow token account, owner token
+    /// account, token program] groups for any of the escrowed components.
+    pub fn handle(ctx: Context<'_, '_, 'info, 'info, Self>) -> Result<()> {
+        require!(
+            ctx.accounts.intent.status == LargeBasketIntentStatus::Cancelled,
+            BasketError::InvalidLargeBasketIntent
+        );
+        let index_key = ctx.accounts.index.key();
+        let page_count = usize::from(ctx.accounts.index.large_basket_page_count);
+        require!(
+            ctx.remaining_accounts.len() > page_count
+                && (ctx.remaining_accounts.len() - page_count) % 4 == 0,
+            BasketError::InvalidRemainingAccounts
+        );
+        let (page_infos, transfer_infos) = ctx.remaining_accounts.split_at(page_count);
+        let pages = load_ordered_component_pages(&index_key, &ctx.accounts.index, page_infos)?;
+        let escrow = ctx.accounts.refund_escrow.key();
+        let escrow_bump = [ctx.bumps.refund_escrow];
+        let signer_seeds: &[&[u8]] = &[REFUND_ESCROW_SEED, index_key.as_ref(), &escrow_bump];
+        for group in transfer_infos.chunks(4) {
+            let (component_index, component) = find_component_by_mint(&pages, &group[0].key())?;
+            require!(
+                bitmap_get(&ctx.accounts.intent.escrowed_bitmap, component_index)?,
+                BasketError::InvalidRemainingAccounts
+            );
+            require_keys_eq!(*group[0].owner, component.token_program, BasketError::InvalidTokenMint);
+            require_keys_eq!(group[3].key(), component.token_program, BasketError::InvalidTokenProgram);
+            require_keys_eq!(
+                group[1].key(),
+                associated_token_address_with_token_program(&escrow, &component.mint, &component.token_program),
+                BasketError::InvalidVaultAccount
+            );
+            let owner_token = load_interface_token_account(&group[2])?;
+            require_keys_eq!(owner_token.owner, ctx.accounts.intent.owner, BasketError::InvalidUserTokenAccount);
+            require_keys_eq!(owner_token.mint, component.mint, BasketError::InvalidUserTokenAccount);
+            transfer_component_checked(
+                &group[3],
+                &group[1],
+                &group[0],
+                &group[2],
+                &ctx.accounts.refund_escrow.to_account_info(),
+                &[signer_seeds],
+                intent_component_amount(&ctx.accounts.intent, component_index)?,
+                component.decimals,
+            )?;
+            let (byte_index, bit) = bitmap_position(component_index)?;
+            ctx.accounts.intent.escrowed_bitmap[byte_index] &= !bit;
+        }
+        if ctx.accounts.intent.escrowed_bitmap.iter().all(|byte| *byte == 0)
+            && ctx.accounts.intent_lock.active_intent == ctx.accounts.intent.key()
+        {
+            clear_intent_lock(&mut ctx.accounts.intent_lock, ctx.accounts.intent.key())?;
+        }
+        Ok(())
+    }
+}
+
+fn find_component_by_mint<'a>(
+    pages: &'a [Account<'_, LargeBasketComponentPage>],
+    mint: &Pubkey,
+) -> Result<(u16, &'a LargeBasketComponent)> {
+    for page in pages {
+        for (local_index, component) in page.components.iter().enumerate() {
+            if component.mint == *mint {
+                let component_index = page
+                    .start_component_index
+                    .checked_add(local_index as u16)
+                    .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
+                return Ok((component_index, component));
+            }
+        }
+    }
+    err!(BasketError::InvalidComponentMint)
 }
 
 // ---------------------------------------------------------------------------
@@ -1722,10 +1980,7 @@ impl<'info> ExecuteLargeBasketMintComponentInKind<'info> {
             ctx.accounts.intent.in_kind,
             BasketError::InvalidLargeBasketIntent
         );
-        validate_mint_supply_snapshot(
-            &ctx.accounts.index_mint.to_account_info(),
-            &ctx.accounts.intent,
-        )?;
+        require_mint_basis(&ctx.accounts.index, &ctx.accounts.index_mint, &ctx.accounts.intent)?;
         require!(
             !component_filled(&ctx.accounts.intent, args.component_index)?,
             BasketError::LargeBasketComponentAlreadyFilled
@@ -1738,12 +1993,6 @@ impl<'info> ExecuteLargeBasketMintComponentInKind<'info> {
             &ctx.accounts.component_mint.to_account_info(),
             &ctx.accounts.component_vault.to_account_info(),
             &ctx.accounts.component_token_program.to_account_info(),
-        )?;
-        validate_current_mint_component_amount(
-            &ctx.accounts.index,
-            &ctx.accounts.intent,
-            &component,
-            args.component_index,
         )?;
         create_associated_token_account_idempotent_for_token_program(
             ctx.accounts.associated_token_program.to_account_info(),
@@ -2023,90 +2272,25 @@ struct IntentInit {
     component_count: u8,
     expires_at: i64,
     in_kind: bool,
+    supply_era: u32,
     bump: u8,
+}
+
+fn require_mint_basis<'info>(
+    index: &IndexState,
+    index_mint: &UncheckedAccount<'info>,
+    intent: &LargeBasketIntent,
+) -> Result<()> {
+    let supply = load_mint(&index_mint.to_account_info())?.supply;
+    require!(
+        index.mint_basis_holds(intent.supply_era, intent.supply_snapshot == 0, supply),
+        BasketError::MintBasisChanged
+    );
+    Ok(())
 }
 
 fn large_basket_intent_component_count(index: &IndexState) -> u8 {
     index.large_basket_component_count
-}
-
-fn validate_mint_supply_snapshot<'info>(
-    index_mint_info: &AccountInfo<'info>,
-    intent: &LargeBasketIntent,
-) -> Result<u64> {
-    let index_mint = load_mint(index_mint_info)?;
-    validate_mint_supply_snapshot_value(intent, index_mint.supply)
-}
-
-fn validate_mint_supply_snapshot_value(
-    intent: &LargeBasketIntent,
-    current_supply: u64,
-) -> Result<u64> {
-    require!(
-        current_supply == intent.supply_snapshot,
-        BasketError::InvalidLargeBasketIntent
-    );
-    let post_supply = current_supply
-        .checked_add(intent.index_amount)
-        .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
-    require!(
-        post_supply == intent.post_supply,
-        BasketError::InvalidLargeBasketIntent
-    );
-    Ok(post_supply)
-}
-
-fn validate_current_mint_component_amount(
-    index: &IndexState,
-    intent: &LargeBasketIntent,
-    component: &LargeBasketComponent,
-    component_index: u16,
-) -> Result<()> {
-    let provided = intent_component_amount(intent, component_index)?;
-    let required = required_current_mint_component_amount(
-        index,
-        intent.index_amount,
-        intent.supply_snapshot,
-        component,
-    )?;
-    require!(provided >= required, BasketError::InvalidLargeBasketIntent);
-    Ok(())
-}
-
-fn validate_current_mint_component_amounts<'info>(
-    index_key: &Pubkey,
-    index: &IndexState,
-    page_infos: &'info [AccountInfo<'info>],
-    intent: &LargeBasketIntent,
-) -> Result<()> {
-    let pages = load_ordered_component_pages(index_key, index, page_infos)?;
-    for page in pages {
-        for (local_index, component) in page.components.iter().enumerate() {
-            let component_index = page
-                .start_component_index
-                .checked_add(local_index as u16)
-                .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
-            validate_current_mint_component_amount(index, intent, component, component_index)?;
-        }
-    }
-    Ok(())
-}
-
-fn required_current_mint_component_amount(
-    index: &IndexState,
-    index_amount: u64,
-    current_supply: u64,
-    component: &LargeBasketComponent,
-) -> Result<u64> {
-    if current_supply == 0 {
-        quote_component_amount(
-            component.units_per_index,
-            index_amount,
-            index.index_base_units()?,
-        )
-    } else {
-        pro_rata_mint_amount(index_amount, component.accounted_reserve, current_supply)
-    }
 }
 
 fn initialize_or_validate_intent_lock(
@@ -2233,8 +2417,11 @@ fn initialize_intent(intent: &mut Account<LargeBasketIntent>, init: IntentInit) 
     intent.component_quote_atoms = vec![0u64; component_amounts_len];
     intent.component_verified_bitmap = [0; crate::constants::LARGE_BASKET_COMPONENT_BITMAP_BYTES];
     intent.in_kind = init.in_kind;
+    intent.supply_era = init.supply_era;
+    intent.refunded_bitmap = [0; crate::constants::LARGE_BASKET_COMPONENT_BITMAP_BYTES];
+    intent.escrowed_bitmap = [0; crate::constants::LARGE_BASKET_COMPONENT_BITMAP_BYTES];
     intent.bump = init.bump;
-    intent.reserved = [0; 24];
+    intent.reserved = [0; 6];
 
     emit!(LargeBasketIntentOpened {
         intent: intent.key(),
@@ -2566,111 +2753,111 @@ fn restore_unfilled_redeem_components<'info>(
     Ok(())
 }
 
-fn transfer_filled_mint_components_to_owner<'info>(
-    index: Pubkey,
-    vault_authority_bump: u8,
-    vault_authority: &AccountInfo<'info>,
-    account_infos: &'info [AccountInfo<'info>],
-    intent: &LargeBasketIntent,
-) -> Result<()> {
-    transfer_cancelled_components_to_owner(
-        index,
-        vault_authority_bump,
-        vault_authority,
-        account_infos,
-        intent,
-        CancelledComponentSelection::Filled,
-    )
-}
-
-fn transfer_unfilled_redeem_components_to_owner<'info>(
-    index: Pubkey,
-    vault_authority_bump: u8,
-    vault_authority: &AccountInfo<'info>,
-    account_infos: &'info [AccountInfo<'info>],
-    intent: &LargeBasketIntent,
-) -> Result<()> {
-    transfer_cancelled_components_to_owner(
-        index,
-        vault_authority_bump,
-        vault_authority,
-        account_infos,
-        intent,
-        CancelledComponentSelection::Unfilled,
-    )
-}
-
 #[derive(Clone, Copy)]
 enum CancelledComponentSelection {
     Filled,
     Unfilled,
 }
 
-fn transfer_cancelled_components_to_owner<'info>(
+fn component_owed(
+    intent: &LargeBasketIntent,
+    selection: CancelledComponentSelection,
+    component_index: u16,
+) -> Result<bool> {
+    let filled = component_filled(intent, component_index)?;
+    let selected = match selection {
+        CancelledComponentSelection::Filled => filled,
+        CancelledComponentSelection::Unfilled => !filled,
+    };
+    Ok(selected && intent_component_amount(intent, component_index)? > 0)
+}
+
+/// Returns the owed components named in `account_infos` (pages, then one or more
+/// [mint, vault, destination, token program] groups, in any order) and reports whether every
+/// owed component has now left the vaults. The destination is a token account the owner holds,
+/// or the refund escrow's associated token account, which costs the caller no rent and which
+/// the owner cannot make refuse a transfer.
+fn return_owed_components<'info>(
     index: Pubkey,
     vault_authority_bump: u8,
     vault_authority: &AccountInfo<'info>,
     account_infos: &'info [AccountInfo<'info>],
-    intent: &LargeBasketIntent,
+    intent: &mut LargeBasketIntent,
     selection: CancelledComponentSelection,
-) -> Result<()> {
+) -> Result<bool> {
     let page_count = usize::from(expected_page_count(intent.component_count)?);
     require!(
         account_infos.len() >= page_count,
         BasketError::InvalidRemainingAccounts
     );
     let (page_infos, transfer_infos) = account_infos.split_at(page_count);
+    // Every call must return something, so an expired but finalizable intent is not flipped
+    // to Refunding by a no-op.
+    require!(
+        !transfer_infos.is_empty() && transfer_infos.len() % 4 == 0,
+        BasketError::InvalidRemainingAccounts
+    );
     let pages = load_ordered_writable_component_pages(&index, page_infos, intent.component_count)?;
-    let mut transfer_iter = transfer_infos.iter();
-
-    for page in pages {
+    let escrow = Pubkey::find_program_address(&[REFUND_ESCROW_SEED, index.as_ref()], &crate::ID).0;
+    let mut components: Vec<(u16, &LargeBasketComponent)> = Vec::new();
+    for page in pages.iter() {
         for (local_index, component) in page.components.iter().enumerate() {
             let component_index = page
                 .start_component_index
                 .checked_add(local_index as u16)
                 .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
-            let filled = component_filled(intent, component_index)?;
-            let should_transfer = match selection {
-                CancelledComponentSelection::Filled => filled,
-                CancelledComponentSelection::Unfilled => !filled,
-            };
-            if !should_transfer {
-                continue;
-            }
-
-            let amount = intent_component_amount(intent, component_index)?;
-            if amount == 0 {
-                continue;
-            }
-
-            let mint_info = next_account_info(&mut transfer_iter)?;
-            let vault_info = next_account_info(&mut transfer_iter)?;
-            let owner_token_info = next_account_info(&mut transfer_iter)?;
-            let token_program_info = next_account_info(&mut transfer_iter)?;
-            transfer_component_to_owner(
-                CancelledComponentTransfer {
-                    index,
-                    vault_authority_bump,
-                    vault_authority,
-                    owner: intent.owner,
-                    component,
-                    amount,
-                },
-                CancelledComponentTransferAccounts {
-                    mint: mint_info,
-                    vault: vault_info,
-                    owner_token: owner_token_info,
-                    token_program: token_program_info,
-                },
-            )?;
+            components.push((component_index, component));
         }
     }
 
-    require!(
-        transfer_iter.next().is_none(),
-        BasketError::InvalidRemainingAccounts
-    );
-    Ok(())
+    for group in transfer_infos.chunks(4) {
+        let (component_index, component) = *components
+            .iter()
+            .find(|(_, component)| component.mint == group[0].key())
+            .ok_or_else(|| error!(BasketError::InvalidComponentMint))?;
+        require!(
+            component_owed(intent, selection, component_index)?
+                && !bitmap_get(&intent.refunded_bitmap, component_index)?,
+            BasketError::InvalidRemainingAccounts
+        );
+        let to_escrow = load_interface_token_account(&group[2])?.owner == escrow;
+        if to_escrow {
+            require_keys_eq!(
+                group[2].key(),
+                associated_token_address_with_token_program(&escrow, &component.mint, &component.token_program),
+                BasketError::InvalidUserTokenAccount
+            );
+        }
+        transfer_component_to_owner(
+            CancelledComponentTransfer {
+                index,
+                vault_authority_bump,
+                vault_authority,
+                owner: if to_escrow { escrow } else { intent.owner },
+                component,
+                amount: intent_component_amount(intent, component_index)?,
+            },
+            CancelledComponentTransferAccounts {
+                mint: &group[0],
+                vault: &group[1],
+                owner_token: &group[2],
+                token_program: &group[3],
+            },
+        )?;
+        bitmap_set_once(&mut intent.refunded_bitmap, component_index)?;
+        if to_escrow {
+            bitmap_set_once(&mut intent.escrowed_bitmap, component_index)?;
+        }
+    }
+
+    for (component_index, _) in components {
+        if component_owed(intent, selection, component_index)?
+            && !bitmap_get(&intent.refunded_bitmap, component_index)?
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 struct CancelledComponentTransfer<'a, 'info> {
@@ -3062,31 +3249,6 @@ fn transfer_user_quote_to<'info>(
     )
 }
 
-fn transfer_checked_from_vault_quote<'info>(
-    ctx: &Context<'_, '_, 'info, 'info, ExecuteLargeBasketRedeemComponent<'info>>,
-    amount: u64,
-) -> Result<()> {
-    let signer_seeds: &[&[u8]] = &[
-        VAULT_AUTHORITY_SEED,
-        ctx.accounts.index.to_account_info().key.as_ref(),
-        &[ctx.accounts.index.vault_authority_bump],
-    ];
-    token_interface::transfer_checked(
-        CpiContext::new_with_signer(
-            ctx.accounts.quote_token_program.to_account_info(),
-            TransferChecked {
-                from: ctx.accounts.component_vault.to_account_info(),
-                mint: ctx.accounts.quote_mint.to_account_info(),
-                to: ctx.accounts.owner_quote_token_account.to_account_info(),
-                authority: ctx.accounts.vault_authority.to_account_info(),
-            },
-            &[signer_seeds],
-        ),
-        amount,
-        crate::constants::USDC_DECIMALS,
-    )
-}
-
 fn mint_account_candidates<'info>(
     ctx: &Context<'_, '_, 'info, 'info, ExecuteLargeBasketMintComponent<'info>>,
 ) -> Vec<AccountInfo<'info>> {
@@ -3106,28 +3268,6 @@ fn mint_account_candidates<'info>(
         ctx.accounts.associated_token_program.to_account_info(),
         ctx.accounts.quote_token_program.to_account_info(),
         ctx.accounts.system_program.to_account_info(),
-    ];
-    candidates.extend_from_slice(ctx.remaining_accounts);
-    candidates
-}
-
-fn redeem_account_candidates<'info>(
-    ctx: &Context<'_, '_, 'info, 'info, ExecuteLargeBasketRedeemComponent<'info>>,
-) -> Vec<AccountInfo<'info>> {
-    let mut candidates = vec![
-        ctx.accounts.owner.to_account_info(),
-        ctx.accounts.index.to_account_info(),
-        ctx.accounts.index_mint.to_account_info(),
-        ctx.accounts.intent.to_account_info(),
-        ctx.accounts.vault_authority.to_account_info(),
-        ctx.accounts.quote_mint.to_account_info(),
-        ctx.accounts.owner_quote_token_account.to_account_info(),
-        ctx.accounts.jupiter_program.to_account_info(),
-        ctx.accounts.component_page.to_account_info(),
-        ctx.accounts.component_mint.to_account_info(),
-        ctx.accounts.component_vault.to_account_info(),
-        ctx.accounts.component_token_program.to_account_info(),
-        ctx.accounts.quote_token_program.to_account_info(),
     ];
     candidates.extend_from_slice(ctx.remaining_accounts);
     candidates
@@ -3221,34 +3361,8 @@ fn execute_mint_swap_inner<'info>(
     Ok(quote_spent)
 }
 
-// Swap component -> USDC and return quote_received. Oracle price-bound deferred to
-// verify_redeem_component_price (see execute_mint_swap note).
-fn execute_redeem_swap<'info>(
-    ctx: &mut Context<'_, '_, 'info, 'info, ExecuteLargeBasketRedeemComponent<'info>>,
-    swap: &LargeBasketSwapPlan,
-    _component: &LargeBasketComponent,
-    required_amount: u64,
-) -> Result<u64> {
-    let candidates = redeem_account_candidates(ctx);
-    execute_redeem_swap_inner(
-        &ctx.accounts.jupiter_program.to_account_info(),
-        &ctx.accounts.index.key(),
-        &ctx.accounts.vault_authority.to_account_info(),
-        ctx.accounts.index.vault_authority_bump,
-        &ctx.accounts.owner_quote_token_account.to_account_info(),
-        &ctx.accounts.component_vault.to_account_info(),
-        &associated_token_address(
-            &ctx.accounts.vault_authority.key(),
-            &ctx.accounts.quote_mint.key(),
-        ),
-        &candidates,
-        swap,
-        required_amount,
-    )
-}
-
-// Account-parameterized redeem swap core (component -> USDC), reused by single and
-// batched redeem. Vault authority signs via PDA seeds. Scoping enforced per-call.
+// Redeem swap core (component -> USDC) for the batched redeem. Vault authority signs via
+// PDA seeds. Scoping enforced per-call.
 #[allow(clippy::too_many_arguments)]
 fn execute_redeem_swap_inner<'info>(
     jupiter_program: &AccountInfo<'info>,
@@ -3292,6 +3406,14 @@ fn execute_redeem_swap_inner<'info>(
     ];
     let quote_before = load_interface_token_account(owner_quote_token_account)?.amount;
     let component_before = load_interface_token_account(component_vault)?;
+    // The vault's USDC account is only a pass-through for proceeds here, but it is also the
+    // USDC component's vault, so a route must not leave it poorer.
+    let vault_quote = candidates
+        .iter()
+        .find(|info| info.key() == *vault_quote_token_account && info.key() != component_vault.key());
+    let vault_quote_before = vault_quote
+        .map(|info| load_interface_token_account(info).map(|account| account.amount))
+        .transpose()?;
     invoke_jupiter_swap_with_scratch(
         jupiter_program.clone(),
         candidates,
@@ -3303,6 +3425,12 @@ fn execute_redeem_swap_inner<'info>(
     )?;
     let quote_after = load_interface_token_account(owner_quote_token_account)?.amount;
     let component_after = load_interface_token_account(component_vault)?;
+    if let (Some(info), Some(before)) = (vault_quote, vault_quote_before) {
+        require!(
+            load_interface_token_account(info)?.amount >= before,
+            BasketError::InvalidJupiterRoute
+        );
+    }
     let component_spent = component_before
         .amount
         .checked_sub(component_after.amount)
@@ -3379,6 +3507,7 @@ fn transfer_fee_from_owner<'info>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants::REBALANCE_REQUEST_WINDOW_SECONDS;
 
     fn intent(component_count: u16) -> LargeBasketIntent {
         LargeBasketIntent {
@@ -3414,8 +3543,11 @@ mod tests {
             component_quote_atoms: vec![0; usize::from(component_count)],
             component_verified_bitmap: [0; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
             in_kind: false,
+            supply_era: 0,
+            refunded_bitmap: [0; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
+            escrowed_bitmap: [0; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
             bump: 255,
-            reserved: [0; 24],
+            reserved: [0; 6],
         }
     }
 
@@ -3446,9 +3578,10 @@ mod tests {
             rebalance_delay_seconds: 0,
             fixed_weight_rebalance_interval_seconds: 0,
             fixed_weight_last_rebalanced_at: 0,
-            pending_rebalance_available_at: 0,
-            pending_rebalance_nonce: 0,
-            pending_rebalance_quote_mint: Pubkey::default(),
+            rebalance_requested_at: 0,
+            open_intent_count: 0,
+            supply_era: 0,
+            rebalance_keeper: Pubkey::default(),
             fixed_weight_quote_mint: Pubkey::default(),
             active_rebalance_intent: Pubkey::default(),
             pending_rebalance_oracle_price_tolerance_bps: 0,
@@ -3458,7 +3591,7 @@ mod tests {
             minting_paused: false,
             redeeming_paused: false,
             rebalancing_paused: false,
-            pending_rebalance_ready: false,
+            rebalance_requested: false,
             reserved: [0; 1],
             name: "Large".to_string(),
             symbol: "LRG".to_string(),
@@ -3596,43 +3729,130 @@ mod tests {
     }
 
     #[test]
-    fn mint_supply_snapshot_rejects_stale_supply() {
-        let mut intent = intent(1);
-        intent.index_amount = 2;
-        intent.supply_snapshot = 2;
-        intent.post_supply = 4;
-
-        assert!(validate_mint_supply_snapshot_value(&intent, 3).is_err());
+    fn ratio_priced_mint_settles_while_supply_moves_within_its_era() {
+        let mut index = index_with_component_counts(1);
+        index.supply_era = 3;
+        // Other owners' intents changed supply from the open snapshot; still the same era.
+        assert!(index.settle_mint_era(3, false, 7).is_ok());
+        assert!(index.settle_mint_era(3, false, 1).is_ok());
+        assert_eq!(index.supply_era, 3);
     }
 
     #[test]
-    fn mint_supply_snapshot_returns_expected_post_supply() {
-        let mut intent = intent(1);
-        intent.index_amount = 2;
-        intent.supply_snapshot = 2;
-        intent.post_supply = 4;
-
-        assert_eq!(validate_mint_supply_snapshot_value(&intent, 2).unwrap(), 4);
+    fn ratio_priced_mint_rejects_an_emptied_or_restarted_basket() {
+        let mut index = index_with_component_counts(1);
+        index.supply_era = 3;
+        assert!(index.settle_mint_era(3, false, 0).is_err());
+        index.supply_era = 4;
+        assert!(index.settle_mint_era(3, false, 9).is_err());
     }
 
     #[test]
-    fn current_mint_component_amount_rejects_stale_reserve() {
-        let index = index_with_component_counts(1);
-        let mut intent = intent(1);
-        intent.index_amount = 2;
-        intent.supply_snapshot = 3;
-        intent.component_amounts[0] = 1;
-        let component = LargeBasketComponent {
-            mint: Pubkey::new_unique(),
-            units_per_index: 1,
-            target_weight_bps: 0,
-            oracle_pair: Pubkey::default(),
-            token_program: token::ID,
-            vault: Pubkey::new_unique(),
-            accounted_reserve: 2,
-            decimals: 6,
-        };
+    fn units_priced_mints_share_the_restart_they_open_into() {
+        let mut index = index_with_component_counts(1);
+        index.supply_era = 3;
+        // First settler into the empty basket starts era 4.
+        assert!(index.settle_mint_era(3, true, 0).is_ok());
+        assert_eq!(index.supply_era, 4);
+        // A second mint opened into the same empty basket joins era 4.
+        assert!(index.settle_mint_era(3, true, 5).is_ok());
+        assert_eq!(index.supply_era, 4);
+    }
 
-        assert!(validate_current_mint_component_amount(&index, &intent, &component, 0).is_err());
+    #[test]
+    fn units_priced_mint_rejects_a_ratio_composition() {
+        let mut index = index_with_component_counts(1);
+        index.supply_era = 3;
+        // Supply came back (e.g. a cancelled redeem re-minted) without a new era: the
+        // composition is the old ratio-priced one, not units_per_index.
+        assert!(index.settle_mint_era(3, true, 5).is_err());
+        // Or the basket restarted twice since this intent opened.
+        index.supply_era = 5;
+        assert!(index.settle_mint_era(3, true, 5).is_err());
+    }
+
+    #[test]
+    fn intent_counter_gates_new_intents_and_never_blocks_settling() {
+        let mut index = index_with_component_counts(1);
+        index.track_opened_intent().unwrap();
+        index.track_opened_intent().unwrap();
+        assert_eq!(index.open_intent_count, 2);
+        // Open intents from other owners never stop new ones.
+        assert!(index.accepts_new_intents(100));
+        index.track_closed_intent();
+        index.track_closed_intent();
+        index.track_closed_intent();
+        assert_eq!(index.open_intent_count, 0);
+    }
+
+    #[test]
+    fn rebalance_request_holds_new_intents_until_it_lapses() {
+        let mut index = index_with_component_counts(1);
+        index.rebalance_requested = true;
+        index.rebalance_requested_at = 1_000;
+        assert!(!index.accepts_new_intents(1_000));
+        assert!(!index.accepts_new_intents(1_000 + REBALANCE_REQUEST_WINDOW_SECONDS - 1));
+        assert!(index.accepts_new_intents(1_000 + REBALANCE_REQUEST_WINDOW_SECONDS));
+        index.rebalance_requested = false;
+        index.large_basket_operation_in_progress = true;
+        assert!(!index.accepts_new_intents(1_000));
+    }
+
+    #[test]
+    fn only_authority_or_set_keeper_operates_rebalances() {
+        let mut index = index_with_component_counts(1);
+        let keeper = Pubkey::new_unique();
+        assert!(index.is_rebalance_operator(&index.authority.clone()));
+        assert!(!index.is_rebalance_operator(&keeper));
+        assert!(!index.is_rebalance_operator(&Pubkey::default()));
+        index.rebalance_keeper = keeper;
+        assert!(index.is_rebalance_operator(&keeper));
+        assert!(!index.is_rebalance_operator(&Pubkey::new_unique()));
+    }
+
+    // Mirrors charge_redeem_leg_fees without accounts: returns what each party was charged.
+    fn charge_redeem_legs(intent: &mut LargeBasketIntent, legs: &[u64]) -> (u64, u64, u64) {
+        let mut paid = (0, 0, 0);
+        for leg in legs {
+            intent.quote_atoms_executed += leg;
+            let (protocol, creator, staking) =
+                redeem_fee_targets(intent, intent.quote_atoms_executed).unwrap();
+            paid.0 += protocol - intent.protocol_fee_usdc_atoms;
+            paid.1 += creator - intent.creator_fee_usdc_atoms;
+            paid.2 += staking - intent.staking_fee_usdc_atoms;
+            intent.protocol_fee_usdc_atoms = protocol;
+            intent.creator_fee_usdc_atoms = creator;
+            intent.staking_fee_usdc_atoms = staking;
+        }
+        paid
+    }
+
+    #[test]
+    fn redeem_leg_fees_sum_to_the_fee_on_total_proceeds() {
+        let legs = [1, 999, 123_456_789, 7, 50_000_000_000, 3];
+        let total: u64 = legs.iter().sum();
+        for (bps, creator) in [
+            ((5, 0, 5), Pubkey::default()),
+            ((3, 2, 5), Pubkey::new_unique()),
+            ((3, 2, 5), Pubkey::default()),
+        ] {
+            let mut redeem = intent(legs.len() as u16);
+            redeem.kind = LargeBasketIntentKind::Redeem;
+            (redeem.protocol_fee_bps, redeem.creator_fee_bps, redeem.staking_fee_bps) = bps;
+            redeem.creator_fee_recipient = creator;
+            let paid = charge_redeem_legs(&mut redeem, &legs);
+            assert_eq!(paid, redeem_fee_targets(&redeem, total).unwrap());
+            // The last leg's min-out check reserves exactly what the legs charge.
+            assert_eq!(paid.0 + paid.1 + paid.2, pending_total_fees(&redeem, total).unwrap());
+        }
+    }
+
+    #[test]
+    fn redeem_creator_share_goes_to_protocol_without_a_creator() {
+        let mut redeem = intent(1);
+        (redeem.protocol_fee_bps, redeem.creator_fee_bps, redeem.staking_fee_bps) = (3, 2, 5);
+        assert_eq!(redeem_fee_targets(&redeem, 1_000_000).unwrap(), (500, 0, 500));
+        redeem.creator_fee_recipient = Pubkey::new_unique();
+        assert_eq!(redeem_fee_targets(&redeem, 1_000_000).unwrap(), (300, 200, 500));
     }
 }

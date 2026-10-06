@@ -309,3 +309,17 @@ pub struct RebalanceIntentUnwound {
     pub completed_sells: u16,
     pub completed_buys: u16,
 }
+
+#[event]
+pub struct RebalanceKeeperUpdated {
+    pub index: Pubkey,
+    pub keeper: Pubkey,
+}
+
+#[event]
+pub struct RebalanceRequestUpdated {
+    pub index: Pubkey,
+    pub operator: Pubkey,
+    pub requested: bool,
+    pub requested_at: i64,
+}

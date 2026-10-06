@@ -2,14 +2,20 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { Connection, Keypair, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } from '@solana/web3.js';
 
+// Fills in buffer chunks a failed `solana program deploy` left unwritten. With --dir <record
+// dir> it resumes an upgrade-program.mjs run; without it, the 2026-09-21 upgrade's buffer.
 const rpc=JSON.parse(fs.readFileSync('../basket-ui/public/mainnet-state.json','utf8')).rpcUrl;
 const connection=new Connection(rpc,'confirmed');
 const readKey=p=>Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(p,'utf8'))));
-const payer=readKey('deployer-keypair.json'),buffer=readKey('target/program-upgrade/buffer-keypair.json');
+const dir=process.argv.includes('--dir')?process.argv[process.argv.indexOf('--dir')+1]:null;
+const preflightPath=dir?`${dir}/preflight.json`:'docs/program-upgrade/preflight.json';
+const bufferKeyPath=dir?`${dir}/backup/buffer-keypair.json`:'target/program-upgrade/buffer-keypair.json';
+const expectedBuffer=dir?JSON.parse(fs.readFileSync(`${dir}/deployment.json`,'utf8')).buffer:'2vdnSYfAk1uTLNLkDMDgqZQZMqBzKj22cDHBRPtcMLdt';
+const payer=readKey('deployer-keypair.json'),buffer=readKey(bufferKeyPath);
 const loader=new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111');
 const binary=fs.readFileSync('target/deploy/basket.so');
-if(createHash('sha256').update(binary).digest('hex')!==JSON.parse(fs.readFileSync('docs/program-upgrade/preflight.json')).binarySha256)throw new Error('Validated binary changed');
-if(payer.publicKey.toBase58()!=='HF6Qk5JnBTfa4MyL4RX2KJUaD9nRG7maNt7xJH9QUVk2'||buffer.publicKey.toBase58()!=='2vdnSYfAk1uTLNLkDMDgqZQZMqBzKj22cDHBRPtcMLdt')throw new Error('Unexpected authority/buffer');
+if(createHash('sha256').update(binary).digest('hex')!==JSON.parse(fs.readFileSync(preflightPath)).binarySha256)throw new Error('Validated binary changed');
+if(payer.publicKey.toBase58()!=='HF6Qk5JnBTfa4MyL4RX2KJUaD9nRG7maNt7xJH9QUVk2'||buffer.publicKey.toBase58()!==expectedBuffer)throw new Error('Unexpected authority/buffer');
 if(await connection.getGenesisHash()!=='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d')throw new Error('Expected mainnet');
 async function missingChunks(){
   const info=await connection.getAccountInfo(buffer.publicKey);

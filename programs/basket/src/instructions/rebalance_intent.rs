@@ -10,12 +10,13 @@
 //!   1. `open_rebalance_intent`  — price the whole NAV (paged component vaults + a
 //!      multi-feed Switchboard quote), gate on drift/time, derive each component's swap
 //!      LEG (atoms to sell or buy) and direction, snapshot supply + NAV, take the
-//!      `large_basket_operation_in_progress` lock and create the vault USDC ATA. The
-//!      initiator is permissionless, so its gate args are clamped two-sided (see
-//!      MIN/MAX_KEEPER_NAV_TOLERANCE_BPS).
+//!      `large_basket_operation_in_progress` lock and create the vault USDC ATA. Only the
+//!      index authority or its rebalance keeper may open, and only with no mint/redeem
+//!      intents open (see `request_rebalance`); its gate args are still clamped two-sided
+//!      (see MIN/MAX_KEEPER_NAV_TOLERANCE_BPS).
 //!   2. `execute_rebalance_sell_batch` ×N — batched component->USDC swaps (vault authority
 //!      signs); `execute_rebalance_buy_batch` ×N — batched USDC->component swaps funded by
-//!      the proceeds. Each checks execution against Switchboard in the same transaction and records the verified fill.
+//!      the proceeds. Executes, verifies and finalize are keeper/authority-only. Each checks execution against Switchboard in the same transaction and records the verified fill.
 //!      Blocked once the intent expires or the index pauses rebalancing.
 //!   3. `verify_rebalance_component_price` — bounds each executed leg's effective price
 //!      (recorded quote / recorded fill) against a fresh single-feed oracle quote (the
@@ -318,14 +319,28 @@ impl<'info> OpenRebalanceIntent<'info> {
             !ctx.accounts.index.large_basket_operation_in_progress,
             BasketError::InvalidLargeBasketIntent
         );
+        // A rebalance stops new mints and redeems while it runs, so only the authority or
+        // its keeper may start one; anyone else could hold the basket by reopening them.
+        require!(
+            ctx.accounts
+                .index
+                .is_rebalance_operator(&ctx.accounts.initiator.key()),
+            BasketError::NotRebalanceOperator
+        );
+        // Page accounting is re-synced from live vault balances at finalize/unwind, which is
+        // only sound with no mint deposits or redeem reservations in flight.
+        require!(
+            ctx.accounts.index.open_intent_count == 0,
+            BasketError::IntentsStillOpen
+        );
         require_keys_eq!(
             ctx.accounts.quote_mint.key(),
             ctx.accounts.index.fixed_weight_quote_mint,
             BasketError::InvalidQuoteMint
         );
-        // NAV-loss tolerance is permissionless-keeper input, so it is clamped two-sided:
-        // the ceiling caps how much NAV a bad keeper can leak, the floor rejects a no-op
-        // gate. (After the unwind escape hatch an over-tight gate is no longer terminal.)
+        // NAV-loss tolerance is keeper input, so it is clamped two-sided: the ceiling caps
+        // how much NAV a bad keeper can leak, the floor rejects a no-op gate. (After the
+        // unwind escape hatch an over-tight gate is no longer terminal.)
         require!(
             args.nav_tolerance_bps >= MIN_KEEPER_NAV_TOLERANCE_BPS
                 && args.nav_tolerance_bps <= MAX_KEEPER_NAV_TOLERANCE_BPS,
@@ -561,6 +576,8 @@ impl<'info> OpenRebalanceIntent<'info> {
 
         ctx.accounts.index.large_basket_operation_in_progress = true;
         ctx.accounts.index.active_rebalance_intent = intent.key();
+        // The request has done its job; the operation flag now holds new intents.
+        ctx.accounts.index.rebalance_requested = false;
 
         emit!(RebalanceIntentOpened {
             intent: intent.key(),
@@ -604,6 +621,13 @@ impl<'info> ExecuteRebalanceBatch<'info> {
         args: ExecuteRebalanceBatchArgs,
         is_sell: bool,
     ) -> Result<()> {
+        // Swaps are sized and priced by the caller within the oracle bounds, so only the
+        // keeper or authority may run them; anyone else could fill legs at the worst price
+        // the bounds allow.
+        require!(
+            ctx.accounts.index.is_rebalance_operator(&ctx.accounts.keeper.key()),
+            BasketError::NotRebalanceOperator
+        );
         require!(!args.entries.is_empty(), BasketError::InvalidRemainingAccounts);
         require!(
             args.entries.len() <= MAX_REBALANCE_SWAPS_PER_BATCH,
@@ -831,6 +855,10 @@ impl<'info> VerifyRebalanceComponentPrice<'info> {
         args: VerifyRebalanceComponentPriceArgs,
     ) -> Result<()> {
         require!(
+            ctx.accounts.index.is_rebalance_operator(&ctx.accounts.keeper.key()),
+            BasketError::NotRebalanceOperator
+        );
+        require!(
             args.max_oracle_slippage_bps <= MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS,
             BasketError::InvalidOraclePriceTolerance
         );
@@ -912,6 +940,11 @@ impl<'info> FinalizeRebalance<'info> {
         ctx: Context<'_, '_, 'info, 'info, Self>,
         args: FinalizeRebalanceArgs,
     ) -> Result<()> {
+        // Finalize rewrites the basket's accounting; past expiry anyone can still unwind.
+        require!(
+            ctx.accounts.index.is_rebalance_operator(&ctx.accounts.keeper.key()),
+            BasketError::NotRebalanceOperator
+        );
         require!(
             ctx.accounts.intent.status == RebalanceStatus::Open,
             BasketError::InvalidLargeBasketIntent

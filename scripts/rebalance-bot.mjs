@@ -53,7 +53,11 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountIdempotentInstruction,
+  createInitializeAccount3Instruction,
+  getAccountLenForMint,
   getAssociatedTokenAddressSync,
+  getMint,
 } from "@solana/spl-token";
 import { CrossbarClient, CrossbarNetwork } from "@switchboard-xyz/common";
 import { OracleQuote, getDefaultQueue } from "@switchboard-xyz/on-demand";
@@ -134,6 +138,21 @@ const REBROADCAST_INTERVAL_MS = 2_000;
 // After a failed rebalance attempt, leave that basket alone this long so a persistent failure
 // can't drain the keeper's SOL on every poll.
 const FAILURE_COOLDOWN_S = Number(flagValue("--failure-cooldown", "1800"));
+// Mints and redeems run concurrently, so a rebalance first asks the program to hold back new
+// ones (request_rebalance) and waits for the open ones to settle. The hold lapses on chain after
+// REBALANCE_REQUEST_WINDOW_SECONDS; if it lapses without a rebalance, wait this long before
+// holding users back again.
+const REQUEST_WINDOW_S = 40 * 60;
+const PROGRAM_REQUEST_COOLDOWN_S = 20 * 60; // REBALANCE_REQUEST_COOLDOWN_SECONDS
+const REQUEST_COOLDOWN_S = Number(flagValue("--request-cooldown", "7200"));
+
+// Verified feed definitions from scripts/vendor-switchboard-feeds.mjs. Sending the definition
+// instead of the feed id skips Crossbar's feed lookup, so Crossbar outages can't block rebalances.
+const FEED_DEFINITIONS_PATH = path.join(process.cwd(), "scripts", "switchboard-feeds.json");
+const FEED_DEFINITIONS = fs.existsSync(FEED_DEFINITIONS_PATH) ? readJson(FEED_DEFINITIONS_PATH) : {};
+// Only used for feeds missing from the definitions file, and for gateway discovery
+// (which falls back to the on-chain queue). crossbar.switchboard.xyz lost its DNS on 2026-10-05.
+const CROSSBAR_URL = process.env.SWITCHBOARD_CROSSBAR_URL ?? "https://crossbar.switchboardlabs.xyz";
 
 const RPC_URL = process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
 const WALLET_PATH = process.env.ANCHOR_WALLET ?? "deployer-keypair.json";
@@ -368,7 +387,9 @@ async function getQueue(connection) {
 async function buildManagedUpdate(connection, crossbar, payer, feedIds) {
   const queue = await getQueue(connection);
   const [quoteAccount] = OracleQuote.getCanonicalPubkey(queue.pubkey, feedIds);
-  const instructions = await queue.fetchManagedUpdateIxs(crossbar, feedIds, {
+  const definitions = feedIds.map((id) => FEED_DEFINITIONS[id]);
+  const feeds = definitions.every(Boolean) ? definitions : feedIds;
+  const instructions = await queue.fetchManagedUpdateIxs(crossbar, feeds, {
     payer: payer.publicKey,
     numSignatures: 1,
     instructionIdx: 0,
@@ -856,6 +877,130 @@ async function unwind(connection, program, payer, ctx, intentPk, components, pag
   await sendV0(connection, payer, [...budgetIxs(400_000), ix], "unwind rebalance", []);
 }
 
+// --- rebalance request and intent cleanup -------------------------------------
+
+async function setRebalanceRequest(env, indexPk, requested) {
+  const { connection, program, payer } = env;
+  const ix = await program.methods[requested ? "requestRebalance" : "cancelRebalanceRequest"]()
+    .accounts({ operator: payer.publicKey, index: indexPk })
+    .instruction();
+  await sendV0(connection, payer, [...budgetIxs(50_000), ix], requested ? "request rebalance" : "cancel rebalance request");
+}
+
+// Instructions that give `owner` a token account for `mint` the program will accept as theirs.
+// `fresh` creates a new account owned by them inside the same transaction, so nothing the owner
+// does to their own accounts (closing, reassigning, requiring memos) can make the refund fail.
+async function ownerTokenAccount(env, owner, mint, tokenProgram, fresh) {
+  const { connection, payer } = env;
+  if (!fresh) {
+    const ata = getAssociatedTokenAddressSync(mint, owner, true, tokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID);
+    return { address: ata, setup: [createAssociatedTokenAccountIdempotentInstruction(payer.publicKey, ata, owner, mint, tokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID)] };
+  }
+  const seed = `refund-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const address = await PublicKey.createWithSeed(payer.publicKey, seed, tokenProgram);
+  const space = getAccountLenForMint(await getMint(connection, mint, "confirmed", tokenProgram));
+  return {
+    address,
+    setup: [
+      SystemProgram.createAccountWithSeed({ fromPubkey: payer.publicKey, newAccountPubkey: address, basePubkey: payer.publicKey, seed, lamports: await connection.getMinimumBalanceForRentExemption(space), space, programId: tokenProgram }),
+      createInitializeAccount3Instruction(address, mint, owner, tokenProgram),
+    ],
+  };
+}
+
+// Send one settle step, first into the owner's own account and, if that is refused, into a
+// fresh account created for them in the same transaction.
+async function sendSettleStep(env, label, build) {
+  const { connection, payer } = env;
+  try {
+    await sendV0(connection, payer, [...budgetIxs(400_000), ...(await build(false))], label);
+  } catch (error) {
+    log(`    owner account refused (${error.message ?? error}); retrying into a fresh account`);
+    await sendV0(connection, payer, [...budgetIxs(400_000), ...(await build(true))], `${label} (fresh account)`);
+  }
+}
+
+// Settle every expired mint/redeem intent of this basket, as anyone may: move what the owner
+// deposited or is still owed into the refund escrow, re-mint a redeem that never sold
+// anything, or finalize a redeem whose legs all completed.
+async function settleExpiredIntents(env, indexPk, indexState, components, pagePdas, now) {
+  const { connection, program, payer } = env;
+  const STATUS_OFFSET = 8 + 32 + 32 + 8 + 1; // discriminator, index, owner, nonce, kind
+  const bs58 = anchor.utils.bytes.bs58;
+  const unsettled = [];
+  for (const status of [0, 3]) { // Open, Refunding
+    unsettled.push(...await program.account.largeBasketIntent.all([
+      { memcmp: { offset: 8, bytes: indexPk.toBase58() } },
+      { memcmp: { offset: STATUS_OFFSET, bytes: bs58.encode(Buffer.from([status])) } },
+    ]));
+  }
+  const vaultAuthority = vaultAuthorityPda(indexPk);
+  const pages = pagePdas.map((p) => meta(p, true));
+  for (const { publicKey: intentPk, account: intent } of unsettled) {
+    if (now <= Number(intent.expiresAt)) continue;
+    const kind = enumKey(intent.kind);
+    const owner = intent.owner;
+    const intentLock = PublicKey.findProgramAddressSync([Buffer.from("large-basket-intent-lock"), indexPk.toBuffer(), owner.toBuffer()], PROGRAM_ID)[0];
+    const label = `${kind} intent ${intentPk.toBase58().slice(0, 8)}.. of ${owner.toBase58().slice(0, 8)}..`;
+    const cancelIx = (ownerIndexTokenAccount, remaining) => program.methods.cancelExpiredLargeBasketIntent()
+      .accounts({ index: indexPk, indexMint: indexState.indexMint, vaultAuthority, intent: intentPk, intentLock, ownerIndexTokenAccount, tokenProgram: TOKEN_PROGRAM_ID })
+      .remainingAccounts(remaining)
+      .instruction();
+    const indexAta = getAssociatedTokenAddressSync(indexState.indexMint, owner, true);
+    try {
+      if (kind === "redeem" && intent.completedComponents === intent.componentCount) {
+        const ix = await program.methods.finalizeLargeBasketRedeemIntent().accounts({ index: indexPk, intent: intentPk, intentLock }).instruction();
+        await sendV0(connection, payer, [...budgetIxs(100_000), ix], `finalize expired ${label}`);
+        continue;
+      }
+      if (intent.completedComponents === 0) {
+        if (kind === "mint") {
+          await sendV0(connection, payer, [...budgetIxs(100_000), await cancelIx(indexAta, [])], `cancel expired ${label}`);
+        } else {
+          // Restores the reservation and re-mints the basket tokens to the owner.
+          await sendSettleStep(env, `cancel expired ${label}`, async (fresh) => {
+            const account = await ownerTokenAccount(env, owner, indexState.indexMint, TOKEN_PROGRAM_ID, fresh);
+            return [...account.setup, await cancelIx(account.address, pages)];
+          });
+        }
+        continue;
+      }
+      // Mints return the filled components, redeems the unfilled ones; skip what is back already.
+      // They go to the program's refund escrow, where the owner claims them: no rent per
+      // refund and nothing the owner can make refuse the transfer.
+      const owed = components.filter((c) => {
+        const filled = bitmapGet(intent.componentFillBitmap, c.globalIndex);
+        return (kind === "mint" ? filled : !filled)
+          && !intent.componentAmounts[c.globalIndex].isZero()
+          && !bitmapGet(intent.refundedBitmap, c.globalIndex);
+      });
+      const escrow = refundEscrowPda(indexPk);
+      for (let i = 0; i < owed.length; i += REFUNDS_PER_TX) {
+        const batch = owed.slice(i, i + REFUNDS_PER_TX);
+        const setup = batch.map((c) => createAssociatedTokenAccountIdempotentInstruction(payer.publicKey, refundEscrowAccount(escrow, c), escrow, c.mint, c.tokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID));
+        const groups = batch.flatMap((c) => [meta(c.mint), meta(c.vault, true), meta(refundEscrowAccount(escrow, c), true), meta(c.tokenProgram)]);
+        await sendV0(connection, payer, [...budgetIxs(400_000), ...setup, await cancelIx(indexAta, [...pages, ...groups])], `escrow ${batch.length} component(s) of ${label}`);
+      }
+    } catch (error) {
+      log(`    [warn] could not settle expired ${label}: ${error.message ?? error}`);
+    }
+  }
+}
+
+const REFUNDS_PER_TX = 3;
+
+function refundEscrowPda(index) {
+  return PublicKey.findProgramAddressSync([Buffer.from("refund-escrow"), index.toBuffer()], PROGRAM_ID)[0];
+}
+
+function refundEscrowAccount(escrow, component) {
+  return getAssociatedTokenAddressSync(component.mint, escrow, true, component.tokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID);
+}
+
+function meta(pubkey, isWritable = false) {
+  return { pubkey, isSigner: false, isWritable };
+}
+
 // --- preview (dry-run, read-only) -------------------------------------------
 
 async function previewSwaps(connection, program, payer, ctx, legs) {
@@ -989,7 +1134,17 @@ async function processIndex(env, indexPk) {
     log(`  time trigger: ${timeTriggered ? "DUE" : `next at ${new Date(due * 1000).toISOString()}`}`);
   }
 
-  if (!driftTriggered && !timeTriggered) return void log("  -> no rebalance needed");
+  const requestLive = indexState.rebalanceRequested && now < Number(indexState.rebalanceRequestedAt) + REQUEST_WINDOW_S;
+  // Never hold users back without a rebalance to run.
+  const releaseRequest = async (why) => {
+    if (!EXECUTE || !requestLive) return;
+    log(`  releasing the rebalance request (${why})`);
+    await setRebalanceRequest(env, indexPk, false).catch((e) => log(`  [warn] could not cancel the request: ${e.message ?? e}`));
+  };
+  if (!driftTriggered && !timeTriggered) {
+    await releaseRequest("no rebalance needed");
+    return void log("  -> no rebalance needed");
+  }
   log(`  -> rebalance TRIGGERED (drift=${driftTriggered}, time=${timeTriggered})`);
 
   if (!EXECUTE) {
@@ -1007,12 +1162,41 @@ async function processIndex(env, indexPk) {
   const key = indexPk.toBase58();
   const retryAt = rebalanceRetryAt.get(key) ?? 0;
   if (Date.now() < retryAt) {
+    await releaseRequest("in failure cooldown");
     return void log(`  skip: last attempt failed; next try after ${new Date(retryAt).toISOString()}`);
+  }
+  const isOperator = indexState.authority.equals(payer.publicKey) || indexState.rebalanceKeeper.equals(payer.publicKey);
+  if (!isOperator) {
+    return void log(`  skip: ${payer.publicKey.toBase58()} is not this basket's authority or rebalance keeper (set_rebalance_keeper)`);
+  }
+
+  // Mints and redeems run concurrently and a rebalance needs them all settled: hold new ones
+  // back, clean up the expired ones, and open once none are left.
+  if (indexState.openIntentCount > 0) {
+    if (!requestLive) {
+      const lastRequestAt = Number(indexState.rebalanceRequestedAt);
+      // The program spaces requests itself; after one lapsed unused, back off further.
+      const lapsedUnused = lastRequestAt > lastRebalancedAt;
+      const nextRequestAt = lastRequestAt + REQUEST_WINDOW_S + (lapsedUnused ? REQUEST_COOLDOWN_S : PROGRAM_REQUEST_COOLDOWN_S);
+      if (lastRequestAt > 0 && now < nextRequestAt) {
+        return void log(`  ${indexState.openIntentCount} intent(s) open; the next rebalance request is allowed after ${new Date(nextRequestAt * 1000).toISOString()}`);
+      }
+      log(`  ${indexState.openIntentCount} mint/redeem intent(s) open; requesting a rebalance so new ones wait`);
+      await setRebalanceRequest(env, indexPk, true);
+    }
+    await settleExpiredIntents(env, indexPk, indexState, components, pagePdas, now);
+    const remaining = (await program.account.indexState.fetch(indexPk)).openIntentCount;
+    if (remaining > 0) return void log(`  waiting for ${remaining} open intent(s) to settle or expire`);
   }
   try {
     await executeRebalance(env, ctx, components, pagePdas, driftThresholdBps, now);
   } catch (error) {
     rebalanceRetryAt.set(key, Date.now() + FAILURE_COOLDOWN_S * 1000);
+    // A successful open clears the request; if we never got there, let users back in now.
+    const fresh = await program.account.indexState.fetch(indexPk).catch(() => null);
+    if (fresh?.rebalanceRequested) {
+      await setRebalanceRequest(env, indexPk, false).catch((e) => log(`  [warn] could not cancel the request: ${e.message ?? e}`));
+    }
     throw error;
   }
 }
@@ -1152,7 +1336,7 @@ async function main() {
   const connection = new Connection(RPC_URL, "confirmed");
   const payer = loadKeypair(WALLET_PATH);
   const program = loadProgram(connection, payer);
-  const crossbar = CrossbarClient.default();
+  const crossbar = new CrossbarClient(CROSSBAR_URL);
   crossbar.setNetwork(CrossbarNetwork.SolanaMainnet);
   installGatewayFallback(crossbar, () => getQueue(connection), log);
 
@@ -1172,6 +1356,8 @@ async function main() {
         navToleranceBps: NAV_TOLERANCE_BPS,
         verifyOracleBps: Math.min(MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS, SLIPPAGE_BPS + VERIFY_ORACLE_BUFFER_BPS),
         ttlSeconds: INTENT_TTL_S,
+        feedDefinitions: Object.keys(FEED_DEFINITIONS).length,
+        crossbar: CROSSBAR_URL,
       },
       null,
       2,
@@ -1204,7 +1390,7 @@ async function main() {
   }
 }
 
-export { compiledSize, PROGRAM_ID, sendV0, executeBatchIx, affordableBuys, buyAmount };
+export { compiledSize, PROGRAM_ID, sendV0, executeBatchIx, affordableBuys, buyAmount, buildManagedUpdate, settleExpiredIntents };
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   await main();
 }

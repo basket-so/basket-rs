@@ -46,6 +46,8 @@ impl<'info> RegisterRebalanceQuote<'info> {
         require!(index.kind == IndexKind::FixedWeights && index.large_basket_configured,
             BasketError::InvalidFixedWeightConfig);
         require!(!index.large_basket_operation_in_progress, BasketError::InvalidLargeBasketIntent);
+        // Appending a component changes the layout open intents settle against.
+        require!(index.open_intent_count == 0, BasketError::IntentsStillOpen);
         require!(usize::from(index.large_basket_component_count) < MAX_LARGE_BASKET_COMPONENTS,
             BasketError::InvalidFixedWeightConfig);
         require!(ctx.remaining_accounts.len() == usize::from(index.large_basket_page_count),

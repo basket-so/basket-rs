@@ -1,0 +1,174 @@
+{
+  "program": "bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv",
+  "binarySha256": "3566a2778c345c3871b6969b173a798b0ead54659c746fcde5b2003b3a29af19",
+  "supersedes": "docs/program-upgrade-2026-10-05",
+  "note": "Adds the in-kind mint guard from review; baskets were paused by the first run, so indexes carry the pre-upgrade pause settings recorded there.",
+  "transactions": [
+    {
+      "action": "program upgrade",
+      "exitCode": 1,
+      "output": "Error: Data writes to account failed: Custom error: Max retries exceeded\n",
+      "at": "2026-10-05T16:16:12.627Z"
+    },
+    {
+      "action": "program upgrade",
+      "exitCode": 0,
+      "output": "{\n  \"programId\": \"bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv\",\n  \"signature\": \"5MLzoK1BihkTKwPti6wHi4ox6vj6WVF6mcZgVtPsWzXXw1ZjjTHX7565tqoXFRE4cfV5a7Ptky6NaDFD8Qn4FWKU\"\n}\n",
+      "at": "2026-10-05T16:26:27.370Z"
+    },
+    {
+      "action": "restore pause settings PHYS",
+      "signature": "31LksBhiYt4kSiiD5LvkwkbWLNB2pNjbUa1BKzHyL5mPzMAWHAettsL4dXWjHGm3vXRYTwnrxrjWK26qRrVcuGyo",
+      "at": "2026-10-05T16:28:55.208Z"
+    },
+    {
+      "action": "restore pause settings MEME",
+      "signature": "JapNvx9iECS5k3KMzfhJByKstonWVnVYPihgiN3PHGKkEz3dfK8GPeNcqKua83D5CZUxo4UfG7UNKWeMWBQUcXj",
+      "at": "2026-10-05T16:28:55.738Z"
+    },
+    {
+      "action": "restore pause settings MAJR",
+      "signature": "5uRNfVydCSw9Db3LkddhcvD4A47Rx13tGNeh5rg5eYjx1joBE81gUvPa3p3iGaVFnbEa9ncNTRD9G1JyzHS8R1Mi",
+      "at": "2026-10-05T16:28:56.240Z"
+    },
+    {
+      "action": "restore pause settings DEFI",
+      "signature": "5rDDjSGvspGSPFyB26GdVxpz6rGehH2HWRZZc8TBwSLm3VjPPNyhU9H5gCYhRqKAsj1Dz5Ag31xc4p4DQyVPgM4C",
+      "at": "2026-10-05T16:28:56.754Z"
+    },
+    {
+      "action": "restore pause settings DATA",
+      "signature": "zDstXGVSRDXLZny3CUTkp2iM4gEhbfkCyY2ahsiZ3ZXZqQEJvkg4SfwZpCjE1SME1zNeKhQynryQ7bx7xNLxGKm",
+      "at": "2026-10-05T16:28:57.260Z"
+    },
+    {
+      "action": "restore pause settings USDX",
+      "signature": "44qJ9VzJ9tExbuySFFhKeA79AewuTg7QS7HADhjWMnrzKvXbYPhxbxe2B4PYeqqSyGjPqnH5UViTubxks5ohb5q4",
+      "at": "2026-10-05T16:28:57.768Z"
+    },
+    {
+      "action": "restore pause settings DEXS",
+      "signature": "4Zc8FL1dmyGCdTaetR1YaFrDwYi8GjsYFtvozhAuQq3mKVoXkSfBQRTTnKRkoTULCNDB9gCFqHxRCg4jB84HAD2V",
+      "at": "2026-10-05T16:28:58.608Z"
+    },
+    {
+      "action": "restore pause settings SOLB",
+      "signature": "4u6zDAsGDAhsKHAuHVQfpjqetM7PzBQjURw231u6jvpKy5dGaxFKe59YavmmxkKcjNa51JbbXXXWRHSpsxwUEsMy",
+      "at": "2026-10-05T16:28:59.396Z"
+    },
+    {
+      "action": "restore pause settings STKG",
+      "signature": "25kSica2FopGcFQfcAkitNJeSBvDbW2VBVYG6HkQ63hb4aZVJgkrcAqvapWYqASCum2TZaHmiJwpCDzs8B2SBjsG",
+      "at": "2026-10-05T16:29:00.161Z"
+    },
+    {
+      "action": "restore pause settings AISP",
+      "signature": "4wYhXYj3qWQEg7ziXZrogVaxqjSasEJDLjqvVjWVsE4W5CFxzGHosmEkymCn354eUUySHJQMLitoZQMBecrefXCj",
+      "at": "2026-10-05T16:29:00.945Z"
+    },
+    {
+      "action": "restore pause settings LSTY",
+      "signature": "mAQM73GJ3s2JMdVt3sRBSudbB97mahfcpjDz8ewHWJRMbZVECyc2dM9UVoJrwTVX7phZnNebbP7dzd1QRWJqrqR",
+      "at": "2026-10-05T16:29:01.675Z"
+    },
+    {
+      "action": "restore pause settings SOLC",
+      "signature": "4ro6GHFafWZbTZPPTG2HSBtDGXYUURv168di3Ty6SEZWTThuxY3N6McqVVMAKAWVtbYsPaaYpktiAdcZzgMYnzB",
+      "at": "2026-10-05T16:29:02.545Z"
+    }
+  ],
+  "indexes": [
+    {
+      "address": "6Pw6hwJews5sGKs68Ta4VRriChvk9qCRtuPGswdpYaE",
+      "symbol": "PHYS",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "jnhncYE7JgCX41256VwVs8JBPkZ4Rk4MSeDSBZuAKD3",
+      "symbol": "MEME",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "2JbJzwerCUxJqnqG1uXiLsYzwnb7sZCwyZYPgp3pMxdz",
+      "symbol": "MAJR",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "2XUsdyUwJLHLhz9qp1HPKS8oEVYKj8AS9CqDHRr7ypgk",
+      "symbol": "DEFI",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "2YRMxw9ftG93jKyWcHFb36gViw62nqMZNhQFaVZzShgN",
+      "symbol": "DATA",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "8aobs9NvzETPYEsDBDfLf59cYDYK5f2vuk5E45k3Qs3q",
+      "symbol": "USDX",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "AbbQSMuESNUA9CG46JSH2ykbsbfk2TpRHNXRf2C9gvmQ",
+      "symbol": "DEXS",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "AeJ5QsYdtyXPUrwBmJ4PSXinfEjYPmGSZZXbj3LNvqzq",
+      "symbol": "SOLB",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "EidvjqPKERmzGgfCAQdSNR63pvHGjbr8RruV1WDyJ7vK",
+      "symbol": "STKG",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "FBnDbdzWgNAH5L1wHUnoKL5uzKBwcSJTiMaCBp66Jgd7",
+      "symbol": "AISP",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "FwmoaDwDCcSBMyxPty6pewCZXET7rEuinRoRFbuKMcMP",
+      "symbol": "LSTY",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "GTZMn4iJRfzvLnqfrpxuM5FH77huPjpsgzCYNADvaib6",
+      "symbol": "SOLC",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    }
+  ],
+  "startingWalletLamports": 8387373677,
+  "startedAt": "2026-10-05T15:56:59.063Z",
+  "buffer": "8UH3opsMokfsiJbJnxPJYX9YW8Euoi92RvMjHEyjWRR7",
+  "status": "verified",
+  "deployedSlot": "453632475",
+  "bufferClosed": true,
+  "finishedAt": "2026-10-05T16:29:03.561Z",
+  "endingWalletLamports": 8291297161
+}

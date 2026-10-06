@@ -1,0 +1,175 @@
+{
+  "program": "bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv",
+  "binarySha256": "1c1ebc447fcc8eaab0ce1900121a33b9a92d57f2647bc723bfc5350136e4a065",
+  "transactions": [
+    {
+      "action": "pause PHYS",
+      "signature": "4ne3J5G7HG4Xjdk53KndzxGBbUuvFhYWSF2uvCb4NkEAWcVDTHAwwf2qT4XdhqRu81qNng2u5qwS2jr2xpvEuZdB",
+      "at": "2026-10-05T15:56:59.921Z"
+    },
+    {
+      "action": "pause MEME",
+      "signature": "5bgAFULmQq3cTTAMfesXioA5q41jkG5anHkVr76cNrQs8k3NvkCDjj5uXMdyLE7TtMLt17YEDD6z1kYkkdog2Kjh",
+      "at": "2026-10-05T15:57:00.698Z"
+    },
+    {
+      "action": "pause MAJR",
+      "signature": "4JioQbG7RDERnWwm6SGGUB4PeVFZfEWAHLCscfFD4NVr8tqbkYtvYrbep7Z4SkioJHowAJE7qGeZedUrSH9MiihG",
+      "at": "2026-10-05T15:57:01.397Z"
+    },
+    {
+      "action": "pause DEFI",
+      "signature": "2DFLGJzrD3qVppDnLMZfvhpP7tSf3Y8V7mZp8jkvEAtLQKu8nCAtx9sqePsqRBgWhKWW286zYTpAuhQXFdbhFUrn",
+      "at": "2026-10-05T15:57:02.135Z"
+    },
+    {
+      "action": "pause DATA",
+      "signature": "G55dNM4bTwF5d1CoJFfjuKLifRjkSqWixd9m5wQMiNJitAK4m8vmLrk2u1vE1aDFzSvSJmDTbUtbuUh76vCMgL9",
+      "at": "2026-10-05T15:57:03.050Z"
+    },
+    {
+      "action": "pause USDX",
+      "signature": "oBhRChE92baros4HRwwFKfve9qPVUBspjzeikyzPuLosmXEt8GQz3aUjGph8PHuQFozDSgjgatjhW6pR6pieUKp",
+      "at": "2026-10-05T15:57:03.794Z"
+    },
+    {
+      "action": "pause DEXS",
+      "signature": "5u9orfHHVKwZhiEydFL7w8rmcadHdaFRep9UDxyPTsWwAFnZaGyJ4ee3ZxFKYNf2AbvdXDrzhrncv8PMeLSE7w91",
+      "at": "2026-10-05T15:57:04.594Z"
+    },
+    {
+      "action": "pause SOLB",
+      "signature": "3n6AgnaXq9LsWgaP7XQADeE2QwQvev5GaisEuZxc5dbBo7FvLcv2bWXTGNGK6inxh7Rnfbj6wgYi15jn4LtQRmt2",
+      "at": "2026-10-05T15:57:05.366Z"
+    },
+    {
+      "action": "pause STKG",
+      "signature": "3HVWUYmMgv79fgcM7V7ij25YmHXCuaXsyVYd7skA2Fo7CyLudFAJWk9SyGDMVgt5StfbwybNEXK438rBgEwR1hVD",
+      "at": "2026-10-05T15:57:06.128Z"
+    },
+    {
+      "action": "pause AISP",
+      "signature": "2m2AsiJEPY8t8hDGSAiX11XvyrHSNzPgMqDer5rsj6ztFM4BfDuTzbzuEJekJq5wGcLAWSbdeTXcdiVp45nxLWgM",
+      "at": "2026-10-05T15:57:06.915Z"
+    },
+    {
+      "action": "pause LSTY",
+      "signature": "j4tp2PfTo9ubuou81Db5fMdmSSxXgW6ugon98AFJecTrrtWCetJ9CsYtD1XLGf1ycU2YgnAuLFxcF6A5DnKTHse",
+      "at": "2026-10-05T15:57:07.551Z"
+    },
+    {
+      "action": "pause SOLC",
+      "signature": "rVLktchXerKryTY1SPEWdpM9yCDZTGxFrkZxKtcwminzANTwurzkrXnk6PubzoE7eXEW7v4UZaPP4hZrsbML1jA",
+      "at": "2026-10-05T15:57:08.305Z"
+    },
+    {
+      "action": "program upgrade",
+      "exitCode": 1,
+      "output": "Error: Error processing Instruction 2: invalid program argument\n",
+      "at": "2026-10-05T15:57:10.957Z"
+    },
+    {
+      "action": "extend program data by 16384 bytes (loader minimum 10240)",
+      "signature": "1frncwbF5KkqoXKcv6ijF96RD9x3wE1ZGMjvLBo3JvrdzyF48QpqLMXVqjVwLacq7BQdqcgkaBUsoFzQDbFH2pQ",
+      "at": "2026-10-05T15:58:07.682Z"
+    },
+    {
+      "action": "program upgrade",
+      "exitCode": 1,
+      "output": "Error: Data writes to account failed: Custom error: Max retries exceeded\n",
+      "at": "2026-10-05T16:02:50.987Z"
+    }
+  ],
+  "indexes": [
+    {
+      "address": "6Pw6hwJews5sGKs68Ta4VRriChvk9qCRtuPGswdpYaE",
+      "symbol": "PHYS",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "jnhncYE7JgCX41256VwVs8JBPkZ4Rk4MSeDSBZuAKD3",
+      "symbol": "MEME",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "2JbJzwerCUxJqnqG1uXiLsYzwnb7sZCwyZYPgp3pMxdz",
+      "symbol": "MAJR",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "2XUsdyUwJLHLhz9qp1HPKS8oEVYKj8AS9CqDHRr7ypgk",
+      "symbol": "DEFI",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "2YRMxw9ftG93jKyWcHFb36gViw62nqMZNhQFaVZzShgN",
+      "symbol": "DATA",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "8aobs9NvzETPYEsDBDfLf59cYDYK5f2vuk5E45k3Qs3q",
+      "symbol": "USDX",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "AbbQSMuESNUA9CG46JSH2ykbsbfk2TpRHNXRf2C9gvmQ",
+      "symbol": "DEXS",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "AeJ5QsYdtyXPUrwBmJ4PSXinfEjYPmGSZZXbj3LNvqzq",
+      "symbol": "SOLB",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "EidvjqPKERmzGgfCAQdSNR63pvHGjbr8RruV1WDyJ7vK",
+      "symbol": "STKG",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "FBnDbdzWgNAH5L1wHUnoKL5uzKBwcSJTiMaCBp66Jgd7",
+      "symbol": "AISP",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "FwmoaDwDCcSBMyxPty6pewCZXET7rEuinRoRFbuKMcMP",
+      "symbol": "LSTY",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "GTZMn4iJRfzvLnqfrpxuM5FH77huPjpsgzCYNADvaib6",
+      "symbol": "SOLC",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    }
+  ],
+  "startingWalletLamports": 8387373677,
+  "startedAt": "2026-10-05T15:56:59.063Z",
+  "buffer": "85FF3Tf5Jzrn9J8CegttHZrSNdmxgQoZ1DBhZgegyVbo",
+  "status": "superseded",
+  "supersededBy": "docs/program-upgrade-2026-10-05-v2",
+  "note": "Upload interrupted (buffer write retries); binary superseded by the review fix. Buffer 85FF3Tf5... closed and its rent refunded to the deployer."
+}

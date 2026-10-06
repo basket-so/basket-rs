@@ -4,4 +4,5 @@
 !package-lock.json
 !scripts/rebalance-bot.mjs
 !scripts/lib/switchboard-gateway.mjs
+!scripts/switchboard-feeds.json
 !docs/program-upgrade/basket.idl.json

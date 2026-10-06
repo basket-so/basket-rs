@@ -80,3 +80,11 @@ test("gateway fallback fails closed if every registered gateway is unreachable",
   const resolve = createGatewayResolver({ discover: async () => [], registered: async () => ["https://dead.example"], probe: async () => { throw new Error("timeout"); } });
   await assert.rejects(resolve(), /No reachable Switchboard gateways/);
 });
+test("vendored Switchboard feed definitions hash to their on-chain feed ids", async () => {
+  const { FeedHash } = await import("@switchboard-xyz/common");
+  const feeds = JSON.parse(fs.readFileSync("scripts/switchboard-feeds.json", "utf8"));
+  assert.ok(Object.keys(feeds).length > 0);
+  for (const [id, feed] of Object.entries(feeds)) {
+    assert.equal(`0x${FeedHash.computeOracleFeedId(feed).toString("hex")}`, id);
+  }
+});
