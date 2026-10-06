@@ -303,15 +303,16 @@ pub struct ExecuteLargeBasketComponentBatch<'info> {
 // redeemer chooses the Jupiter route, so a custom route can shrink that basis. Closing it
 // needs a route-independent basis (in-kind skim before the swap, or an oracle floor).
 #[derive(Accounts)]
+// Large accounts are boxed: on the stack they push the handler past the SBF 4 KB frame.
 pub struct ExecuteLargeBasketRedeemBatch<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
     #[account(mut, has_one = index_mint @ BasketError::IndexMintMismatch)]
-    pub index: Account<'info, IndexState>,
+    pub index: Box<Account<'info, IndexState>>,
     /// CHECK: Validated as the configured classic SPL index mint.
     pub index_mint: UncheckedAccount<'info>,
     #[account(mut, has_one = owner @ BasketError::InvalidLargeBasketIntent, has_one = index @ BasketError::InvalidLargeBasketIntent)]
-    pub intent: Account<'info, LargeBasketIntent>,
+    pub intent: Box<Account<'info, LargeBasketIntent>>,
     /// CHECK: PDA authority over component vaults.
     #[account(
         seeds = [VAULT_AUTHORITY_SEED, index.key().as_ref()],
@@ -322,7 +323,7 @@ pub struct ExecuteLargeBasketRedeemBatch<'info> {
     #[account(address = USDC_MINT @ BasketError::InvalidQuoteMint)]
     pub quote_mint: UncheckedAccount<'info>,
     #[account(mut)]
-    pub owner_quote_token_account: InterfaceAccount<'info, InterfaceTokenAccount>,
+    pub owner_quote_token_account: Box<InterfaceAccount<'info, InterfaceTokenAccount>>,
     /// CHECK: Validated against known Jupiter program ids when a swap is supplied.
     pub jupiter_program: UncheckedAccount<'info>,
     /// CHECK: Validated as the Associated Token Program.
@@ -331,16 +332,16 @@ pub struct ExecuteLargeBasketRedeemBatch<'info> {
     pub quote_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
     #[account(mut)]
-    pub fee_recipient_quote_token_account: Account<'info, TokenAccount>,
+    pub fee_recipient_quote_token_account: Box<Account<'info, TokenAccount>>,
     #[account(mut)]
-    pub creator_fee_recipient_quote_token_account: Account<'info, TokenAccount>,
+    pub creator_fee_recipient_quote_token_account: Box<Account<'info, TokenAccount>>,
     #[account(mut, seeds = [STAKING_POOL_SEED], bump = staking_pool.bump)]
-    pub staking_pool: Account<'info, StakingPool>,
+    pub staking_pool: Box<Account<'info, StakingPool>>,
     /// CHECK: PDA authority over staking vaults.
     #[account(seeds = [STAKING_AUTHORITY_SEED], bump = staking_pool.staking_authority_bump)]
     pub staking_authority: UncheckedAccount<'info>,
     #[account(mut)]
-    pub staking_reward_vault: Account<'info, TokenAccount>,
+    pub staking_reward_vault: Box<Account<'info, TokenAccount>>,
     #[account(
         mut,
         seeds = [
@@ -1316,6 +1317,7 @@ fn redeem_fee_targets(intent: &LargeBasketIntent, fee_basis: u64) -> Result<(u64
     Ok((protocol_fee, creator_fee, split.staking_fee))
 }
 
+#[inline(never)]
 fn charge_redeem_leg_fees<'info>(
     ctx: &mut Context<'_, '_, 'info, 'info, ExecuteLargeBasketRedeemBatch<'info>>,
 ) -> Result<()> {
@@ -3362,7 +3364,9 @@ fn execute_mint_swap_inner<'info>(
 }
 
 // Redeem swap core (component -> USDC) for the batched redeem. Vault authority signs via
-// PDA seeds. Scoping enforced per-call.
+// PDA seeds. Scoping enforced per-call. Kept out of line: inlined into the batch handler its
+// locals push that frame past the SBF 4 KB stack limit.
+#[inline(never)]
 #[allow(clippy::too_many_arguments)]
 fn execute_redeem_swap_inner<'info>(
     jupiter_program: &AccountInfo<'info>,
