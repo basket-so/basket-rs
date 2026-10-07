@@ -219,6 +219,36 @@
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "source": "https://lite-api.jup.ag/tokens/v2/search?query=85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ"
+    },
+    "META": {
+      "mint": "METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta"
+    },
+    "CRED": {
+      "mint": "CREDBHvVqREBCAxMihzr8D1nepHMr2gmQoZWpmgGmeta",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=CREDBHvVqREBCAxMihzr8D1nepHMr2gmQoZWpmgGmeta"
+    },
+    "SOLO": {
+      "mint": "SoLo9oxzLDpcq1dpqAgMwgce5WqkRDtNXK7EPnbmeta",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=SoLo9oxzLDpcq1dpqAgMwgce5WqkRDtNXK7EPnbmeta"
+    },
+    "UMBRA": {
+      "mint": "PRVT6TB7uss3FrUd2D9xs2zqDBsa3GbMJMwCQsgmeta",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=PRVT6TB7uss3FrUd2D9xs2zqDBsa3GbMJMwCQsgmeta"
+    },
+    "AVICI": {
+      "mint": "BANKJmvhT8tiJRsBSS1n2HryMBPvT5Ze4HU95DUAmeta",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=BANKJmvhT8tiJRsBSS1n2HryMBPvT5Ze4HU95DUAmeta"
     }
   },
   "baskets": [
@@ -573,6 +603,39 @@
         {
           "symbol": "W",
           "weightBps": 4000
+        }
+      ]
+    },
+    {
+      "symbol": "MDAO",
+      "name": "MetaDAO Ecosystem Index",
+      "origin": "research",
+      "kind": "fixedWeights",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 2592000,
+      "driftThresholdBps": 500,
+      "description": "Ownership coins of futarchy-governed companies launched through MetaDAO, led by META. Monthly or 5 percentage-point drift rebalancing. Components are limited to tokens with enough liquidity and active pricing for basket mints, redeems and rebalances.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "META",
+          "weightBps": 3200
+        },
+        {
+          "symbol": "CRED",
+          "weightBps": 2000
+        },
+        {
+          "symbol": "SOLO",
+          "weightBps": 2000
+        },
+        {
+          "symbol": "UMBRA",
+          "weightBps": 1400
+        },
+        {
+          "symbol": "AVICI",
+          "weightBps": 1400
         }
       ]
     }
