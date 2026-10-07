@@ -58,9 +58,13 @@ async function readProgramData() {
   return account;
 }
 // update_config rewrites every field, so carry the live values and change only the pause flags.
+// Pausing or unpausing redemptions restarts a pending composition change's notice, which needs
+// the change's PDA (programs that predate composition changes ignore the extra account).
 async function setPauses(index, flags) {
   const s = await program.account.indexState.fetch(index);
-  return program.methods.updateConfig({ feeRecipient: s.feeRecipient, creatorFeeRecipient: s.creatorFeeRecipient, maxSupply: s.maxSupply, rebalanceDelaySeconds: s.rebalanceDelaySeconds, ...flags }).accounts({ authority: payer.publicKey, index });
+  const compositionChange = PublicKey.findProgramAddressSync([Buffer.from('composition-change'), index.toBuffer()], program.programId)[0];
+  return program.methods.updateConfig({ feeRecipient: s.feeRecipient, creatorFeeRecipient: s.creatorFeeRecipient, maxSupply: s.maxSupply, rebalanceDelaySeconds: s.rebalanceDelaySeconds, ...flags }).accounts({ authority: payer.publicKey, index })
+    .remainingAccounts([{ pubkey: compositionChange, isWritable: true, isSigner: false }]);
 }
 async function restorePauses() {
   for (const x of journal.indexes) await record(`restore pause settings ${x.symbol}`, await setPauses(new PublicKey(x.address), { mintingPaused: x.mintingPaused, redeemingPaused: x.redeemingPaused, rebalancingPaused: x.rebalancingPaused }));

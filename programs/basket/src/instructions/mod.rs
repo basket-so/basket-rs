@@ -1,4 +1,5 @@
 pub mod claim_fees;
+pub mod composition_change;
 pub mod index_metadata;
 pub mod initialize_protocol;
 pub mod large_basket_config;
@@ -13,6 +14,7 @@ pub mod update_index_creator_whitelist;
 pub mod update_protocol_config;
 
 pub use claim_fees::*;
+pub use composition_change::*;
 pub use index_metadata::*;
 pub use initialize_protocol::*;
 pub use large_basket_config::*;

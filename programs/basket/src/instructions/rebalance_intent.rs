@@ -294,8 +294,62 @@ struct ComponentSnapshot {
     target_weight_bps: u16,
     oracle_price: i128,
     current_amount: u64,
+    // What the basket's accounting says it holds, for removed components (sold in full).
+    accounted_reserve: u64,
     is_quote: bool,
+    // Removed by a composition change and already sold: not priced and never traded.
+    retired: bool,
     value: u128,
+}
+
+/// What a rebalance does with one component.
+#[derive(Debug, PartialEq, Eq)]
+enum LegPlan {
+    Done,
+    Sell(u64),
+    Buy(u64),
+}
+
+/// Plans a component's leg toward its target share of `total_value`. A removed component
+/// (zero weight) sells what the basket owns, never more: tokens sent to its public vault stay
+/// put, so they cannot turn a write-off into a sell no swap can fill. Holdings worth under a
+/// cent are not worth a swap (which might not return a quote atom) and are written off.
+fn plan_leg(snap: &ComponentSnapshot, total_value: u128) -> Result<LegPlan> {
+    if snap.is_quote || snap.retired {
+        return Ok(LegPlan::Done);
+    }
+    if snap.target_weight_bps == 0 {
+        let owned = snap.current_amount.min(snap.accounted_reserve);
+        let owned_value = component_value_scaled(owned, snap.decimals, snap.oracle_price)?;
+        return Ok(if owned_value < REMOVED_COMPONENT_DUST_VALUE {
+            LegPlan::Done
+        } else {
+            LegPlan::Sell(owned)
+        });
+    }
+    let target_value = total_value
+        .checked_mul(u128::from(snap.target_weight_bps))
+        .and_then(|v| v.checked_div(u128::from(BPS_DENOMINATOR)))
+        .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
+    let target_amount = target_amount_for_value_scaled(target_value, snap.decimals, snap.oracle_price)?;
+    Ok(if leg_is_dust(snap.current_amount, target_amount) {
+        LegPlan::Done
+    } else if snap.current_amount > target_amount {
+        LegPlan::Sell(snap.current_amount - target_amount)
+    } else {
+        LegPlan::Buy(target_amount - snap.current_amount)
+    })
+}
+
+/// A removed component is sold in full by a finalized rebalance (or written off as dust), so
+/// anything its vault holds at finalize arrived after open and stays unaccounted.
+fn sold_out_at_finalize(component: &LargeBasketComponent) -> bool {
+    component.mint != USDC_MINT && component.target_weight_bps == 0
+}
+
+/// At unwind, only a removed component whose sell leg executed has been sold out.
+fn sold_out_at_unwind(component: &LargeBasketComponent, sell_leg: bool, sell_done: bool) -> bool {
+    sold_out_at_finalize(component) && sell_leg && sell_done
 }
 
 impl<'info> OpenRebalanceIntent<'info> {
@@ -447,9 +501,17 @@ impl<'info> OpenRebalanceIntent<'info> {
                 );
                 has_quote_component = true;
             }
-            let oracle_price = price_for_component(&prices, component)?;
             let current_amount = load_interface_token_account(vault_info)?.amount;
-            let value = component_value_scaled(current_amount, component.decimals, oracle_price)?;
+            let retired = is_retired(component);
+            let (oracle_price, value) = if retired {
+                (0, 0)
+            } else {
+                let oracle_price = price_for_component(&prices, component)?;
+                (
+                    oracle_price,
+                    component_value_scaled(current_amount, component.decimals, oracle_price)?,
+                )
+            };
             total_value = total_value
                 .checked_add(value)
                 .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
@@ -459,7 +521,9 @@ impl<'info> OpenRebalanceIntent<'info> {
                 target_weight_bps: component.target_weight_bps,
                 oracle_price,
                 current_amount,
+                accounted_reserve: component.accounted_reserve,
                 is_quote,
+                retired,
                 value,
             });
         }
@@ -489,7 +553,13 @@ impl<'info> OpenRebalanceIntent<'info> {
                     .fixed_weight_last_rebalanced_at
                     .checked_add(ctx.accounts.index.fixed_weight_rebalance_interval_seconds)
                     .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
-        require!(drift_triggered || time_triggered, BasketError::RebalanceNotNeeded);
+        // An applied composition change leaves holdings off the new targets, even when
+        // the shift is smaller than the drift threshold.
+        let composition_triggered = ctx.accounts.index.composition_rebalance_due;
+        require!(
+            drift_triggered || time_triggered || composition_triggered,
+            BasketError::RebalanceNotNeeded
+        );
 
         // Pass 2: derive each component's target backing and swap leg.
         let mut legs = vec![0u64; component_count];
@@ -504,35 +574,25 @@ impl<'info> OpenRebalanceIntent<'info> {
         let mut verified = [0u8; LARGE_BASKET_COMPONENT_BITMAP_BYTES];
         for (i, snap) in snapshots.iter().enumerate() {
             let idx = i as u16;
-            // The quote (USDC) component is never swapped; mark both legs satisfied.
-            if snap.is_quote {
-                bitmap_set_once(&mut sell_done, idx)?;
-                bitmap_set_once(&mut buy_done, idx)?;
-                bitmap_set_once(&mut verified, idx)?;
-                continue;
-            }
-            let target_value = total_value
-                .checked_mul(u128::from(snap.target_weight_bps))
-                .and_then(|v| v.checked_div(u128::from(BPS_DENOMINATOR)))
-                .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
-            let target_amount =
-                target_amount_for_value_scaled(target_value, snap.decimals, snap.oracle_price)?;
-
-            if leg_is_dust(snap.current_amount, target_amount) {
-                // Already on target (within dust): no swap needed.
-                bitmap_set_once(&mut sell_done, idx)?;
-                bitmap_set_once(&mut buy_done, idx)?;
-                bitmap_set_once(&mut verified, idx)?;
-            } else if snap.current_amount > target_amount {
-                legs[i] = snap.current_amount - target_amount;
-                bitmap_set_once(&mut sell_leg, idx)?;
-                bitmap_set_once(&mut buy_done, idx)?; // no buy needed
-                sell_legs += 1;
-            } else {
-                legs[i] = target_amount - snap.current_amount;
-                bitmap_set_once(&mut buy_leg, idx)?;
-                bitmap_set_once(&mut sell_done, idx)?; // no sell needed
-                buy_legs += 1;
+            match plan_leg(snap, total_value)? {
+                // Quote, retired, removed dust, or already on target: nothing to swap or verify.
+                LegPlan::Done => {
+                    bitmap_set_once(&mut sell_done, idx)?;
+                    bitmap_set_once(&mut buy_done, idx)?;
+                    bitmap_set_once(&mut verified, idx)?;
+                }
+                LegPlan::Sell(amount) => {
+                    legs[i] = amount;
+                    bitmap_set_once(&mut sell_leg, idx)?;
+                    bitmap_set_once(&mut buy_done, idx)?; // no buy needed
+                    sell_legs += 1;
+                }
+                LegPlan::Buy(amount) => {
+                    legs[i] = amount;
+                    bitmap_set_once(&mut buy_leg, idx)?;
+                    bitmap_set_once(&mut sell_done, idx)?; // no sell needed
+                    buy_legs += 1;
+                }
             }
         }
 
@@ -1040,21 +1100,34 @@ impl<'info> FinalizeRebalance<'info> {
                         );
                         usdc_component_weight_bps = Some(component.target_weight_bps);
                     }
-                    let oracle_price = price_for_component(&prices, component)?;
-                    let value =
-                        component_value_scaled(amounts[global], component.decimals, oracle_price)?;
+                    let (value, open_value) =
+                        if is_retired(component) {
+                            (0, 0)
+                        } else {
+                            let oracle_price = price_for_component(&prices, component)?;
+                            (
+                                component_value_scaled(
+                                    amounts[global],
+                                    component.decimals,
+                                    oracle_price,
+                                )?,
+                                component_value_scaled(
+                                    open_amounts[global],
+                                    component.decimals,
+                                    oracle_price,
+                                )?,
+                            )
+                        };
                     final_total_value = final_total_value
                         .checked_add(value)
                         .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
-                    let open_value = component_value_scaled(
-                        open_amounts[global],
-                        component.decimals,
-                        oracle_price,
-                    )?;
                     expected_value_now = expected_value_now
                         .checked_add(open_value)
                         .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
-                    values.push((value, component.target_weight_bps));
+                    // What is left of a removed component is being written off (sent to its
+                    // vault, or dust), so it does not count as drift from its zero target.
+                    let drift_value = if sold_out_at_finalize(component) { 0 } else { value };
+                    values.push((drift_value, component.target_weight_bps));
                     global += 1;
                 }
             }
@@ -1130,7 +1203,14 @@ impl<'info> FinalizeRebalance<'info> {
         require!(dust_value <= allowed_dust_value, BasketError::RebalanceTargetNotMet);
 
         // Rewrite each component's units_per_index + accounted_reserve from the new balances.
-        rewrite_pages_from_amounts(&mut pages, &amounts, base_units, supply, true, ctx.program_id)?;
+        // Every zero-weight component has been sold in full (or was dust): anything its vault
+        // holds now arrived after open and is left unaccounted.
+        let sold_out: Vec<bool> = pages
+            .iter()
+            .flat_map(|page| page.components.iter())
+            .map(sold_out_at_finalize)
+            .collect();
+        rewrite_pages_from_amounts(&mut pages, &amounts, &sold_out, base_units, supply, true, ctx.program_id)?;
 
         let now = Clock::get()?.unix_timestamp;
         let new_nav_nad = final_total_value
@@ -1138,6 +1218,7 @@ impl<'info> FinalizeRebalance<'info> {
             .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
 
         ctx.accounts.index.fixed_weight_last_rebalanced_at = now;
+        ctx.accounts.index.composition_rebalance_due = false;
         ctx.accounts.index.large_basket_operation_in_progress = false;
         ctx.accounts.index.active_rebalance_intent = Pubkey::default();
         ctx.accounts.intent.status = RebalanceStatus::Finalized;
@@ -1256,10 +1337,22 @@ impl<'info> UnwindRebalance<'info> {
         let amounts = collect_vault_amounts(&pages, vault_infos)?;
         // No ZeroComponentUnits gate here: the unwind must never be blockable, and a
         // component balance that floors to zero units is still accounted correctly by
-        // `accounted_reserve` (the in-kind mint/redeem basis).
+        // `accounted_reserve` (the in-kind mint/redeem basis). A zero-weight component whose
+        // sell leg executed was sold in full, so its remaining balance arrived since open.
+        let intent = &ctx.accounts.intent;
+        let mut sold_out = Vec::with_capacity(component_count);
+        for component in pages.iter().flat_map(|page| page.components.iter()) {
+            let i = sold_out.len() as u16;
+            sold_out.push(sold_out_at_unwind(
+                component,
+                bitmap_get(&intent.sell_leg_bitmap, i)?,
+                bitmap_get(&intent.sell_done_bitmap, i)?,
+            ));
+        }
         rewrite_pages_from_amounts(
             &mut pages,
             &amounts,
+            &sold_out,
             ctx.accounts.index.index_base_units()?,
             ctx.accounts.intent.supply_snapshot,
             false,
@@ -1299,6 +1392,20 @@ impl<'info> CloseRebalanceIntent<'info> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// A removed component worth less than this (USD at Switchboard scale: one cent) is left
+// unsold by a rebalance and written off at finalize.
+const REMOVED_COMPONENT_DUST_VALUE: u128 = SWITCHBOARD_PRICE_SCALE / 100;
+
+/// A component a composition change removed (zero weight, not USDC) whose holdings a
+/// rebalance has already sold. It is neither priced nor traded, so its feed can retire
+/// with it. Judged by the basket's own accounting, not the live vault: anyone can send
+/// tokens to a public vault, and dust there must not force a dead feed back into use.
+fn is_retired(component: &LargeBasketComponent) -> bool {
+    component.mint != USDC_MINT
+        && component.target_weight_bps == 0
+        && component.accounted_reserve == 0
+}
 
 fn price_for_component(prices: &[SwitchboardPrice], component: &LargeBasketComponent) -> Result<i128> {
     if component.mint == USDC_MINT {
@@ -1553,7 +1660,7 @@ fn load_pages_in_order(
     Ok(pages)
 }
 
-fn load_components_in_order(
+pub(crate) fn load_components_in_order(
     index_key: &Pubkey,
     program_id: &Pubkey,
     index: &IndexState,
@@ -1570,7 +1677,7 @@ fn load_components_in_order(
 /// Writable twin of `load_pages_in_order`: loads page Accounts (owner + discriminator
 /// checked by `Account::try_from`) in page-index order so callers can mutate them and
 /// persist via `exit()`. Same identity/ordering/coverage validations.
-fn load_writable_pages_in_order<'info>(
+pub(crate) fn load_writable_pages_in_order<'info>(
     index_key: &Pubkey,
     program_id: &Pubkey,
     component_count: usize,
@@ -1651,6 +1758,7 @@ fn collect_vault_amounts<'info>(
 fn rewrite_pages_from_amounts<'info>(
     pages: &mut [Account<'info, LargeBasketComponentPage>],
     amounts: &[u64],
+    sold_out: &[bool],
     base_units: u64,
     supply: u64,
     require_nonzero_units: bool,
@@ -1659,19 +1767,16 @@ fn rewrite_pages_from_amounts<'info>(
     let mut global = 0usize;
     for page in pages.iter_mut() {
         for component in page.components.iter_mut() {
-            let amount = amounts[global];
-            let units = if require_nonzero_units {
-                let units = units_per_index_for_amount(amount, base_units, supply)?;
-                require!(
-                    component.target_weight_bps == 0 || units > 0,
-                    BasketError::ZeroComponentUnits
-                );
-                units
-            } else {
-                units_per_index_for_amount_saturating(amount, base_units, supply)
-            };
+            let (units, reserve) = rewritten_accounting(
+                component,
+                amounts[global],
+                sold_out[global],
+                base_units,
+                supply,
+                require_nonzero_units,
+            )?;
             component.units_per_index = units;
-            component.accounted_reserve = amount;
+            component.accounted_reserve = reserve;
             global += 1;
         }
     }
@@ -1679,6 +1784,41 @@ fn rewrite_pages_from_amounts<'info>(
         page.exit(program_id)?;
     }
     Ok(())
+}
+
+/// A component's (units_per_index, accounted_reserve) after a rebalance, from its vault
+/// balance. A retired component, or a removed one this rebalance sold out (`sold_out`), stays
+/// at zero: what its public vault holds was sent there, and must not put the component back
+/// into pricing (its feed may be gone) or leave a dust sell leg no swap can fill.
+fn rewritten_accounting(
+    component: &LargeBasketComponent,
+    amount: u64,
+    sold_out: bool,
+    base_units: u64,
+    supply: u64,
+    require_nonzero_units: bool,
+) -> Result<(u64, u64)> {
+    if sold_out || is_retired(component) {
+        return Ok((0, 0));
+    }
+    // A removed component not yet sold (an unwind before its sell ran) keeps what the basket
+    // owned; tokens sent to its vault never raise that.
+    let amount = if sold_out_at_finalize(component) {
+        amount.min(component.accounted_reserve)
+    } else {
+        amount
+    };
+    let units = if require_nonzero_units {
+        let units = units_per_index_for_amount(amount, base_units, supply)?;
+        require!(
+            component.target_weight_bps == 0 || units > 0,
+            BasketError::ZeroComponentUnits
+        );
+        units
+    } else {
+        units_per_index_for_amount_saturating(amount, base_units, supply)
+    };
+    Ok((units, amount))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1823,9 +1963,111 @@ mod tests {
             target_weight_bps,
             oracle_price: SWITCHBOARD_PRICE_SCALE as i128,
             current_amount: 0,
+            accounted_reserve: 0,
             is_quote: false,
+            retired: false,
             value: value_units * SWITCHBOARD_PRICE_SCALE,
         }
+    }
+
+    // $1 tokens with 6 decimals: 1_000_000 atoms = $1.
+    fn holding(current: u64, accounted: u64, target_weight_bps: u16) -> ComponentSnapshot {
+        ComponentSnapshot {
+            decimals: 6,
+            target_weight_bps,
+            oracle_price: SWITCHBOARD_PRICE_SCALE as i128,
+            current_amount: current,
+            accounted_reserve: accounted,
+            is_quote: false,
+            retired: false,
+            value: u128::from(current) * SWITCHBOARD_PRICE_SCALE / 1_000_000,
+        }
+    }
+
+    #[test]
+    fn removed_components_sell_only_what_the_basket_owns() {
+        let total = 100 * SWITCHBOARD_PRICE_SCALE;
+        // Owned $5, plus $1 sent to the vault: sells the $5.
+        assert_eq!(plan_leg(&holding(6_000_000, 5_000_000, 0), total).unwrap(), LegPlan::Sell(5_000_000));
+        // Owned less than a cent: written off, even with a larger donation on top.
+        assert_eq!(plan_leg(&holding(5_000_000, 9_999, 0), total).unwrap(), LegPlan::Done);
+        assert_eq!(plan_leg(&holding(9_999, 9_999, 0), total).unwrap(), LegPlan::Done);
+        // Vault below the books (never expected): sells what is there.
+        assert_eq!(plan_leg(&holding(2_000_000, 5_000_000, 0), total).unwrap(), LegPlan::Sell(2_000_000));
+        // Retired and quote components never trade.
+        let mut retired = holding(3_000_000, 0, 0);
+        retired.retired = true;
+        assert_eq!(plan_leg(&retired, total).unwrap(), LegPlan::Done);
+        let mut quote = holding(3_000_000, 3_000_000, 0);
+        quote.is_quote = true;
+        assert_eq!(plan_leg(&quote, total).unwrap(), LegPlan::Done);
+    }
+
+    #[test]
+    fn weighted_components_trade_toward_their_target() {
+        let total = 100 * SWITCHBOARD_PRICE_SCALE;
+        // 50% of $100 is $50.
+        assert_eq!(plan_leg(&holding(60_000_000, 60_000_000, 5_000), total).unwrap(), LegPlan::Sell(10_000_000));
+        assert_eq!(plan_leg(&holding(40_000_000, 40_000_000, 5_000), total).unwrap(), LegPlan::Buy(10_000_000));
+        assert_eq!(plan_leg(&holding(50_000_000, 50_000_000, 5_000), total).unwrap(), LegPlan::Done);
+        // A newly added component holds nothing yet.
+        assert_eq!(plan_leg(&holding(0, 0, 1_000), total).unwrap(), LegPlan::Buy(10_000_000));
+    }
+
+    #[test]
+    fn sold_out_masks() {
+        let removed = component(Pubkey::new_unique(), 0);
+        assert!(sold_out_at_finalize(&removed));
+        assert!(!sold_out_at_finalize(&component(Pubkey::new_unique(), 100)));
+        assert!(!sold_out_at_finalize(&component(USDC_MINT, 0)));
+        assert!(sold_out_at_unwind(&removed, true, true));
+        assert!(!sold_out_at_unwind(&removed, true, false), "sell leg not executed");
+        assert!(!sold_out_at_unwind(&removed, false, true), "no sell leg (dust or retired)");
+    }
+
+    fn component(mint: Pubkey, target_weight_bps: u16) -> LargeBasketComponent {
+        LargeBasketComponent {
+            mint,
+            units_per_index: 0,
+            target_weight_bps,
+            oracle_pair: Pubkey::new_unique(),
+            token_program: anchor_spl::token::ID,
+            vault: Pubkey::new_unique(),
+            accounted_reserve: 0,
+            decimals: 6,
+        }
+    }
+
+    #[test]
+    fn removed_components_stay_unaccounted_once_sold() {
+        let base = 1_000_000;
+        let supply = 2_000_000;
+        // Sold out this rebalance: a donation that arrived since open is not accounted.
+        let removed = LargeBasketComponent { accounted_reserve: 7_000, ..component(Pubkey::new_unique(), 0) };
+        assert_eq!(rewritten_accounting(&removed, 1, true, base, supply, true).unwrap(), (0, 0));
+        // Unwound before its sell executed: holders still own it, and a donation on top is
+        // not added to the books.
+        assert_eq!(rewritten_accounting(&removed, 7_000, false, base, supply, false).unwrap(), (3_500, 7_000));
+        assert_eq!(rewritten_accounting(&removed, 9_000, false, base, supply, false).unwrap(), (3_500, 7_000));
+        // Retired: donations stay unaccounted at finalize and unwind.
+        let retired = component(Pubkey::new_unique(), 0);
+        assert_eq!(rewritten_accounting(&retired, 9, false, base, supply, false).unwrap(), (0, 0));
+        // Weighted components take their live balance.
+        let held = component(Pubkey::new_unique(), 5_000);
+        assert_eq!(rewritten_accounting(&held, 4_000_000, false, base, supply, true).unwrap(), (2_000_000, 4_000_000));
+        assert!(rewritten_accounting(&held, 1, false, base, supply, true).is_err(), "weighted component flooring to zero units");
+    }
+
+    #[test]
+    fn only_removed_and_sold_components_skip_pricing() {
+        let mut removed = component(Pubkey::new_unique(), 0);
+        assert!(is_retired(&removed));
+        // Still holding accounted tokens: it must be priced and sold.
+        removed.accounted_reserve = 5;
+        assert!(!is_retired(&removed));
+        // Weighted components and the USDC cash slot are always priced.
+        assert!(!is_retired(&component(Pubkey::new_unique(), 1_000)));
+        assert!(!is_retired(&component(USDC_MINT, 0)));
     }
 
     #[test]

@@ -273,6 +273,23 @@ pub mod basket {
         UpdateRebalanceRequest::handle_cancel(ctx)
     }
 
+    pub fn propose_composition_change<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ProposeCompositionChange<'info>>,
+        args: ProposeCompositionChangeArgs,
+    ) -> Result<()> {
+        ProposeCompositionChange::handle(ctx, args)
+    }
+
+    pub fn cancel_composition_change(ctx: Context<CancelCompositionChange>) -> Result<()> {
+        CancelCompositionChange::handle(ctx)
+    }
+
+    pub fn apply_composition_change<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ApplyCompositionChange<'info>>,
+    ) -> Result<()> {
+        ApplyCompositionChange::handle(ctx)
+    }
+
     pub fn update_fees(ctx: Context<UpdateFees>, args: UpdateFeesArgs) -> Result<()> {
         UpdateFees::handle(ctx, args)
     }

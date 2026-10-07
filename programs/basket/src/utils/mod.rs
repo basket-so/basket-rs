@@ -1,5 +1,6 @@
 pub mod bitmap;
 pub mod components;
+pub mod composition;
 pub mod jupiter;
 pub mod large_basket_fees;
 pub mod math;
@@ -11,6 +12,7 @@ pub mod token_accounts;
 
 pub use bitmap::*;
 pub use components::*;
+pub use composition::*;
 pub use jupiter::*;
 pub use large_basket_fees::*;
 pub use math::*;

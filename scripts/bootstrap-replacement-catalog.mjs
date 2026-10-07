@@ -6,8 +6,8 @@ import { AddressLookupTableProgram, Connection, ComputeBudgetProgram, Keypair, P
   SystemProgram, SYSVAR_RENT_PUBKEY, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync,
   unpackMint, getAccountLenForMint } from '@solana/spl-token';
-import { CrossbarClient, CrossbarNetwork, OracleFeed, OracleJob } from '@switchboard-xyz/common';
-import { USDC, validateCatalog, sizeBasket, fetchJson } from './lib/catalog.mjs';
+import { CrossbarClient, CrossbarNetwork } from '@switchboard-xyz/common';
+import { USDC, validateCatalog, sizeBasket, fetchJson, catalogPriceFeed } from './lib/catalog.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
@@ -42,7 +42,8 @@ const config = await program.account.protocolConfig.fetchNullable(protocolConfig
 if (!config.permissionlessIndexCreation && !config.indexCreator.equals(payer.publicKey) &&
     !config.indexCreatorWhitelist.some(k => k.equals(payer.publicKey))) throw new Error('Wallet is not an approved creator');
 if (execute && !(await connection.getAccountInfo(pda('staking-pool')))) throw new Error('Initialize the protocol staking pool before creating baskets');
-const crossbar = CrossbarClient.default();
+// crossbar.switchboard.xyz lost its DNS record on 2026-10-05; same default as the rebalance bot.
+const crossbar = new CrossbarClient(process.env.SWITCHBOARD_CROSSBAR_URL ?? 'https://crossbar.switchboardlabs.xyz');
 crossbar.setNetwork(CrossbarNetwork.SolanaMainnet);
 let lastCrossbarCall = 0;
 async function crossbarCall(callback) {
@@ -79,23 +80,7 @@ const mintAccounts = await connection.getMultipleAccountsInfo(usedSymbols.map(s 
 const slot = await connection.getSlot();
 const prices = await fetchJson(`${priceApi}?ids=${usedSymbols.map(s => catalog.tokens[s].mint).join(',')}`);
 
-async function feedFor(symbol, mint, referencePrice) {
-  const dex = await fetchJson(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
-  const pair = dex.pairs?.filter(p => p.chainId === 'solana' && p.baseToken.address === mint && p.liquidity?.usd >= 10000 &&
-      p.volume?.h24 >= 1000 && Math.abs(Number(p.priceUsd) / referencePrice - 1) < 0.01)
-    .sort((a,b) => b.liquidity.usd - a.liquidity.usd)[0];
-  const primary = [
-    { httpTask: { url: `${priceApi}?ids=${mint}` } },
-    { jsonParseTask: { path: `$['${mint}'].usdPrice` } },
-  ];
-  // Pin the most liquid base-token pair, rather than taking prices from every
-  // pool returned by token search (which could include unrelated quote tokens).
-  const tasks = pair ? [{ conditionalTask: { attempt: primary, onFailure: [
-    { httpTask: { url: `https://api.dexscreener.com/latest/dex/pairs/solana/${pair.pairAddress}` } },
-    { jsonParseTask: { path: '$.pairs[0].priceUsd' } },
-  ] } }] : primary;
-  return OracleFeed.create({ name: `${symbol}/USD`, jobs: [OracleJob.fromObject({ tasks })], minOracleSamples: 1, minJobResponses: 1, maxJobRangePct: 0 });
-}
+const feedFor = (symbol, mint, referencePrice) => catalogPriceFeed(symbol, mint, referencePrice, priceApi);
 
 for (const [i, symbol] of usedSymbols.entries()) {
   try {

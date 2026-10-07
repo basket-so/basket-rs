@@ -44,7 +44,10 @@ for (const [symbol, { index: address }] of Object.entries(baskets)) {
   const state = await program.account.indexState.fetch(index);
   if (!state.authority.equals(authority.publicKey)) throw new Error(`${symbol}: signer is not the index authority (${state.authority.toBase58()})`);
   if (Object.entries(target).every(([k, v]) => state[k] === v)) { console.log(`${symbol.padEnd(5)} already ${describe(state)}`); continue; }
-  const builder = program.methods.updateFees(target).accounts({ authority: authority.publicKey, index });
+  // A redeem fee change restarts a pending composition change's notice, which needs its PDA.
+  const compositionChange = PublicKey.findProgramAddressSync([Buffer.from('composition-change'), index.toBuffer()], program.programId)[0];
+  const builder = program.methods.updateFees(target).accounts({ authority: authority.publicKey, index })
+    .remainingAccounts([{ pubkey: compositionChange, isWritable: true, isSigner: false }]);
   if (!execute) {
     const sim = await builder.simulate();
     console.log(`${symbol.padEnd(5)} ${describe(state)} -> ${describe(target)} (simulated OK, ${sim.raw.length} log lines)`);

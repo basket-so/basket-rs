@@ -21,6 +21,22 @@ pub const LARGE_BASKET_INTENT_SEED: &[u8] = b"large-basket-intent";
 pub const LARGE_BASKET_INTENT_LOCK_SEED: &[u8] = b"large-basket-intent-lock";
 pub const LARGE_BASKET_COMPONENT_PAGE_SEED: &[u8] = b"large-basket-component-page";
 pub const REBALANCE_INTENT_SEED: &[u8] = b"rebalance-intent";
+pub const COMPOSITION_CHANGE_SEED: &[u8] = b"composition-change";
+// Notice holders get before a basket's weights or components change, so they can redeem first.
+pub const COMPOSITION_CHANGE_DELAY_SECONDS: i64 = 3 * 24 * 60 * 60;
+// A due change must be applied within this window; after it the proposal lapses and has to
+// be proposed again (with fresh notice).
+pub const COMPOSITION_CHANGE_APPLY_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
+// One change appends at most one page's worth of components (so at most one new page).
+pub const MAX_COMPOSITION_ADDITIONS: usize = MAX_LARGE_BASKET_COMPONENTS_PER_PAGE;
+// Removed components keep their slot, and rebalances load every slot's vault and price every
+// held component in one transaction and one Switchboard quote. A change may leave at most
+// this many slots, and this many components to price while the basket switches over.
+pub const MAX_COMPOSITION_COMPONENTS: usize = 2 * MAX_LARGE_BASKET_COMPONENTS_PER_PAGE;
+pub const MAX_COMPOSITION_PRICED_COMPONENTS: usize = 10;
+// Smallest nonzero target weight a change may set, so a component's backing per index token
+// does not round to zero units.
+pub const MIN_COMPOSITION_WEIGHT_BPS: u16 = 50;
 // Holds components returned from expired intents until their owners claim them.
 pub const REFUND_ESCROW_SEED: &[u8] = b"refund-escrow";
 pub const MAX_LARGE_BASKET_INTENT_TTL_SECONDS: i64 = 30 * 60;

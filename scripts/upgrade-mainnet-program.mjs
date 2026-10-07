@@ -23,7 +23,8 @@ let journal=fs.existsSync(journalPath)?JSON.parse(fs.readFileSync(journalPath)):
 const save=()=>fs.writeFileSync(journalPath,JSON.stringify(journal,null,2)+'\n');
 async function record(action,builder){const signature=await builder.rpc();journal.transactions.push({action,signature,at:new Date().toISOString()});save();console.log(`${action}: ${signature}`);}
 async function readData(){const x=await c.getAccountInfo(programData);if(!x||!x.owner.equals(loader)||x.data[12]!==1||!new PublicKey(x.data.subarray(13,45)).equals(payer.publicKey))throw new Error('ProgramData owner/upgrade authority mismatch');return x;}
-async function configure(pk,flags){const s=await program.account.indexState.fetch(pk);return program.methods.updateConfig({feeRecipient:s.feeRecipient,creatorFeeRecipient:s.creatorFeeRecipient,maxSupply:s.maxSupply,rebalanceDelaySeconds:s.rebalanceDelaySeconds,...flags}).accounts({authority:payer.publicKey,index:pk});}
+// Pausing or unpausing redemptions restarts a pending composition change's notice: pass its PDA.
+async function configure(pk,flags){const s=await program.account.indexState.fetch(pk);return program.methods.updateConfig({feeRecipient:s.feeRecipient,creatorFeeRecipient:s.creatorFeeRecipient,maxSupply:s.maxSupply,rebalanceDelaySeconds:s.rebalanceDelaySeconds,...flags}).accounts({authority:payer.publicKey,index:pk}).remainingAccounts([{pubkey:pda('composition-change',pk),isWritable:true,isSigner:false}]);}
 try {
 if(program.programId.toBase58()!==preflight.program||sha!==preflight.binarySha256||journal.binarySha256!==sha||payer.publicKey.toBase58()!==preflight.authority)throw new Error('Validated program/binary/authority changed');
 if(await c.getGenesisHash()!==preflight.genesis)throw new Error('Not mainnet');

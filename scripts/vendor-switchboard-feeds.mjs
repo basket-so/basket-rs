@@ -5,7 +5,8 @@
 // With the full definition, a price update goes straight to an oracle gateway instead of asking
 // Crossbar to resolve the feed hash, so Crossbar outages (crossbar.switchboard.xyz lost its DNS
 // record on 2026-10-05) cannot block mints, redeems or rebalances. Each definition is accepted
-// only if it hashes to the feed id stored on-chain. Re-run after adding baskets or changing feeds.
+// only if it hashes to the feed id stored on-chain. Re-run after adding baskets or changing feeds,
+// and after proposing a composition change, whose new components' feeds are included here.
 // Env: SOLANA_RPC_URL, SWITCHBOARD_CROSSBAR_URL (tried first).
 import fs from 'node:fs';
 import anchor from '@coral-xyz/anchor';
@@ -34,6 +35,13 @@ for (const [symbol, { index: address }] of Object.entries(baskets)) {
       const id = `0x${component.oraclePair.toBuffer().toString('hex')}`;
       feedIds.set(id, [...(feedIds.get(id) ?? []), symbol]);
     }
+  }
+  // Components a pending composition change will add get priced as soon as it applies.
+  const change = await program.account.compositionChange?.fetchNullable(
+    PublicKey.findProgramAddressSync([Buffer.from('composition-change'), index.toBuffer()], program.programId)[0]);
+  for (const addition of change?.additions ?? []) {
+    const id = `0x${addition.oraclePair.toBuffer().toString('hex')}`;
+    feedIds.set(id, [...(feedIds.get(id) ?? []), `${symbol} (pending)`]);
   }
 }
 

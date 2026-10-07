@@ -1,8 +1,9 @@
 use anchor_lang::prelude::*;
 
+use super::composition_change::restart_composition_notice;
 use crate::{
-    errors::BasketError, events::IndexFeesUpdated, state::IndexState,
-    utils::validate_total_index_fee_bps,
+    errors::BasketError, events::IndexFeesUpdated, state::{IndexKind, IndexState},
+    utils::{total_redeem_fee_bps, validate_total_index_fee_bps},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -37,6 +38,19 @@ impl<'info> UpdateFees<'info> {
             args.creator_redeem_fee_bps,
             args.staking_redeem_fee_bps,
         )?;
+
+        // remaining_accounts: when the total redeem fee changes, the basket's composition
+        // change PDA (see restart_composition_notice).
+        let redeem_fee_bps = args
+            .redeem_fee_bps
+            .saturating_add(args.creator_redeem_fee_bps)
+            .saturating_add(args.staking_redeem_fee_bps);
+        // Only fixed-weight baskets can have composition changes.
+        if ctx.accounts.index.kind == IndexKind::FixedWeights
+            && redeem_fee_bps != total_redeem_fee_bps(&ctx.accounts.index)
+        {
+            restart_composition_notice(&ctx.accounts.index.key(), ctx.program_id, ctx.remaining_accounts)?;
+        }
 
         let index = &mut ctx.accounts.index;
         index.mint_fee_bps = args.mint_fee_bps;

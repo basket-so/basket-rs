@@ -207,7 +207,7 @@ impl<'info> CreateLargeBasketIndex<'info> {
         index.redeeming_paused = false;
         index.rebalancing_paused = false;
         index.rebalance_requested = false;
-        index.reserved = [0; 1];
+        index.composition_rebalance_due = false;
         index.name = args.name;
         index.symbol = args.symbol;
         index.metadata_uri = args.metadata_uri;

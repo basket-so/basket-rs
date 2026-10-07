@@ -86,7 +86,10 @@ pub struct IndexState {
     // While set (and within the request window), new mint/redeem intents are refused so
     // open ones can drain before a rebalance. (Retired pending_rebalance_ready slot.)
     pub rebalance_requested: bool,
-    pub reserved: [u8; 1],
+    // Set when a composition change is applied: holdings no longer match the new targets,
+    // so the next rebalance may open without waiting for drift or the interval. Cleared
+    // when a rebalance finalizes. (Was the 1-byte reserved slot.)
+    pub composition_rebalance_due: bool,
     pub name: String,
     pub symbol: String,
     pub metadata_uri: String,
@@ -124,7 +127,7 @@ impl IndexState {
             + 1 // redeeming_paused
             + 1 // rebalancing_paused
             + 1 // rebalance_requested
-            + 1 // reserved
+            + 1 // composition_rebalance_due
             + 4 + name_len
             + 4 + symbol_len
             + 4 + metadata_uri_len

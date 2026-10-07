@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::state::{IndexKind, LargeBasketIntentKind};
+use crate::state::{ComponentAddition, IndexKind, LargeBasketIntentKind};
 
 #[event]
 pub struct IndexCreated {
@@ -322,4 +322,35 @@ pub struct RebalanceRequestUpdated {
     pub operator: Pubkey,
     pub requested: bool,
     pub requested_at: i64,
+}
+
+#[event]
+pub struct CompositionChangeProposed {
+    pub index: Pubkey,
+    pub proposer: Pubkey,
+    pub effective_at: i64,
+    pub redeem_fee_bps: u16,
+    pub target_weights_bps: Vec<u16>,
+    pub additions: Vec<ComponentAddition>,
+}
+
+/// Redemptions were paused or unpaused, or the redeem fee changed, while a change was
+/// pending: its notice restarts from now.
+#[event]
+pub struct CompositionChangeDelayed {
+    pub index: Pubkey,
+    pub effective_at: i64,
+}
+
+#[event]
+pub struct CompositionChangeCancelled {
+    pub index: Pubkey,
+    pub authority: Pubkey,
+}
+
+#[event]
+pub struct CompositionChangeApplied {
+    pub index: Pubkey,
+    pub operator: Pubkey,
+    pub component_count: u8,
 }

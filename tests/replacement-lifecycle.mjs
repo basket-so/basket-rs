@@ -1,4 +1,5 @@
 import { prepareRebalanceFixtures, testRebalanceMigration } from "./rebalance-migration-fixtures.mjs";
+import { prepareCompositionFixtures, testCompositionChange } from "./composition-change-fixtures.mjs";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -282,6 +283,7 @@ async function main() {
   const payer = keypairFromFile("deployer-keypair.json");
 
   const rebalanceFixtures = await prepareRebalanceFixtures(fixtureDir, programId, payer.publicKey);
+  const compositionFixtures = await prepareCompositionFixtures(fixtureDir, programId, payer.publicKey);
   const validatorArgs = [
       "--reset",
       "--quiet",
@@ -304,7 +306,7 @@ async function main() {
       usdcMint.toBase58(),
       usdcMintDump,
     ];
-  validatorArgs.push(...rebalanceFixtures.validatorArgs);
+  validatorArgs.push(...rebalanceFixtures.validatorArgs, ...compositionFixtures.validatorArgs);
   const wslPath = p => p.replace(/^([A-Za-z]):/, (_, drive) => '/mnt/' + drive.toLowerCase()).replaceAll('\\','/');
   const validatorProcess = spawn(process.env.BASKET_WSL ? 'wsl.exe' : validator,
     process.env.BASKET_WSL ? ['-d','Ubuntu','--','/home/gainsu/.cache/basket-validator/solana-release/bin/solana-test-validator', ...validatorArgs.map(wslPath)] : validatorArgs,
@@ -434,6 +436,7 @@ async function main() {
     assert.equal((await getAccount(connection, stakeVault)).amount, 0n);
 
     await testRebalanceMigration(program, connection, payer, stakingPool, rebalanceFixtures.fixtures);
+    await testCompositionChange(program, connection, payer, user, stakingPool, compositionFixtures.fixtures);
     for (const fixedWeights of [false, true]) {
       const symbol = fixedWeights ? 'FIXED' : 'UNITS';
       const index = pda('index', payer.publicKey, symbol);

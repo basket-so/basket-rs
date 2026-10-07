@@ -186,4 +186,14 @@ pub enum BasketError {
     MintBasisChanged,
     #[msg("A rebalance was requested too recently.")]
     RebalanceRequestCooldown,
+    #[msg("The composition change is invalid.")]
+    InvalidCompositionChange,
+    #[msg("The composition change's notice period has not passed yet.")]
+    CompositionChangeNotReady,
+    #[msg("The basket's components changed after this composition change was proposed; cancel it and propose again.")]
+    CompositionChangeStale,
+    #[msg("The composition change was not applied in time; cancel it and propose again.")]
+    CompositionChangeExpired,
+    #[msg("A composition change only applies while redemptions are open at fees no higher than when it was proposed.")]
+    CompositionChangeExitRestricted,
 }

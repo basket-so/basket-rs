@@ -1,8 +1,9 @@
 use anchor_lang::prelude::*;
 
+use super::composition_change::restart_composition_notice;
 use crate::{
     constants::MAX_REBALANCE_DELAY_SECONDS, errors::BasketError, events::IndexConfigUpdated,
-    state::IndexState,
+    state::{IndexKind, IndexState},
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -27,6 +28,8 @@ pub struct UpdateConfig<'info> {
 }
 
 impl<'info> UpdateConfig<'info> {
+    // remaining_accounts: when pausing or unpausing redemptions, the basket's composition
+    // change PDA (see restart_composition_notice).
     pub fn handle(ctx: Context<Self>, args: UpdateConfigArgs) -> Result<()> {
         require!(
             args.fee_recipient != Pubkey::default(),
@@ -37,6 +40,13 @@ impl<'info> UpdateConfig<'info> {
                 && args.rebalance_delay_seconds <= MAX_REBALANCE_DELAY_SECONDS,
             BasketError::InvalidRebalanceDelay
         );
+
+        // Only fixed-weight baskets can have composition changes.
+        if ctx.accounts.index.kind == IndexKind::FixedWeights
+            && args.redeeming_paused != ctx.accounts.index.redeeming_paused
+        {
+            restart_composition_notice(&ctx.accounts.index.key(), ctx.program_id, ctx.remaining_accounts)?;
+        }
 
         let index = &mut ctx.accounts.index;
         index.fee_recipient = args.fee_recipient;

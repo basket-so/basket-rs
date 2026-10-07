@@ -2097,18 +2097,19 @@ impl<'info> ExecuteLargeBasketRedeemComponentInKind<'info> {
             &ctx.accounts.component_vault.to_account_info(),
             &ctx.accounts.component_token_program.to_account_info(),
         )?;
-        // Ensure the owner's destination ATA exists.
-        create_associated_token_account_idempotent_for_token_program(
-            ctx.accounts.associated_token_program.to_account_info(),
-            ctx.accounts.owner.to_account_info(),
-            ctx.accounts.owner_component_token_account.to_account_info(),
-            ctx.accounts.owner.to_account_info(),
-            ctx.accounts.component_mint.to_account_info(),
-            ctx.accounts.system_program.to_account_info(),
-            ctx.accounts.component_token_program.to_account_info(),
-        )?;
         let amount = intent_component_amount(&ctx.accounts.intent, args.component_index)?;
         if amount > 0 {
+            // Ensure the owner's destination ATA exists. Not for a zero amount (a removed
+            // or not-yet-bought component), so redeemers pay no rent for nothing.
+            create_associated_token_account_idempotent_for_token_program(
+                ctx.accounts.associated_token_program.to_account_info(),
+                ctx.accounts.owner.to_account_info(),
+                ctx.accounts.owner_component_token_account.to_account_info(),
+                ctx.accounts.owner.to_account_info(),
+                ctx.accounts.component_mint.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+                ctx.accounts.component_token_program.to_account_info(),
+            )?;
             let (protocol_amount, creator_amount) =
                 in_kind_fee_amounts(&ctx.accounts.intent, amount)?;
             let total_fee = protocol_amount
@@ -3596,7 +3597,7 @@ mod tests {
             redeeming_paused: false,
             rebalancing_paused: false,
             rebalance_requested: false,
-            reserved: [0; 1],
+            composition_rebalance_due: false,
             name: "Large".to_string(),
             symbol: "LRG".to_string(),
             metadata_uri: String::new(),

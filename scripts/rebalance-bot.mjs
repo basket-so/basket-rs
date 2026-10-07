@@ -74,6 +74,8 @@ const JUPITER_V6 = new PublicKey("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4");
 const VAULT_AUTHORITY_SEED = Buffer.from("vault-authority");
 const REBALANCE_INTENT_SEED = Buffer.from("rebalance-intent");
 const PAGE_SEED = Buffer.from("large-basket-component-page");
+const COMPOSITION_CHANGE_SEED = Buffer.from("composition-change");
+const COMPONENTS_PER_PAGE = 10;
 
 const BPS = 10_000;
 const TX_LIMIT = 1232; // Solana packet MTU; a compiled tx must not exceed this.
@@ -258,6 +260,9 @@ function pagePda(index, pageIndex) {
     PROGRAM_ID,
   )[0];
 }
+function compositionChangePda(index) {
+  return PublicKey.findProgramAddressSync([COMPOSITION_CHANGE_SEED, index.toBuffer()], PROGRAM_ID)[0];
+}
 function intentPda(index, nonceBn) {
   return PublicKey.findProgramAddressSync(
     [REBALANCE_INTENT_SEED, index.toBuffer(), nonceBn.toArrayLike(Buffer, "le", 8)],
@@ -292,6 +297,7 @@ async function loadComponents(program, index, pageCount) {
   const components = [];
   for (const { page, pda } of ordered) {
     for (const c of page.components) {
+      const isQuote = c.mint.equals(USDC_MINT);
       components.push({
         globalIndex: components.length,
         mint: c.mint,
@@ -303,7 +309,10 @@ async function loadComponents(program, index, pageCount) {
         decimals: c.decimals,
         pagePda: pda,
         pageIndex: page.pageIndex,
-        isQuote: c.mint.equals(USDC_MINT),
+        isQuote,
+        // Removed by a composition change and already sold. The program neither prices nor
+        // trades it (judged by its accounting, so dust sent to the vault is ignored).
+        retired: !isQuote && c.targetWeightBps === 0 && c.accountedReserve.isZero(),
       });
     }
   }
@@ -332,7 +341,7 @@ async function fetchPrices(mints) {
 // (driftKnown=false) rather than aborting — the program prices from Switchboard anyway.
 function assessBasket(components, vaultAmounts, scratchAtoms, prices) {
   const hasQuoteComponent = components.some((c) => c.isQuote);
-  const missing = components.filter((c) => !c.isQuote && !prices.get(c.mint.toBase58()));
+  const missing = components.filter((c) => !c.isQuote && !c.retired && !prices.get(c.mint.toBase58()));
   const driftKnown = missing.length === 0;
 
   // NAV in micro-USD (integer) using available prices; missing components contribute 0.
@@ -341,7 +350,7 @@ function assessBasket(components, vaultAmounts, scratchAtoms, prices) {
   let navMicro = 0n;
   const priced = components.map((c) => {
     const amount = vaultAmounts.get(c.vault.toBase58()) ?? 0n;
-    const usd = c.isQuote ? 1 : prices.get(c.mint.toBase58());
+    const usd = c.isQuote ? 1 : c.retired ? undefined : prices.get(c.mint.toBase58());
     const valueMicro = usd ? microUsd(amount, c.decimals, usd) : 0n;
     navMicro += valueMicro;
     return { c, amount, usd, valueMicro };
@@ -771,7 +780,7 @@ async function openIntent(env, ctx, components, pagePdas, driftThresholdBps, now
     Math.min(MAX_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS, maxPost),
   );
 
-  const feedIds = components.filter((c) => !c.isQuote).map((c) => feedIdHexFromOraclePair(c.oraclePair));
+  const feedIds = components.filter((c) => !c.isQuote && !c.retired).map((c) => feedIdHexFromOraclePair(c.oraclePair));
   const remaining = [
     ...pagePdas.map((p) => ({ pubkey: p, isSigner: false, isWritable: false })),
     ...components.map((c) => ({ pubkey: c.vault, isSigner: false, isWritable: false })),
@@ -813,7 +822,7 @@ async function openIntent(env, ctx, components, pagePdas, driftThresholdBps, now
 }
 
 async function finalize(env, ctx, components, pagePdas) {
-  const feedIds = components.filter((c) => !c.isQuote).map((c) => feedIdHexFromOraclePair(c.oraclePair));
+  const feedIds = components.filter((c) => !c.isQuote && !c.retired).map((c) => feedIdHexFromOraclePair(c.oraclePair));
   const remaining = [
     ...pagePdas.map((p) => ({ pubkey: p, isSigner: false, isWritable: true })),
     ...components.map((c) => ({ pubkey: c.vault, isSigner: false, isWritable: false })),
@@ -1059,7 +1068,7 @@ async function processIndex(env, indexPk) {
   }
 
   const pageCount = indexState.largeBasketPageCount;
-  const { components, pagePdas } = await loadComponents(program, indexPk, pageCount);
+  let { components, pagePdas } = await loadComponents(program, indexPk, pageCount);
   const ctx = buildContext(payer.publicKey, indexPk, indexState);
   const now = await chainNow(connection);
 
@@ -1094,7 +1103,7 @@ async function processIndex(env, indexPk) {
   }
   if (indexState.rebalancingPaused) return void log("  skip: rebalancing is paused for this index");
 
-  const nonQuote = components.filter((c) => !c.isQuote).map((c) => c.mint);
+  const nonQuote = components.filter((c) => !c.isQuote && !c.retired).map((c) => c.mint);
   const prices = await fetchPrices(nonQuote);
   const vaultInfos = await connection.getMultipleAccountsInfo(
     [...components.map((c) => c.vault), ctx.vaultQuote],
@@ -1105,6 +1114,16 @@ async function processIndex(env, indexPk) {
   const scratchAtoms = parseTokenAmount(vaultInfos[components.length]);
 
   const a = assessBasket(components, vaultAmounts, scratchAtoms, prices);
+  const changePk = compositionChangePda(indexPk);
+  const change = await program.account.compositionChange.fetchNullable(changePk);
+  const changeDue = Boolean(change) && now >= Number(change.effectiveAt);
+  if (change) {
+    const weights = change.targetWeightsBps.map(bpsPct).join(", ");
+    const additions = change.additions.map((x) => `${x.mint.toBase58().slice(0, 6)}.. ${bpsPct(x.targetWeightBps)}`).join(", ");
+    log(`  composition change ${changeDue ? "DUE" : `pending until ${new Date(Number(change.effectiveAt) * 1000).toISOString()}`}: weights [${weights}]${additions ? ` + add ${additions}` : ""}`);
+  }
+  // An applied change leaves holdings off the new targets until a rebalance finishes.
+  const compositionTriggered = changeDue || indexState.compositionRebalanceDue;
   const driftThresholdBps = indexState.fixedWeightDriftThresholdBps;
   const intervalS = Number(indexState.fixedWeightRebalanceIntervalSeconds);
   const lastRebalancedAt = Number(indexState.fixedWeightLastRebalancedAt);
@@ -1141,13 +1160,14 @@ async function processIndex(env, indexPk) {
     log(`  releasing the rebalance request (${why})`);
     await setRebalanceRequest(env, indexPk, false).catch((e) => log(`  [warn] could not cancel the request: ${e.message ?? e}`));
   };
-  if (!driftTriggered && !timeTriggered) {
+  if (!driftTriggered && !timeTriggered && !compositionTriggered) {
     await releaseRequest("no rebalance needed");
     return void log("  -> no rebalance needed");
   }
-  log(`  -> rebalance TRIGGERED (drift=${driftTriggered}, time=${timeTriggered})`);
+  log(`  -> rebalance TRIGGERED (drift=${driftTriggered}, time=${timeTriggered}, composition=${compositionTriggered})`);
 
   if (!EXECUTE) {
+    if (changeDue) log("  [dry-run] would apply the composition change first");
     const legs = a.rows.filter((r) => r.side !== "none");
     log(`  [dry-run] would rebalance: ${legs.filter((r) => r.side === "sell").length} sell + ${legs.filter((r) => r.side === "buy").length} buy legs`);
     if (PREVIEW_SWAPS && legs.length) {
@@ -1189,6 +1209,13 @@ async function processIndex(env, indexPk) {
     if (remaining > 0) return void log(`  waiting for ${remaining} open intent(s) to settle or expire`);
   }
   try {
+    if (changeDue) {
+      // Needs no open intents, like the rebalance itself; the open below then trades onto it.
+      await applyCompositionChange(env, ctx, indexState, change, changePk, pagePdas);
+      const applied = await program.account.indexState.fetch(indexPk);
+      ({ components, pagePdas } = await loadComponents(program, indexPk, applied.largeBasketPageCount));
+      log(`  composition change applied: ${applied.largeBasketComponentCount} components`);
+    }
     await executeRebalance(env, ctx, components, pagePdas, driftThresholdBps, now);
   } catch (error) {
     rebalanceRetryAt.set(key, Date.now() + FAILURE_COOLDOWN_S * 1000);
@@ -1228,6 +1255,38 @@ async function affordableBuys(components, targets, opens, tolerance, budget, bui
     else low = mid;
   }
   return best.entries;
+}
+
+async function applyCompositionChange(env, ctx, indexState, change, changePk, pagePdas) {
+  const { connection, program, payer } = env;
+  const count = indexState.largeBasketComponentCount;
+  const freeInLast = count % COMPONENTS_PER_PAGE === 0 ? 0 : COMPONENTS_PER_PAGE - (count % COMPONENTS_PER_PAGE);
+  // Additions fill the last page, then one new page.
+  const newPage = change.additions.length > freeInLast ? [pagePda(ctx.index, Math.ceil(count / COMPONENTS_PER_PAGE))] : [];
+  const mintInfos = await connection.getMultipleAccountsInfo(change.additions.map((x) => x.mint), "confirmed");
+  const additionAccounts = change.additions.flatMap((x, i) => {
+    const tokenProgram = mintInfos[i]?.owner;
+    if (!tokenProgram || !TOKEN_PROGRAM_IDS.has(tokenProgram.toBase58())) {
+      throw new Error(`composition change adds ${x.mint.toBase58()}, which is not a token mint`);
+    }
+    const vault = getAssociatedTokenAddressSync(x.mint, ctx.vaultAuthority, true, tokenProgram, ASSOCIATED_TOKEN_PROGRAM_ID);
+    return [meta(x.mint), meta(vault, true), meta(tokenProgram)];
+  });
+  log(`  applying the composition change (${change.additions.length} new component(s))...`);
+  const ix = await program.methods
+    .applyCompositionChange()
+    .accounts({
+      operator: payer.publicKey,
+      index: ctx.index,
+      vaultAuthority: ctx.vaultAuthority,
+      compositionChange: changePk,
+      proposer: change.proposer,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    })
+    .remainingAccounts([...pagePdas.map((p) => meta(p, true)), ...newPage.map((p) => meta(p, true)), ...additionAccounts])
+    .instruction();
+  await sendV0(connection, payer, [...budgetIxs(400_000), ix], "apply composition change");
 }
 
 async function executeRebalance(env, ctx, components, pagePdas, driftThresholdBps, nowOnChain) {
