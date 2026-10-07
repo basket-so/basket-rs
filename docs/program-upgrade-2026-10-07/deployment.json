@@ -1,0 +1,238 @@
+{
+  "program": "bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv",
+  "binarySha256": "5f2593aec3e1ee49ed254d708cae1abc4b9201e26a948442494d063bf1966d9c",
+  "transactions": [
+    {
+      "action": "pause PHYS",
+      "signature": "3v8iNASURhnuiuBEskVgYbMkGe7XuWs9znaGGifcFXGH4VktN17qx21icM3YUk3vKDQf9ysjbbV4hEAXyVhVL39w",
+      "at": "2026-10-07T14:12:34.020Z"
+    },
+    {
+      "action": "pause MEME",
+      "signature": "3vqLCwVMUZd9wxmv93fkd5scG7EEHjMX1esf4V12tVhQUPFQGhANQghcbyJBFBs4wNgPt3A1S4mSWpPQ77yPQAnL",
+      "at": "2026-10-07T14:12:34.615Z"
+    },
+    {
+      "action": "pause MAJR",
+      "signature": "5SyFyi1pv7cgHJcCs3CTCgvnNHow4HgKy4hqz7D6iMTDmXJQuAiWfJYzhnaHmReK1166dD31FPrJAdgXg3d4EW24",
+      "at": "2026-10-07T14:12:35.185Z"
+    },
+    {
+      "action": "pause DEFI",
+      "signature": "wsnnuwXgTL8971v9BH6LzMuc4zaSphSUB6wa6eg4ipYjzarm5WYPMqw4N9YCHCoKMdVS6vsZLgGFeQjLEqnCjkT",
+      "at": "2026-10-07T14:12:36.031Z"
+    },
+    {
+      "action": "pause DATA",
+      "signature": "3F3twNmwTFGwNQqZhGhzfm3bKDfyLAF4NUa3piuAPgLcSQNosWV92HrJ5oCuQb2BatVgS9RkzbC7GfoJzchSPiTd",
+      "at": "2026-10-07T14:12:36.655Z"
+    },
+    {
+      "action": "pause USDX",
+      "signature": "3ByD2GXchuWVSfHAyuwyeqWiUWzX4C1e38XwQnx29UJ99b3VH1F49h9fJdQHpmXpndopmcXbb2vcAqZuEQST16bb",
+      "at": "2026-10-07T14:13:34.441Z"
+    },
+    {
+      "action": "pause DEXS",
+      "signature": "4fuT7pdPagyWf4KeTgJwx7dYaw6zyRZ1dxYiP5Unspf6RS5j6mfCFsTQDryN6rjvtbQfPmqfmYKE3A5CaptWwuiN",
+      "at": "2026-10-07T14:13:35.217Z"
+    },
+    {
+      "action": "pause SOLB",
+      "signature": "3EUfmczPiS4mnxsB1dmxVxJeCqrLgg6QXP6VGn9HNE1FwsJRVUFMAheELfS94o98t9vsHRUfjgzASnc9L2G8u2dA",
+      "at": "2026-10-07T14:13:35.992Z"
+    },
+    {
+      "action": "pause STKG",
+      "signature": "4ozWSA4nq1PqgmTfiJRj6qqSCGWZRJ5QUJGVAwbPUJtxACEAw3X7F5ufR7WtYpRmm6kVEXCBtTdbwfHPaBNNZYn4",
+      "at": "2026-10-07T14:13:36.551Z"
+    },
+    {
+      "action": "pause AISP",
+      "signature": "3S61mdHQFiXidTUGMKC83ofHCPCeyGamczoc8iTbFzB83Ph9T44VsBMCY3t2V8f7kzAsm1dykkMnz1einaS9PusM",
+      "at": "2026-10-07T14:13:37.373Z"
+    },
+    {
+      "action": "pause LSTY",
+      "signature": "37NwzeqaPnPMfJSns29jgiZPxFVENcvo5Aq5Pwdne2mYqaujqeqgGpY7D27chpPfsG1mXz1W5L5xBb2nHavZtTY9",
+      "at": "2026-10-07T14:13:38.135Z"
+    },
+    {
+      "action": "pause SOLC",
+      "signature": "2JQCskFJiDoCdjKibwJBdnD2n7gX949JAyjBYTYZcXZkEL6qsYUgyR9D9awbrGWVBk4ZMFExyUa1QmaKrnH9LXxW",
+      "at": "2026-10-07T14:13:38.819Z"
+    },
+    {
+      "action": "extend program data by 118944 bytes",
+      "signature": "2hQrcQkUXZsSiLtpLu62Fe9wNLcGYfkS9Z5np86r8Zwoo6aWf56wRBB6bSKiq313oyrQTBE82ta5ogaVA8CgKSPb",
+      "at": "2026-10-07T14:13:40.608Z"
+    },
+    {
+      "action": "program upgrade",
+      "exitCode": 1,
+      "output": "Error: Data writes to account failed: Custom error: Max retries exceeded\n",
+      "at": "2026-10-07T14:18:06.179Z"
+    },
+    {
+      "action": "program upgrade",
+      "exitCode": 0,
+      "output": "{\n  \"programId\": \"bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv\",\n  \"signature\": \"52beJFxY9f7ab2PAZDpMjGxQgMgApT7T6gLi4ZDCrLHSiGZbHSe7jVmEa3p7rKzvhzpJsDDsicrdkWKH4FmXmZ6f\"\n}\n",
+      "at": "2026-10-07T14:29:02.287Z"
+    },
+    {
+      "action": "restore pause settings PHYS",
+      "signature": "23NqWuPJSwigcjJocmaAXnZpJWLDdDZuaiVT9nHPzVU1FRnCje9BBsAk7VYwV3uQAd5shC92EM79zGEiEc9Lo9w8",
+      "at": "2026-10-07T14:29:30.683Z"
+    },
+    {
+      "action": "restore pause settings MEME",
+      "signature": "5Ena5y9uEXMErFtKX5ZNB7H36xz2PVzrNh27SvgbaTc7wAU4hX4M1LGff9YMD7y6Xzybh7Qdy7mevHQzCZpZN7Jm",
+      "at": "2026-10-07T14:29:31.331Z"
+    },
+    {
+      "action": "restore pause settings MAJR",
+      "signature": "2CdjuQq2qbqMdxJTtiXxVwA3gjwd8SLYLj6V9jCbG9yjvMx7XZEtStWe3MpRq6EgcrqmUbBewTGHBFADBEmuuDKj",
+      "at": "2026-10-07T14:29:32.078Z"
+    },
+    {
+      "action": "restore pause settings DEFI",
+      "signature": "5PhBLXz4ttmSUtPZvZCrG7FfGGBeKmKnKcyU6gMksoEMswiZGND7sLYwPJ3JWGAj9bipZBsLvxzWKpn3NDBt6YNm",
+      "at": "2026-10-07T14:29:32.652Z"
+    },
+    {
+      "action": "restore pause settings DATA",
+      "signature": "dQpdD7dY8B6BrTc54XMKN3kUSRCj4GvYtgyjayFS57iPN9b5jxL5fRy5mDuGbpAEF2YjufddC3BwtEfFiKNCFen",
+      "at": "2026-10-07T14:29:33.480Z"
+    },
+    {
+      "action": "restore pause settings USDX",
+      "signature": "5zgjGnciTmWWZEj4VMk8BAPuGrhngLdvyApkAoANjVkonfbbrGU7Jj9Dt67ikKVYETbg5dnMxwQ9EYHDpaWCD9Bm",
+      "at": "2026-10-07T14:29:33.984Z"
+    },
+    {
+      "action": "restore pause settings DEXS",
+      "signature": "G7fesehd56auD4oWGgvywijAf9LuP9FCcSgADYjMzmfpHuc7sNKTKVjwozbi6sYwe1MXVqNJBrpnoBTrs92BBTP",
+      "at": "2026-10-07T14:29:34.729Z"
+    },
+    {
+      "action": "restore pause settings SOLB",
+      "signature": "3uhcLGqd6MmQC4E4v8g2QgKbmaf6yjPDcWqz9J1E8YzcXNiETQXN1mrxtLVPsGEHsdgk4Yzv4jfjRtGYgBgjfXuR",
+      "at": "2026-10-07T14:29:35.526Z"
+    },
+    {
+      "action": "restore pause settings STKG",
+      "signature": "5JDCspNvtMjwYQjYJQ2q5G63HDihkeprNorb5xzP77EF8XqRbJ18aEU79UBvLxYVRDAwAAj2YUnm2UmxbLYmH4Am",
+      "at": "2026-10-07T14:29:36.283Z"
+    },
+    {
+      "action": "restore pause settings AISP",
+      "signature": "GVHjKcVeZ8YZgpxmKuenZuN3bvTsyfEjgqU75WNsXU36BE2ge3txMmsHe7Di5mX9rUCV7tAac6qeLkTKeRos3pg",
+      "at": "2026-10-07T14:29:37.079Z"
+    },
+    {
+      "action": "restore pause settings LSTY",
+      "signature": "2JPAoKxuSfDUHX4TTxd4VTaeLymMiXf93ZcLsoy8J8tEU2ykYeAEmsSHYioEBNY9MMUiKJm2GfkQqk1c96f2rVFs",
+      "at": "2026-10-07T14:29:37.610Z"
+    },
+    {
+      "action": "restore pause settings SOLC",
+      "signature": "S6WbS5rtHZJo38ikEAKvSzKHL1D8pimdwHdQkS5Y3uTgS48HLAp5swxejiLkh4Fw1rhiCgWeLajFuDUpS7JhMsJ",
+      "at": "2026-10-07T14:29:38.121Z"
+    }
+  ],
+  "indexes": [
+    {
+      "address": "6Pw6hwJews5sGKs68Ta4VRriChvk9qCRtuPGswdpYaE",
+      "symbol": "PHYS",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "jnhncYE7JgCX41256VwVs8JBPkZ4Rk4MSeDSBZuAKD3",
+      "symbol": "MEME",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "2JbJzwerCUxJqnqG1uXiLsYzwnb7sZCwyZYPgp3pMxdz",
+      "symbol": "MAJR",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "2XUsdyUwJLHLhz9qp1HPKS8oEVYKj8AS9CqDHRr7ypgk",
+      "symbol": "DEFI",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "2YRMxw9ftG93jKyWcHFb36gViw62nqMZNhQFaVZzShgN",
+      "symbol": "DATA",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "8aobs9NvzETPYEsDBDfLf59cYDYK5f2vuk5E45k3Qs3q",
+      "symbol": "USDX",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "AbbQSMuESNUA9CG46JSH2ykbsbfk2TpRHNXRf2C9gvmQ",
+      "symbol": "DEXS",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "AeJ5QsYdtyXPUrwBmJ4PSXinfEjYPmGSZZXbj3LNvqzq",
+      "symbol": "SOLB",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "EidvjqPKERmzGgfCAQdSNR63pvHGjbr8RruV1WDyJ7vK",
+      "symbol": "STKG",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "FBnDbdzWgNAH5L1wHUnoKL5uzKBwcSJTiMaCBp66Jgd7",
+      "symbol": "AISP",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "FwmoaDwDCcSBMyxPty6pewCZXET7rEuinRoRFbuKMcMP",
+      "symbol": "LSTY",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    },
+    {
+      "address": "GTZMn4iJRfzvLnqfrpxuM5FH77huPjpsgzCYNADvaib6",
+      "symbol": "SOLC",
+      "mintingPaused": false,
+      "redeemingPaused": false,
+      "rebalancingPaused": false
+    }
+  ],
+  "startingWalletLamports": 8935505168,
+  "startedAt": "2026-10-07T14:12:33.279Z",
+  "lastError": "Upgrade CLI exited 1",
+  "buffer": "9e6cqnera4SiBmrXzotpRuCd5YdEiFbAzxku36wYLnZb",
+  "status": "verified",
+  "deployedSlot": "454249918",
+  "bufferClosed": true,
+  "finishedAt": "2026-10-07T14:29:38.984Z",
+  "endingWalletLamports": 8322565917
+}

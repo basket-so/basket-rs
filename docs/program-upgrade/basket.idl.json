@@ -8,6 +8,189 @@
   },
   "instructions": [
     {
+      "name": "apply_composition_change",
+      "discriminator": [
+        27,
+        96,
+        34,
+        111,
+        64,
+        63,
+        216,
+        214
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "docs": [
+            "The authority or its rebalance keeper; pays for new vaults and any new page."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "index",
+          "writable": true,
+          "relations": [
+            "composition_change"
+          ]
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "composition_change",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  109,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  99,
+                  104,
+                  97,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proposer",
+          "writable": true,
+          "relations": [
+            "composition_change"
+          ]
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_composition_change",
+      "discriminator": [
+        2,
+        186,
+        32,
+        163,
+        20,
+        129,
+        136,
+        107
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "relations": [
+            "composition_change"
+          ]
+        },
+        {
+          "name": "composition_change",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  109,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  99,
+                  104,
+                  97,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proposer",
+          "writable": true,
+          "relations": [
+            "composition_change"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "cancel_expired_large_basket_intent",
       "discriminator": [
         186,
@@ -3316,6 +3499,81 @@
       ]
     },
     {
+      "name": "propose_composition_change",
+      "discriminator": [
+        194,
+        253,
+        79,
+        203,
+        246,
+        46,
+        123,
+        97
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index"
+        },
+        {
+          "name": "composition_change",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  109,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  99,
+                  104,
+                  97,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ProposeCompositionChangeArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "register_rebalance_quote",
       "discriminator": [
         240,
@@ -4295,6 +4553,19 @@
   ],
   "accounts": [
     {
+      "name": "CompositionChange",
+      "discriminator": [
+        157,
+        132,
+        38,
+        251,
+        162,
+        66,
+        53,
+        199
+      ]
+    },
+    {
       "name": "IndexState",
       "discriminator": [
         39,
@@ -4424,6 +4695,58 @@
         5,
         223,
         47
+      ]
+    },
+    {
+      "name": "CompositionChangeApplied",
+      "discriminator": [
+        26,
+        115,
+        57,
+        162,
+        86,
+        26,
+        3,
+        189
+      ]
+    },
+    {
+      "name": "CompositionChangeCancelled",
+      "discriminator": [
+        184,
+        62,
+        244,
+        97,
+        46,
+        157,
+        28,
+        206
+      ]
+    },
+    {
+      "name": "CompositionChangeDelayed",
+      "discriminator": [
+        149,
+        44,
+        150,
+        239,
+        108,
+        234,
+        158,
+        2
+      ]
+    },
+    {
+      "name": "CompositionChangeProposed",
+      "discriminator": [
+        68,
+        34,
+        28,
+        165,
+        98,
+        11,
+        105,
+        204
       ]
     },
     {
@@ -5316,6 +5639,31 @@
       "code": 6091,
       "name": "RebalanceRequestCooldown",
       "msg": "A rebalance was requested too recently."
+    },
+    {
+      "code": 6092,
+      "name": "InvalidCompositionChange",
+      "msg": "The composition change is invalid."
+    },
+    {
+      "code": 6093,
+      "name": "CompositionChangeNotReady",
+      "msg": "The composition change's notice period has not passed yet."
+    },
+    {
+      "code": 6094,
+      "name": "CompositionChangeStale",
+      "msg": "The basket's components changed after this composition change was proposed; cancel it and propose again."
+    },
+    {
+      "code": 6095,
+      "name": "CompositionChangeExpired",
+      "msg": "The composition change was not applied in time; cancel it and propose again."
+    },
+    {
+      "code": 6096,
+      "name": "CompositionChangeExitRestricted",
+      "msg": "A composition change only applies while redemptions are open at fees no higher than when it was proposed."
     }
   ],
   "types": [
@@ -5360,6 +5708,29 @@
       }
     },
     {
+      "name": "ComponentAddition",
+      "docs": [
+        "A component appended to a fixed-weight basket by a composition change."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle_pair",
+            "type": "pubkey"
+          },
+          {
+            "name": "target_weight_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
       "name": "ComponentAmountQuote",
       "type": {
         "kind": "struct",
@@ -5379,6 +5750,166 @@
           {
             "name": "net_amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CompositionChange",
+      "docs": [
+        "An announced change to a fixed-weight basket's target weights and/or components.",
+        "It can only be applied COMPOSITION_CHANGE_DELAY_SECONDS after it was proposed, so",
+        "holders see it coming and can redeem first. Setting a weight to zero removes a",
+        "component: the next rebalance sells it and it then sits empty in its slot."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposer",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposed_at",
+            "type": "i64"
+          },
+          {
+            "name": "effective_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "redeem_fee_bps",
+            "docs": [
+              "Total redeem fee when proposed. Applying requires redemptions to be open at no more",
+              "than this, so the notice period is a real chance to exit."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "target_weights_bps",
+            "docs": [
+              "New target weight for each existing component, in global component order."
+            ],
+            "type": {
+              "vec": "u16"
+            }
+          },
+          {
+            "name": "additions",
+            "docs": [
+              "Components to append after the existing ones, in this order."
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ComponentAddition"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "CompositionChangeApplied",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "operator",
+            "type": "pubkey"
+          },
+          {
+            "name": "component_count",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CompositionChangeCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CompositionChangeDelayed",
+      "docs": [
+        "Redemptions were paused or unpaused, or the redeem fee changed, while a change was",
+        "pending: its notice restarts from now."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "effective_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CompositionChangeProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposer",
+            "type": "pubkey"
+          },
+          {
+            "name": "effective_at",
+            "type": "i64"
+          },
+          {
+            "name": "redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "target_weights_bps",
+            "type": {
+              "vec": "u16"
+            }
+          },
+          {
+            "name": "additions",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ComponentAddition"
+                }
+              }
+            }
           }
         ]
       }
@@ -6335,13 +6866,8 @@
             "type": "bool"
           },
           {
-            "name": "reserved",
-            "type": {
-              "array": [
-                "u8",
-                1
-              ]
-            }
+            "name": "composition_rebalance_due",
+            "type": "bool"
           },
           {
             "name": "name",
@@ -7113,6 +7639,33 @@
           {
             "name": "max_post_rebalance_drift_bps",
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposeCompositionChangeArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "target_weights_bps",
+            "docs": [
+              "New target weight for each existing component, in global component order."
+            ],
+            "type": {
+              "vec": "u16"
+            }
+          },
+          {
+            "name": "additions",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ComponentAddition"
+                }
+              }
+            }
           }
         ]
       }
