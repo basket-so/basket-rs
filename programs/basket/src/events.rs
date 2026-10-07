@@ -354,3 +354,11 @@ pub struct CompositionChangeApplied {
     pub operator: Pubkey,
     pub component_count: u8,
 }
+
+/// The protocol authority set the key that posts rebalance prices; every posted price was
+/// cleared.
+#[event]
+pub struct PriceOracleSet {
+    pub previous: Pubkey,
+    pub oracle: Pubkey,
+}

@@ -6,8 +6,8 @@ import { AddressLookupTableProgram, Connection, ComputeBudgetProgram, Keypair, P
   SystemProgram, SYSVAR_RENT_PUBKEY, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync,
   unpackMint, getAccountLenForMint } from '@solana/spl-token';
-import { CrossbarClient, CrossbarNetwork } from '@switchboard-xyz/common';
-import { USDC, validateCatalog, sizeBasket, fetchJson, catalogPriceFeed } from './lib/catalog.mjs';
+import { USDC, validateCatalog, sizeBasket, fetchJson } from './lib/catalog.mjs';
+import { oraclePrices } from './lib/price-oracle.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
@@ -42,24 +42,6 @@ const config = await program.account.protocolConfig.fetchNullable(protocolConfig
 if (!config.permissionlessIndexCreation && !config.indexCreator.equals(payer.publicKey) &&
     !config.indexCreatorWhitelist.some(k => k.equals(payer.publicKey))) throw new Error('Wallet is not an approved creator');
 if (execute && !(await connection.getAccountInfo(pda('staking-pool')))) throw new Error('Initialize the protocol staking pool before creating baskets');
-// crossbar.switchboard.xyz lost its DNS record on 2026-10-05; same default as the rebalance bot.
-const crossbar = new CrossbarClient(process.env.SWITCHBOARD_CROSSBAR_URL ?? 'https://crossbar.switchboardlabs.xyz');
-crossbar.setNetwork(CrossbarNetwork.SolanaMainnet);
-let lastCrossbarCall = 0;
-async function crossbarCall(callback) {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const delay = Math.max(0, 2200 - (Date.now() - lastCrossbarCall));
-    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
-    lastCrossbarCall = Date.now();
-    try { return await callback(); }
-    catch (error) {
-      if (!/429|502|503|504/.test(error.message) || attempt === 4) throw error;
-      console.log('[retry] Switchboard service throttled; retrying in 10 seconds');
-      await new Promise(resolve => setTimeout(resolve, 10000));
-    }
-  }
-}
-const storedFeeds = new Map();
 async function fetchCreatedIndex(address) {
   for (let attempt = 0; attempt < 10; attempt++) {
     const state = await program.account.indexState.fetchNullable(address, 'confirmed');
@@ -72,7 +54,6 @@ const priceApi = process.env.JUPITER_PRICE_API ?? 'https://lite-api.jup.ag/price
 const swapApi = process.env.JUPITER_SWAP_API ?? 'https://lite-api.jup.ag/swap/v1';
 const metadataProgram = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
 const assets = {};
-const feeds = {};
 const failures = {};
 const candidates = selected.filter(b => !b.blockers.length);
 const usedSymbols = [...new Set(candidates.flatMap(b => b.components.map(c => c.symbol)))];
@@ -80,7 +61,11 @@ const mintAccounts = await connection.getMultipleAccountsInfo(usedSymbols.map(s 
 const slot = await connection.getSlot();
 const prices = await fetchJson(`${priceApi}?ids=${usedSymbols.map(s => catalog.tokens[s].mint).join(',')}`);
 
-const feedFor = (symbol, mint, referencePrice) => catalogPriceFeed(symbol, mint, referencePrice, priceApi);
+// The price the rebalance oracle would post (scripts/lib/price-oracle.mjs): fixed-weight
+// baskets rebalance against it, so every component must be priceable by it.
+const oraclePrice = async (symbol, token) =>
+  (await oraclePrices([{ mint: token.mint, decimals: token.decimals, label: symbol }],
+    { swapApi, priceApi, fetchJson: url => fetchJson(url) })).get(token.mint).usd;
 
 for (const [i, symbol] of usedSymbols.entries()) {
   try {
@@ -107,19 +92,9 @@ for (const [i, symbol] of usedSymbols.entries()) {
     }
     let price = quote.usdPrice;
     if (token.mint !== USDC) {
-      const feed = await feedFor(symbol, token.mint, quote.usdPrice);
-      let simulation;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        simulation = await crossbarCall(() => crossbar.simulateFeed(feed, true, {}, 'mainnet'));
-        if (!simulation.error && simulation.results?.some(p => Number.isFinite(Number(p)) && Number(p) > 0)) break;
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-      const values = simulation.results?.map(Number).filter(p => Number.isFinite(p) && p > 0).sort((a,b) => a-b);
-      if (simulation.error || !values?.length) throw new Error(`Switchboard simulation failed: ${simulation.error ?? 'no results'}`);
-      price = values[Math.floor(values.length / 2)];
+      price = await oraclePrice(symbol, token);
       if (Math.abs(price / quote.usdPrice - 1) > 0.01) throw new Error('Oracle/Jupiter prices disagree by more than 1%');
       if (Math.abs(price / routePrice - 1) > 0.02) throw new Error('Oracle price differs from current two-way route midpoint by more than 2%');
-      feeds[symbol] = feed;
     } else price = 1; // The deployed protocol itself values native USDC at $1.
     assets[symbol] = { ...token, price, priceObservedAt: new Date().toISOString(), liquidityUsd: quote.liquidity,
       vaultSize: getAccountLenForMint(parsed) };
@@ -217,10 +192,9 @@ for (const plan of plans) {
     console.log(`[refresh] ${plan.symbol}: refresh initial NAV snapshot`);
     for (const component of plan.components) {
       if (component.mint === USDC) continue;
-      const simulation = await crossbarCall(() => crossbar.simulateFeed(feeds[component.symbol], true, {}, 'mainnet'));
-      const price = Number(simulation.results?.[0]);
-      if (simulation.error || !Number.isFinite(price) || price <= 0 || Math.abs(price / component.price - 1) > 0.02)
-        throw new Error('Oracle refresh failed or moved >2%; rerun route preflight');
+      const price = await oraclePrice(component.symbol, component);
+      if (Math.abs(price / component.price - 1) > 0.02)
+        throw new Error('Oracle price moved >2%; rerun route preflight');
       assets[component.symbol] = { ...assets[component.symbol], price, priceObservedAt: new Date().toISOString() };
     }
     const refreshed = sizeBasket(plan, assets, catalog.navToleranceUsd);
@@ -228,19 +202,8 @@ for (const plan of plans) {
     plan.initialNavUsd = refreshed.initialNavUsd;
   }
   const { index, indexMint, vaultAuthority, metadata } = plan.addresses;
-  const onchain = [];
-  for (const component of plan.components) {
-    let oraclePair = PublicKey.default;
-    if (component.mint !== USDC) {
-      if (!storedFeeds.has(component.symbol)) storedFeeds.set(component.symbol,
-        await crossbarCall(() => crossbar.storeOracleFeed(feeds[component.symbol])));
-      const stored = storedFeeds.get(component.symbol);
-      const hex = stored.feedId.replace(/^0x/, '');
-      if (!/^[a-f0-9]{64}$/i.test(hex)) throw new Error('Invalid stored Switchboard feed id');
-      oraclePair = new PublicKey(Buffer.from(hex, 'hex'));
-    }
-    onchain.push({ ...component, oraclePair });
-  }
+  // Rebalances price components by mint from the price board; oracle pairs are unused.
+  const onchain = plan.components.map(component => ({ ...component, oraclePair: PublicKey.default }));
   const accounts = { payer: payer.publicKey, authority: payer.publicKey, index, indexMint, vaultAuthority };
   const create = await program.methods.createLargeBasketIndex({ name: plan.name, symbol: plan.symbol, metadataUri: '', decimals: 6,
     feeRecipient: config.authority, creatorFeeRecipient: PublicKey.default, maxSupply: new anchor.BN(0), rebalanceDelaySeconds: new anchor.BN(0),

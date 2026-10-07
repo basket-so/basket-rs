@@ -22,6 +22,15 @@ pub const LARGE_BASKET_INTENT_LOCK_SEED: &[u8] = b"large-basket-intent-lock";
 pub const LARGE_BASKET_COMPONENT_PAGE_SEED: &[u8] = b"large-basket-component-page";
 pub const REBALANCE_INTENT_SEED: &[u8] = b"rebalance-intent";
 pub const COMPOSITION_CHANGE_SEED: &[u8] = b"composition-change";
+pub const PRICE_BOARD_SEED: &[u8] = b"price-board";
+// Distinct mints the price board holds. A full board reuses the entry of a price too old to
+// be read; this is several times the tokens every rebalanced basket holds together. The board
+// is allocated at this size, so raising it later needs a realloc path first.
+pub const PRICE_BOARD_CAPACITY: usize = 64;
+// Prices one post may carry (a post must fit one transaction).
+pub const MAX_PRICES_PER_POST: usize = 20;
+// Oldest posted price (about a minute) open, swap and finalize accept.
+pub const MAX_PRICE_AGE_SLOTS: u64 = 150;
 // Notice holders get before a basket's weights or components change, so they can redeem first.
 pub const COMPOSITION_CHANGE_DELAY_SECONDS: i64 = 3 * 24 * 60 * 60;
 // A due change must be applied within this window; after it the proposal lapses and has to
@@ -30,8 +39,8 @@ pub const COMPOSITION_CHANGE_APPLY_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
 // One change appends at most one page's worth of components (so at most one new page).
 pub const MAX_COMPOSITION_ADDITIONS: usize = MAX_LARGE_BASKET_COMPONENTS_PER_PAGE;
 // Removed components keep their slot, and rebalances load every slot's vault and price every
-// held component in one transaction and one Switchboard quote. A change may leave at most
-// this many slots, and this many components to price while the basket switches over.
+// held component in one transaction. A change may leave at most this many slots, and this
+// many components to price while the basket switches over.
 pub const MAX_COMPOSITION_COMPONENTS: usize = 2 * MAX_LARGE_BASKET_COMPONENTS_PER_PAGE;
 pub const MAX_COMPOSITION_PRICED_COMPONENTS: usize = 10;
 // Smallest nonzero target weight a change may set, so a component's backing per index token
@@ -66,7 +75,6 @@ pub const MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS: u16 = 25;
 // keeper cannot finalize with a meaningful slice of NAV sitting un-invested; genuine
 // swap dust is far below this.
 pub const MAX_FIXED_WEIGHT_QUOTE_DUST_BPS: u16 = 100;
-pub const MAX_SWITCHBOARD_QUOTE_AGE_SLOTS: u64 = 150;
 pub const MAX_TOTAL_INDEX_FEE_BPS: u16 = 1_000;
 pub const MAX_ORACLE_PRICE_TOLERANCE_BPS: u16 = BPS_DENOMINATOR;
 pub const MAX_NAV_TOLERANCE_BPS: u16 = BPS_DENOMINATOR;

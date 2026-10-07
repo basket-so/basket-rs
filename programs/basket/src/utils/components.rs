@@ -156,14 +156,6 @@ fn validate_fixed_weight_config(
         total_weight = total_weight
             .checked_add(u32::from(component.target_weight_bps))
             .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
-
-        if component.mint != fixed_weight_quote_mint {
-            require_keys_neq!(
-                component.oracle_pair,
-                Pubkey::default(),
-                BasketError::InvalidFixedWeightConfig
-            );
-        }
     }
 
     require!(
@@ -495,10 +487,11 @@ mod tests {
     }
 
     #[test]
-    fn fixed_weight_config_requires_pairs_for_external_quote_components() {
+    fn fixed_weight_config_needs_no_oracle_pairs() {
+        // Rebalances read prices from the price board by mint.
         let quote = Pubkey::new_unique();
         let components = vec![
-            weighted_component(Pubkey::new_unique(), 5_000, Pubkey::new_unique()),
+            weighted_component(Pubkey::new_unique(), 5_000, Pubkey::default()),
             weighted_component(Pubkey::new_unique(), 5_000, Pubkey::default()),
         ];
 
@@ -510,7 +503,7 @@ mod tests {
             0,
             500,
         )
-        .is_err());
+        .is_ok());
     }
 
     #[test]

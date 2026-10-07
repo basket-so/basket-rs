@@ -134,14 +134,14 @@ pub enum BasketError {
     InvalidJupiterProgram,
     #[msg("The provided Jupiter route instruction is invalid.")]
     InvalidJupiterRoute,
-    #[msg("Switchboard oracle verification failed.")]
-    SwitchboardVerificationFailed,
-    #[msg("The requested Switchboard quote maximum age is outside the supported range.")]
-    InvalidSwitchboardMaxAge,
-    #[msg("The required Switchboard feed was not present in the verified quote.")]
-    MissingSwitchboardFeed,
-    #[msg("The Switchboard oracle price is invalid.")]
-    InvalidSwitchboardPrice,
+    #[msg("The posted oracle price is older than the allowed age.")]
+    StaleOraclePrice,
+    #[msg("The requested oracle price age is outside the supported range.")]
+    InvalidOraclePriceAge,
+    #[msg("The price board has no price for a component this needs.")]
+    MissingOraclePrice,
+    #[msg("The oracle price is invalid.")]
+    InvalidOraclePrice,
     #[msg("The Jupiter execution price is outside the configured oracle tolerance.")]
     ExecutionPriceOutsideOracleTolerance,
     #[msg("Staking fee distribution requires the large-basket intent flow.")]
@@ -196,4 +196,6 @@ pub enum BasketError {
     CompositionChangeExpired,
     #[msg("A composition change only applies while redemptions are open at fees no higher than when it was proposed.")]
     CompositionChangeExitRestricted,
+    #[msg("The price board is full of prices still fresh enough to read.")]
+    PriceBoardFull,
 }

@@ -1,5 +1,4 @@
 import { PublicKey } from '@solana/web3.js';
-import { OracleFeed, OracleJob } from '@switchboard-xyz/common';
 
 export const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -100,26 +99,6 @@ export function sizeBasket(basket, assets, tolerance = 0.00001) {
   const nav = components.reduce((n, c) => n + Number(c.unitsPerIndex) / 10 ** c.decimals * c.price, 0);
   if (Math.abs(nav - 1) > tolerance) throw new Error(`${basket.symbol}: rounded NAV ${nav} exceeds $1 tolerance`);
   return { ...basket, components, initialNavUsd: nav };
-}
-
-// A component's Switchboard feed: Jupiter's USD price, falling back to the most liquid
-// DexScreener pair for the token that agrees with Jupiter within 1%.
-export async function catalogPriceFeed(symbol, mint, referencePrice, priceApi) {
-  const dex = await fetchJson(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
-  const pair = dex.pairs?.filter(p => p.chainId === 'solana' && p.baseToken.address === mint && p.liquidity?.usd >= 10000 &&
-      p.volume?.h24 >= 1000 && Math.abs(Number(p.priceUsd) / referencePrice - 1) < 0.01)
-    .sort((a,b) => b.liquidity.usd - a.liquidity.usd)[0];
-  const primary = [
-    { httpTask: { url: `${priceApi}?ids=${mint}` } },
-    { jsonParseTask: { path: `$['${mint}'].usdPrice` } },
-  ];
-  // Pin the most liquid base-token pair, rather than taking prices from every
-  // pool returned by token search (which could include unrelated quote tokens).
-  const tasks = pair ? [{ conditionalTask: { attempt: primary, onFailure: [
-    { httpTask: { url: `https://api.dexscreener.com/latest/dex/pairs/solana/${pair.pairAddress}` } },
-    { jsonParseTask: { path: '$.pairs[0].priceUsd' } },
-  ] } }] : primary;
-  return OracleFeed.create({ name: `${symbol}/USD`, jobs: [OracleJob.fromObject({ tasks })], minOracleSamples: 1, minJobResponses: 1, maxJobRangePct: 0 });
 }
 
 export async function fetchJson(url, attempts = 4) {

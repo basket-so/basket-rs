@@ -19,15 +19,23 @@
 // can't be built/sized/scoped it cancels the just-opened intent (no legs executed yet)
 // instead of getting stuck mid-rebalance.
 //
+// Prices: open, each swap batch and finalize read the program's price board. Right before
+// each of them the bot prices the tokens involved (scripts/lib/price-oracle.mjs) and posts
+// them with `post_prices`, signed by the oracle key; the keeper pays the fee. The oracle key
+// is deliberately separate from the keeper's, so neither alone can both set prices and trade.
+//
 //   node scripts/rebalance-bot.mjs                 # detect-only, scan all FixedWeights baskets
 //   node scripts/rebalance-bot.mjs --preview-swaps # dry-run + encode the Jupiter swaps read-only
+//   node scripts/rebalance-bot.mjs --show-prices   # dry-run + compute the prices it would post
 //   node scripts/rebalance-bot.mjs --index <pk>    # only this index (skip discovery)
 //   node scripts/rebalance-bot.mjs --execute       # actually rebalance triggered baskets
 //   node scripts/rebalance-bot.mjs --watch         # loop forever (poll every --interval s)
 //
 // Env: SOLANA_RPC_URL (default mainnet-beta; discovery needs a getProgramAccounts-capable RPC),
 //      KEEPER_KEYPAIR (secret key JSON array; takes precedence over ANCHOR_WALLET),
-//      ANCHOR_WALLET (default deployer-keypair.json), JUPITER_SWAP_API, JUPITER_PRICE_API.
+//      ANCHOR_WALLET (default deployer-keypair.json),
+//      ORACLE_KEYPAIR (secret key JSON array; takes precedence over ORACLE_WALLET),
+//      ORACLE_WALLET (default oracle-keypair.json), JUPITER_SWAP_API, JUPITER_PRICE_API.
 //
 // In --watch mode SIGTERM/SIGINT stop the loop after the index being processed, so a
 // restart doesn't abandon a rebalance mid-flight (see fly.toml kill_timeout).
@@ -35,7 +43,7 @@
 // NOTE: build the program (anchor build, regenerates target/idl/basket.json) and deploy it
 // before the --execute path works against a real basket.
 
-import { installGatewayFallback } from "./lib/switchboard-gateway.mjs";
+import { OraclePriceError, PRICE_SCALE, oraclePrices } from "./lib/price-oracle.mjs";
 import anchor from "@coral-xyz/anchor";
 import {
   ComputeBudgetProgram,
@@ -44,8 +52,6 @@ import {
   PublicKey,
   SystemProgram,
   SYSVAR_CLOCK_PUBKEY,
-  SYSVAR_INSTRUCTIONS_PUBKEY,
-  SYSVAR_SLOT_HASHES_PUBKEY,
   TransactionMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
@@ -59,8 +65,6 @@ import {
   getAssociatedTokenAddressSync,
   getMint,
 } from "@solana/spl-token";
-import { CrossbarClient, CrossbarNetwork } from "@switchboard-xyz/common";
-import { OracleQuote, getDefaultQueue } from "@switchboard-xyz/on-demand";
 import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "node:url";
@@ -75,13 +79,15 @@ const VAULT_AUTHORITY_SEED = Buffer.from("vault-authority");
 const REBALANCE_INTENT_SEED = Buffer.from("rebalance-intent");
 const PAGE_SEED = Buffer.from("large-basket-component-page");
 const COMPOSITION_CHANGE_SEED = Buffer.from("composition-change");
+const PRICE_BOARD_SEED = Buffer.from("price-board");
 const COMPONENTS_PER_PAGE = 10;
 
 const BPS = 10_000;
 const TX_LIMIT = 1232; // Solana packet MTU; a compiled tx must not exceed this.
 const USDC_DECIMALS = 6;
 // Mirror of the program's constants (programs/basket/src/constants.rs).
-const SWITCHBOARD_MAX_AGE_SLOTS = 150;
+const MAX_PRICE_AGE_SLOTS = 150;
+const MAX_PRICES_PER_POST = 20;
 const MAX_REBALANCE_SWAPS_PER_BATCH = 4;
 const MIN_KEEPER_NAV_TOLERANCE_BPS = 10;
 const MAX_KEEPER_NAV_TOLERANCE_BPS = 100;
@@ -109,6 +115,8 @@ const EXECUTE = flags.has("--execute");
 // compact-plan encoding + would-be tx sizes, without sending. Validates the route
 // encoding before you ever spend funds.
 const PREVIEW_SWAPS = flags.has("--preview-swaps");
+// Dry-run only: compute the oracle prices each basket's rebalance would post.
+const SHOW_PRICES = flags.has("--show-prices");
 const WATCH = flags.has("--watch");
 const WATCH_INTERVAL_S = Number(flagValue("--interval", "60"));
 const ONLY_INDEX = flagValue("--index", null);
@@ -121,13 +129,20 @@ const SLIPPAGE_BPS = Number(flagValue("--slippage-bps", "100"));
 // cover the execution slippage already allowed PLUS the Jupiter-mid-vs-oracle basis and any
 // intra-window oracle drift — so it is execution slippage + a buffer, NOT just the slippage.
 const VERIFY_ORACLE_BUFFER_BPS = Number(flagValue("--verify-buffer-bps", "300"));
+// Oracle pricing (scripts/lib/price-oracle.mjs): USDC size of the round trip that prices a
+// token, the widest round-trip spread priced, and how close a reference must be to confirm.
+const ORACLE_CONFIG = {
+  probeUsd: Number(flagValue("--price-probe-usd", "50")),
+  maxSpreadBps: Number(flagValue("--price-max-spread-bps", "400")),
+  maxDeviationBps: Number(flagValue("--price-max-deviation-bps", "300")),
+};
 const PRIORITY_FEE_MICROLAMPORTS = Number(flagValue("--priority-fee", "5000"));
 const NAV_TOLERANCE_BPS = Math.max(
   MIN_KEEPER_NAV_TOLERANCE_BPS,
   Math.min(MAX_KEEPER_NAV_TOLERANCE_BPS, Number(flagValue("--nav-tolerance-bps", "50"))),
 );
 // Open only when Jupiter-estimated drift exceeds the threshold by this margin, reducing
-// opens the program then rejects (it re-decides from Switchboard, which can straddle).
+// opens the program then rejects (it re-decides from the posted prices, which can straddle).
 const DRIFT_TRIGGER_MARGIN_BPS = Number(flagValue("--drift-margin-bps", "0"));
 // Keep the intent TTL safely below the program's hard 1800s cap so wall-clock-vs-chain skew
 // can't push expires_at over the cap and revert the open.
@@ -148,16 +163,9 @@ const REQUEST_WINDOW_S = 40 * 60;
 const PROGRAM_REQUEST_COOLDOWN_S = 20 * 60; // REBALANCE_REQUEST_COOLDOWN_SECONDS
 const REQUEST_COOLDOWN_S = Number(flagValue("--request-cooldown", "7200"));
 
-// Verified feed definitions from scripts/vendor-switchboard-feeds.mjs. Sending the definition
-// instead of the feed id skips Crossbar's feed lookup, so Crossbar outages can't block rebalances.
-const FEED_DEFINITIONS_PATH = path.join(process.cwd(), "scripts", "switchboard-feeds.json");
-const FEED_DEFINITIONS = fs.existsSync(FEED_DEFINITIONS_PATH) ? readJson(FEED_DEFINITIONS_PATH) : {};
-// Only used for feeds missing from the definitions file, and for gateway discovery
-// (which falls back to the on-chain queue). crossbar.switchboard.xyz lost its DNS on 2026-10-05.
-const CROSSBAR_URL = process.env.SWITCHBOARD_CROSSBAR_URL ?? "https://crossbar.switchboardlabs.xyz";
-
 const RPC_URL = process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
 const WALLET_PATH = process.env.ANCHOR_WALLET ?? "deployer-keypair.json";
+const ORACLE_WALLET_PATH = process.env.ORACLE_WALLET ?? "oracle-keypair.json";
 const JUPITER_SWAP_API = process.env.JUPITER_SWAP_API ?? "https://lite-api.jup.ag/swap/v1";
 const JUPITER_PRICE_API = process.env.JUPITER_PRICE_API ?? "https://lite-api.jup.ag/price/v3";
 
@@ -205,10 +213,6 @@ function parseTokenOwner(accountInfo) {
   return new PublicKey(accountInfo.data.subarray(32, 64));
 }
 
-function feedIdHexFromOraclePair(oraclePair) {
-  return `0x${oraclePair.toBuffer().toString("hex")}`;
-}
-
 function bitmapGet(bytes, index) {
   const byte = bytes[index >> 3] ?? 0;
   return (byte & (1 << (index & 7))) !== 0;
@@ -218,8 +222,15 @@ function pow10Big(decimals) {
   return 10n ** BigInt(decimals);
 }
 
-function isSwitchboardStaleError(error) {
-  return /switchboard|verification|stale|quote/i.test(String(error?.message ?? error));
+// The step read a price that aged out (or was never posted) before it landed: post and retry.
+// Preflight failures name the error in their logs; a landed failure only carries its code.
+function isStalePriceError(program, error) {
+  const codes = (program.idl.errors ?? [])
+    .filter((e) => /^(stale|missing)OraclePrice$/i.test(e.name))
+    .map((e) => e.code);
+  const text = String(error?.message ?? error) + (error?.logs ?? []).join("\n");
+  return /StaleOraclePrice|MissingOraclePrice/i.test(text)
+    || codes.some((code) => text.includes(`"Custom":${code}`) || text.includes(`custom program error: 0x${code.toString(16)}`));
 }
 
 // The blockhash expired before the tx landed, so it never can: safe to rebuild and resend.
@@ -232,6 +243,12 @@ function isExpiredError(error) {
 function loadKeypair(filePath) {
   const secret = process.env.KEEPER_KEYPAIR ? JSON.parse(process.env.KEEPER_KEYPAIR) : readJson(filePath);
   return Keypair.fromSecretKey(Uint8Array.from(secret));
+}
+
+// The key that signs posted prices; without it the bot can still dry-run.
+function loadOracleKeypair(filePath) {
+  if (process.env.ORACLE_KEYPAIR) return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(process.env.ORACLE_KEYPAIR)));
+  return fs.existsSync(filePath) ? Keypair.fromSecretKey(Uint8Array.from(readJson(filePath))) : null;
 }
 
 function loadProgram(connection, payer) {
@@ -263,6 +280,7 @@ function pagePda(index, pageIndex) {
 function compositionChangePda(index) {
   return PublicKey.findProgramAddressSync([COMPOSITION_CHANGE_SEED, index.toBuffer()], PROGRAM_ID)[0];
 }
+const PRICE_BOARD = PublicKey.findProgramAddressSync([PRICE_BOARD_SEED], PROGRAM_ID)[0];
 function intentPda(index, nonceBn) {
   return PublicKey.findProgramAddressSync(
     [REBALANCE_INTENT_SEED, index.toBuffer(), nonceBn.toArrayLike(Buffer, "le", 8)],
@@ -303,7 +321,6 @@ async function loadComponents(program, index, pageCount) {
         mint: c.mint,
         unitsPerIndex: BigInt(c.unitsPerIndex.toString()),
         targetWeightBps: c.targetWeightBps,
-        oraclePair: c.oraclePair,
         tokenProgram: c.tokenProgram,
         vault: c.vault,
         decimals: c.decimals,
@@ -338,7 +355,7 @@ async function fetchPrices(mints) {
 // Returns { nav, rows, maxDriftBps, driftKnown, missing }. Leg sizes are computed in
 // integer (BigInt) space so the dry-run/preview matches the program's stored u64 legs.
 // Tolerates a missing Jupiter price: that component is excluded from the drift estimate
-// (driftKnown=false) rather than aborting — the program prices from Switchboard anyway.
+// (driftKnown=false) rather than aborting — the program prices from the posted prices anyway.
 function assessBasket(components, vaultAmounts, scratchAtoms, prices) {
   const hasQuoteComponent = components.some((c) => c.isQuote);
   const missing = components.filter((c) => !c.isQuote && !c.retired && !prices.get(c.mint.toBase58()));
@@ -385,25 +402,98 @@ function assessBasket(components, vaultAmounts, scratchAtoms, prices) {
   return { nav, rows, maxDriftBps, driftKnown, missing };
 }
 
-// --- Switchboard managed quote ----------------------------------------------
+// --- oracle prices -------------------------------------------------------------
 
-let cachedQueue = null;
-async function getQueue(connection) {
-  if (!cachedQueue) cachedQueue = await getDefaultQueue(connection.rpcEndpoint);
-  return cachedQueue;
+// The tokens a step prices: non-USDC components the program has not retired, once each.
+function pricedTokens(components) {
+  const seen = new Map();
+  for (const c of components) {
+    if (c.isQuote || c.retired || seen.has(c.mint.toBase58())) continue;
+    seen.set(c.mint.toBase58(), { mint: c.mint.toBase58(), decimals: c.decimals, label: c.mint.toBase58().slice(0, 6) });
+  }
+  return [...seen.values()];
 }
 
-async function buildManagedUpdate(connection, crossbar, payer, feedIds) {
-  const queue = await getQueue(connection);
-  const [quoteAccount] = OracleQuote.getCanonicalPubkey(queue.pubkey, feedIds);
-  const definitions = feedIds.map((id) => FEED_DEFINITIONS[id]);
-  const feeds = definitions.every(Boolean) ? definitions : feedIds;
-  const instructions = await queue.fetchManagedUpdateIxs(crossbar, feeds, {
-    payer: payer.publicKey,
-    numSignatures: 1,
-    instructionIdx: 0,
+function computeOraclePrices(tokens) {
+  return oraclePrices(tokens, { ...ORACLE_CONFIG, swapApi: JUPITER_SWAP_API, priceApi: JUPITER_PRICE_API, fetchJson });
+}
+
+// Price sources blip and rate-limit; mid-rebalance, giving up leaves the intent to expire and
+// unwind, so keep trying well within the intent's lifetime.
+const PRICING_ATTEMPTS = 4;
+const PRICING_BACKOFF_MS = 15_000;
+async function computeOraclePricesPatiently(tokens, label) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await computeOraclePrices(tokens);
+    } catch (error) {
+      if (attempt >= PRICING_ATTEMPTS) throw error;
+      log(`    [prices] ${label}: ${error.message ?? error}; retrying in ${(attempt * PRICING_BACKOFF_MS) / 1000}s`);
+      await new Promise((r) => setTimeout(r, attempt * PRICING_BACKOFF_MS));
+    }
+  }
+}
+
+// Mint decimals for the tokens a due composition change adds, so they can be priced up front.
+async function additionTokens(connection, change) {
+  if (!change?.additions.length) return [];
+  const infos = await connection.getMultipleAccountsInfo(change.additions.map((x) => x.mint), "confirmed");
+  return change.additions.map((x, i) => {
+    if (!infos[i] || infos[i].data.length < 45) throw new Error(`composition change adds ${x.mint.toBase58()}, which is not a token mint`);
+    return { mint: x.mint.toBase58(), decimals: infos[i].data[44], label: x.mint.toBase58().slice(0, 6) };
   });
-  return { queue, quoteAccount, instructions };
+}
+
+// The program checks every swap's fill against the posted price ± the execution bound. Check
+// each built leg at its worst allowed fill (Jupiter's slippage threshold) the same way, before
+// any swap runs, so a leg that could never pass cancels the intent cleanly instead of failing
+// after other legs have traded.
+function assertLegsWithinOracle(entries, prices, side) {
+  const bound = BigInt(Math.min(MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS, SLIPPAGE_BPS + VERIFY_ORACLE_BUFFER_BPS));
+  for (const b of entries) {
+    const c = b.component;
+    const posted = prices.get(c.mint.toBase58());
+    if (!posted) throw new RebalanceBuildError(`no posted price for component ${c.globalIndex}`);
+    const worst = (BigInt(b.entry.quoteLimit.toString()) * pow10Big(c.decimals) * PRICE_SCALE) / (BigInt(b.atoms) * pow10Big(USDC_DECIMALS));
+    const ok = side === "sell"
+      ? worst * BigInt(BPS) >= posted.scaled * (BigInt(BPS) - bound)
+      : worst * BigInt(BPS) <= posted.scaled * (BigInt(BPS) + bound);
+    if (!ok) {
+      const usd = (x) => (Number(x) / Number(PRICE_SCALE)).toPrecision(6);
+      throw new RebalanceBuildError(
+        `component ${c.globalIndex} ${side} could fill at $${usd(worst)}, outside ${bpsPct(Number(bound))} of the posted $${usd(posted.scaled)}`,
+      );
+    }
+  }
+}
+
+function postPricesIx(program, oracle, entries) {
+  return program.methods
+    .postPrices({ prices: entries.map(([mint, p]) => ({ mint: new PublicKey(mint), price: new anchor.BN(p.scaled.toString()) })) })
+    .accounts({ oracle, priceBoard: PRICE_BOARD })
+    .instruction();
+}
+
+// Prices `components` and posts them to the price board, in as few transactions as fit.
+// Returns the posted prices (mint -> { scaled, usd, ... }).
+async function postPrices(env, components, label) {
+  const { connection, program, payer, oracle } = env;
+  const tokens = pricedTokens(components);
+  if (!tokens.length) return new Map();
+  const prices = await computeOraclePricesPatiently(tokens, label);
+  log(`    [prices] ${label}: ${[...prices].map(([mint, p]) => `${mint.slice(0, 6)}.. $${p.usd.toPrecision(6)}`).join(", ")}`);
+  const entries = [...prices];
+  for (let i = 0; i < entries.length;) {
+    let n = Math.min(MAX_PRICES_PER_POST, entries.length - i);
+    let ixs;
+    for (;; n -= 1) {
+      ixs = [...budgetIxs(60_000), await postPricesIx(program, oracle.publicKey, entries.slice(i, i + n))];
+      if (n === 1 || compiledSize(payer, ixs) <= TX_LIMIT) break;
+    }
+    await sendV0(connection, payer, ixs, `${label}: post ${n} price(s)`, [], [oracle]);
+    i += n;
+  }
+  return prices;
 }
 
 // --- transaction send --------------------------------------------------------
@@ -430,7 +520,7 @@ function compiledSize(payer, instructions, lookupTables = []) {
   }
 }
 
-async function sendV0(connection, payer, instructions, label, lookupTables = []) {
+async function sendV0(connection, payer, instructions, label, lookupTables = [], signers = []) {
   const size = compiledSize(payer, instructions, lookupTables);
   if (size > TX_LIMIT) {
     throw new RebalanceBuildError(`${label}: compiled tx is ${size} > ${TX_LIMIT} bytes`);
@@ -442,7 +532,7 @@ async function sendV0(connection, payer, instructions, label, lookupTables = [])
     instructions,
   }).compileToV0Message(lookupTables);
   const tx = new VersionedTransaction(message);
-  tx.sign([payer]);
+  tx.sign([payer, ...signers]);
   log(`    [send] ${label} (${size} bytes)`);
   const sig = await connection.sendTransaction(tx, {
     skipPreflight: false,
@@ -470,22 +560,22 @@ async function sendV0(connection, payer, instructions, label, lookupTables = [])
   return sig;
 }
 
-// Send a managed Switchboard update then the consuming program ix, retrying the PAIR if the
-// consumer reverts on a stale quote (the two are separate txs, so a congested gap can lapse
-// the 150-slot freshness window) or expires without landing.
-async function sendWithFreshQuote(env, feedIds, label, buildConsumerIx, cuLimit, attempts = 2, lookupTables = []) {
-  const { connection, crossbar, payer } = env;
+// Post fresh prices for `components`, then send the step that reads them, retrying the PAIR
+// if the step reverts on an aged-out price (the two are separate txs, so a congested gap can
+// lapse the 150-slot freshness window) or expires without landing. Returns the posted prices.
+async function sendWithFreshPrices(env, components, label, buildConsumerIx, cuLimit, attempts = 2, lookupTables = []) {
+  const { connection, program, payer } = env;
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const update = await buildManagedUpdate(connection, crossbar, payer, feedIds);
-    await sendV0(connection, payer, update.instructions, `${label}: switchboard update`);
-    const ix = await buildConsumerIx(update);
+    const prices = await postPrices(env, components, label);
+    const ix = await buildConsumerIx();
     try {
-      return await sendV0(connection, payer, [...budgetIxs(cuLimit), ix], label, lookupTables);
+      await sendV0(connection, payer, [...budgetIxs(cuLimit), ix], label, lookupTables);
+      return prices;
     } catch (error) {
       lastError = error;
-      if (attempt < attempts && (isSwitchboardStaleError(error) || isExpiredError(error))) {
-        log(`    ${label} failed (${isExpiredError(error) ? "expired" : "stale quote?"}), retrying with a fresh quote`);
+      if (attempt < attempts && (isStalePriceError(program, error) || isExpiredError(error))) {
+        log(`    ${label} failed (${isExpiredError(error) ? "expired" : "price aged out"}), retrying with fresh prices`);
         continue;
       }
       throw error;
@@ -654,6 +744,7 @@ async function buildLegEntry(connection, ctx, component, legAtoms, side) {
   const lookupTables = await loadLookupTables(connection, swap.addressLookupTableAddresses);
   return {
     component,
+    atoms: BigInt(legAtoms),
     entry: {
       componentIndex: component.globalIndex,
       quoteLimit,
@@ -671,17 +762,14 @@ function dedupeTables(tables) {
   return [...seen.values()];
 }
 
-function executeBatchIx(program, ctx, method, batch, update) {
+function executeBatchIx(program, ctx, method, batch) {
   return program.methods[method]({
     entries: batch.map((b) => b.entry),
-    switchboardMaxAgeSlots: new anchor.BN(SWITCHBOARD_MAX_AGE_SLOTS),
+    maxPriceAgeSlots: new anchor.BN(MAX_PRICE_AGE_SLOTS),
     maxOracleSlippageBps: Math.min(MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS, SLIPPAGE_BPS + VERIFY_ORACLE_BUFFER_BPS),
   })
     .accounts({
-      switchboardQueue: update.queue.pubkey,
-      switchboardQuote: update.quoteAccount,
-      slothashes: SYSVAR_SLOT_HASHES_PUBKEY,
-      instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+      priceBoard: PRICE_BOARD,
       keeper: ctx.keeper,
       index: ctx.index,
       intent: ctx.intent,
@@ -703,7 +791,7 @@ async function packBatches(connection, program, ctx, method, entries) {
   const batches = [];
   let cur = [];
   const fits = async (group) => {
-    const ix = await executeBatchIx(program, ctx, method, group, await batchOracle(connection, group));
+    const ix = await executeBatchIx(program, ctx, method, group);
     const tables = dedupeTables(group.flatMap((b) => b.lookupTables));
     const size = compiledSize({ publicKey: ctx.keeper }, [...budgetIxs(1_400_000), ix], tables);
     return size <= TX_LIMIT;
@@ -735,21 +823,13 @@ function batchCuLimit(legCount) {
   return Math.min(1_400_000, 250_000 + legCount * 450_000);
 }
 
-async function batchOracle(connection, batch) {
-  const queue = await getQueue(connection);
-  const feedIds = [...new Set(batch.map((b) => feedIdHexFromOraclePair(b.component.oraclePair)))];
-  const [quoteAccount] = OracleQuote.getCanonicalPubkey(queue.pubkey, feedIds);
-  return { queue, quoteAccount, feedIds };
-}
-
 async function sendBatches(env, ctx, method, batches) {
   for (let i = 0; i < batches.length; i += 1) {
     const batch = batches[i];
-    const { feedIds } = await batchOracle(env.connection, batch);
     const tables = dedupeTables(batch.flatMap((b) => b.lookupTables));
-    await sendWithFreshQuote(env, feedIds,
+    await sendWithFreshPrices(env, batch.map((b) => b.component),
       `${method} batch ${i + 1}/${batches.length}`,
-      (update) => executeBatchIx(env.program, ctx, method, batch, update),
+      () => executeBatchIx(env.program, ctx, method, batch),
       batchCuLimit(batch.length), 2, tables);
   }
 }
@@ -780,21 +860,20 @@ async function openIntent(env, ctx, components, pagePdas, driftThresholdBps, now
     Math.min(MAX_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS, maxPost),
   );
 
-  const feedIds = components.filter((c) => !c.isQuote && !c.retired).map((c) => feedIdHexFromOraclePair(c.oraclePair));
   const remaining = [
     ...pagePdas.map((p) => ({ pubkey: p, isSigner: false, isWritable: false })),
     ...components.map((c) => ({ pubkey: c.vault, isSigner: false, isWritable: false })),
   ];
-  await sendWithFreshQuote(
+  const prices = await sendWithFreshPrices(
     env,
-    feedIds,
+    components,
     "open rebalance intent",
-    (update) =>
+    () =>
       program.methods
         .openRebalanceIntent({
           nonce,
           expiresAt: new anchor.BN(nowOnChain + INTENT_TTL_S),
-          switchboardMaxAgeSlots: new anchor.BN(SWITCHBOARD_MAX_AGE_SLOTS),
+          maxPriceAgeSlots: new anchor.BN(MAX_PRICE_AGE_SLOTS),
           navToleranceBps: NAV_TOLERANCE_BPS,
           maxPostRebalanceDriftBps: maxPost,
         })
@@ -806,10 +885,7 @@ async function openIntent(env, ctx, components, pagePdas, driftThresholdBps, now
           quoteMint: USDC_MINT,
           vaultQuoteTokenAccount: ctx.vaultQuote,
           intent,
-          switchboardQueue: update.queue.pubkey,
-          switchboardQuote: update.quoteAccount,
-          slothashes: SYSVAR_SLOT_HASHES_PUBKEY,
-          instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+          priceBoard: PRICE_BOARD,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           quoteTokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
@@ -818,22 +894,21 @@ async function openIntent(env, ctx, components, pagePdas, driftThresholdBps, now
         .instruction(),
     400_000,
   );
-  return intent;
+  return { intent, prices };
 }
 
 async function finalize(env, ctx, components, pagePdas) {
-  const feedIds = components.filter((c) => !c.isQuote && !c.retired).map((c) => feedIdHexFromOraclePair(c.oraclePair));
   const remaining = [
     ...pagePdas.map((p) => ({ pubkey: p, isSigner: false, isWritable: true })),
     ...components.map((c) => ({ pubkey: c.vault, isSigner: false, isWritable: false })),
   ];
-  await sendWithFreshQuote(
+  await sendWithFreshPrices(
     env,
-    feedIds,
+    components,
     "finalize rebalance",
-    (update) =>
+    () =>
       env.program.methods
-        .finalizeRebalance({ switchboardMaxAgeSlots: new anchor.BN(SWITCHBOARD_MAX_AGE_SLOTS) })
+        .finalizeRebalance({ maxPriceAgeSlots: new anchor.BN(MAX_PRICE_AGE_SLOTS) })
         .accounts({
           keeper: ctx.keeper,
           index: ctx.index,
@@ -841,10 +916,7 @@ async function finalize(env, ctx, components, pagePdas) {
           vaultAuthority: ctx.vaultAuthority,
           quoteMint: USDC_MINT,
           vaultQuoteTokenAccount: ctx.vaultQuote,
-          switchboardQueue: update.queue.pubkey,
-          switchboardQuote: update.quoteAccount,
-          slothashes: SYSVAR_SLOT_HASHES_PUBKEY,
-          instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+          priceBoard: PRICE_BOARD,
           quoteTokenProgram: TOKEN_PROGRAM_ID,
         })
         .remainingAccounts(remaining)
@@ -1037,7 +1109,7 @@ async function previewSwaps(connection, program, payer, ctx, legs) {
     try {
       const batches = await packBatches(connection, program, pctx, method, entries);
       for (let i = 0; i < batches.length; i += 1) {
-        const ix = await executeBatchIx(program, pctx, method, batches[i], await batchOracle(connection, batches[i]));
+        const ix = await executeBatchIx(program, pctx, method, batches[i]);
         const tables = dedupeTables(batches[i].flatMap((b) => b.lookupTables));
         const size = compiledSize(payer, [...budgetIxs(batchCuLimit(batches[i].length)), ix], tables);
         log(`    [preview] ${method} batch ${i + 1}/${batches.length}: ${batches[i].length} legs, ${size} tx bytes, ${tables.length} ALT(s)`);
@@ -1045,6 +1117,33 @@ async function previewSwaps(connection, program, payer, ctx, legs) {
     } catch (error) {
       log(`    [preview] ${method} packing failed: ${error.message ?? error}`);
     }
+  }
+}
+
+// --- oracle readiness ----------------------------------------------------------
+
+// Why this bot cannot post prices (no key, no board, or a key the board doesn't accept).
+async function oracleProblems(env) {
+  if (!env.oracle) return `no oracle key: set ORACLE_KEYPAIR or ${ORACLE_WALLET_PATH}`;
+  const board = await env.program.account.priceBoard.fetchNullable(PRICE_BOARD);
+  if (!board) return "the price board does not exist yet (scripts/set-price-oracle.mjs)";
+  if (!board.oracle.equals(env.oracle.publicKey)) {
+    return `the price board accepts ${board.oracle.toBase58()}, not this oracle key ${env.oracle.publicKey.toBase58()}`;
+  }
+  return null;
+}
+
+// Dry-run: the prices a rebalance would post now, next to Jupiter's price API.
+async function showPrices(components, jupiterPrices) {
+  try {
+    const prices = await computeOraclePrices(pricedTokens(components));
+    for (const [mint, p] of prices) {
+      const jup = jupiterPrices.get(mint);
+      log(`    [price] ${mint.slice(0, 6)}.. $${p.usd.toPrecision(6)} (round-trip spread ${bpsPct(p.spreadBps)}, confirmed by ${p.confirmedBy.join(" + ")}${jup ? `; price API $${jup.toPrecision(6)}` : ""})`);
+    }
+  } catch (error) {
+    const failures = error instanceof OraclePriceError ? error.failures.map((f) => `${f.label}: ${f.reason}`) : [error.message ?? String(error)];
+    for (const failure of failures) log(`    [price] NOT PRICED ${failure}`);
   }
 }
 
@@ -1131,7 +1230,7 @@ async function processIndex(env, indexPk) {
   // Time trigger is exact (on-chain clock + on-chain last_rebalanced_at), independent of prices.
   const timeTriggered = intervalS > 0 && now >= lastRebalancedAt + intervalS;
   // Drift trigger is an estimate from Jupiter prices; require a margin so the program's
-  // Switchboard recomputation is likely to agree, and only when all prices are known.
+  // recomputation from the posted prices is likely to agree, and only when all prices are known.
   const driftTriggered =
     a.driftKnown &&
     driftThresholdBps > 0 &&
@@ -1160,6 +1259,7 @@ async function processIndex(env, indexPk) {
     log(`  releasing the rebalance request (${why})`);
     await setRebalanceRequest(env, indexPk, false).catch((e) => log(`  [warn] could not cancel the request: ${e.message ?? e}`));
   };
+  if (SHOW_PRICES && !EXECUTE) await showPrices(components, prices);
   if (!driftTriggered && !timeTriggered && !compositionTriggered) {
     await releaseRequest("no rebalance needed");
     return void log("  -> no rebalance needed");
@@ -1188,6 +1288,16 @@ async function processIndex(env, indexPk) {
   const isOperator = indexState.authority.equals(payer.publicKey) || indexState.rebalanceKeeper.equals(payer.publicKey);
   if (!isOperator) {
     return void log(`  skip: ${payer.publicKey.toBase58()} is not this basket's authority or rebalance keeper (set_rebalance_keeper)`);
+  }
+  // Every rebalance step needs posted prices; don't hold users back without them.
+  const oracleProblem = await oracleProblems(env);
+  if (oracleProblem) return void log(`  skip: ${oracleProblem}`);
+  try {
+    await computeOraclePrices([...pricedTokens(components), ...(changeDue ? await additionTokens(connection, change) : [])]);
+  } catch (error) {
+    rebalanceRetryAt.set(key, Date.now() + FAILURE_COOLDOWN_S * 1000);
+    await releaseRequest("its tokens cannot be priced");
+    return void log(`  skip: ${error.message ?? error}`);
   }
 
   // Mints and redeems run concurrently and a rebalance needs them all settled: hold new ones
@@ -1292,10 +1402,10 @@ async function applyCompositionChange(env, ctx, indexState, change, changePk, pa
 async function executeRebalance(env, ctx, components, pagePdas, driftThresholdBps, nowOnChain) {
   const { connection, program, payer } = env;
   log("  opening rebalance intent...");
-  const intentPk = await openIntent(env, ctx, components, pagePdas, driftThresholdBps, nowOnChain);
+  const { intent: intentPk, prices } = await openIntent(env, ctx, components, pagePdas, driftThresholdBps, nowOnChain);
   ctx.intent = intentPk;
 
-  // Read the program's authoritative legs (it recomputes them from its own Switchboard quote).
+  // Read the program's authoritative legs (it recomputes them from the posted prices).
   const intent = await program.account.rebalanceIntent.fetch(intentPk);
   const targets = intent.componentTargetAmounts.map((bn) => BigInt(bn.toString()));
   const sellComponents = components.filter((c) => bitmapGet(intent.sellLegBitmap, c.globalIndex));
@@ -1316,6 +1426,8 @@ async function executeRebalance(env, ctx, components, pagePdas, driftThresholdBp
       intent.componentOpenAmounts.map((bn) => BigInt(bn.toString())),
       Number(intent.navToleranceBps), budget,
       (c, atoms) => buildLegEntry(connection, ctx, c, atoms, "buy"));
+    assertLegsWithinOracle(sellEntries, prices, "sell");
+    assertLegsWithinOracle(buyEntries, prices, "buy");
     sellBatches = await packBatches(connection, program, ctx, "executeRebalanceSellBatch", sellEntries);
     buyBatches = await packBatches(connection, program, ctx, "executeRebalanceBuyBatch", buyEntries);
   } catch (error) {
@@ -1394,13 +1506,14 @@ async function runOnce(env) {
 async function main() {
   const connection = new Connection(RPC_URL, "confirmed");
   const payer = loadKeypair(WALLET_PATH);
+  const oracle = loadOracleKeypair(ORACLE_WALLET_PATH);
   const program = loadProgram(connection, payer);
-  const crossbar = new CrossbarClient(CROSSBAR_URL);
-  crossbar.setNetwork(CrossbarNetwork.SolanaMainnet);
-  installGatewayFallback(crossbar, () => getQueue(connection), log);
 
   if (!program.programId.equals(PROGRAM_ID)) {
     throw new Error(`IDL program id ${program.programId.toBase58()} != ${PROGRAM_ID.toBase58()}`);
+  }
+  if (oracle?.publicKey.equals(payer.publicKey)) {
+    throw new Error("the oracle key must not be the keeper key: either alone could then set prices and trade");
   }
 
   log(
@@ -1415,15 +1528,20 @@ async function main() {
         navToleranceBps: NAV_TOLERANCE_BPS,
         verifyOracleBps: Math.min(MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS, SLIPPAGE_BPS + VERIFY_ORACLE_BUFFER_BPS),
         ttlSeconds: INTENT_TTL_S,
-        feedDefinitions: Object.keys(FEED_DEFINITIONS).length,
-        crossbar: CROSSBAR_URL,
+        oracle: oracle?.publicKey.toBase58() ?? null,
+        priceBoard: PRICE_BOARD.toBase58(),
+        oraclePricing: ORACLE_CONFIG,
       },
       null,
       2,
     ),
   );
 
-  const env = { connection, program, crossbar, payer };
+  const env = { connection, program, payer, oracle };
+  if (EXECUTE) {
+    const problem = await oracleProblems(env).catch((e) => `could not read the price board: ${e.message ?? e}`);
+    if (problem) log(`[warn] rebalances will be skipped: ${problem}`);
+  }
   if (WATCH) {
     let wake = () => {};
     const stop = (signal) => {
@@ -1449,7 +1567,7 @@ async function main() {
   }
 }
 
-export { compiledSize, PROGRAM_ID, sendV0, executeBatchIx, affordableBuys, buyAmount, buildManagedUpdate, settleExpiredIntents };
+export { compiledSize, PROGRAM_ID, PRICE_BOARD, sendV0, executeBatchIx, postPricesIx, isStalePriceError, assertLegsWithinOracle, affordableBuys, buyAmount, settleExpiredIntents };
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   await main();
 }

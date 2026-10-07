@@ -7,8 +7,8 @@
 //! only fit ~1 swap per transaction.
 //!
 //! Lifecycle:
-//!   1. `open_rebalance_intent`  — price the whole NAV (paged component vaults + a
-//!      multi-feed Switchboard quote), gate on drift/time, derive each component's swap
+//!   1. `open_rebalance_intent`  — price the whole NAV (paged component vaults + the
+//!      oracle's posted prices), gate on drift/time, derive each component's swap
 //!      LEG (atoms to sell or buy) and direction, snapshot supply + NAV, take the
 //!      `large_basket_operation_in_progress` lock and create the vault USDC ATA. Only the
 //!      index authority or its rebalance keeper may open, and only with no mint/redeem
@@ -16,11 +16,10 @@
 //!      (see MIN/MAX_KEEPER_NAV_TOLERANCE_BPS).
 //!   2. `execute_rebalance_sell_batch` ×N — batched component->USDC swaps (vault authority
 //!      signs); `execute_rebalance_buy_batch` ×N — batched USDC->component swaps funded by
-//!      the proceeds. Executes, verifies and finalize are keeper/authority-only. Each checks execution against Switchboard in the same transaction and records the verified fill.
+//!      the proceeds. Executes, verifies and finalize are keeper/authority-only. Each checks execution against the posted price in the same transaction and records the verified fill.
 //!      Blocked once the intent expires or the index pauses rebalancing.
 //!   3. `verify_rebalance_component_price` — bounds each executed leg's effective price
-//!      (recorded quote / recorded fill) against a fresh single-feed oracle quote (the
-//!      swap tx can't also carry the oracle quote within 1232 bytes).
+//!      (recorded quote / recorded fill) against a fresh posted price.
 //!   4. `finalize_rebalance` — require every leg executed + verified, re-price the NAV,
 //!      enforce post-rebalance drift + one-sided NAV preservation + quote dust, rewrite
 //!      each page's `units_per_index` / `accounted_reserve`, release the lock.
@@ -41,9 +40,10 @@
 //! leftover USDC (e.g. from an unwound rebalance) back into components, and the finalize
 //! dust check bounds only the parked EXCESS, not the USDC component's own backing.
 //!
-//! Open and finalize price the full basket in one transaction, so this fits baskets whose
-//! oracle feeds fit a single Switchboard quote (the real FixedWeights baskets are 4-10
-//! components). Paged NAV pricing for larger baskets is a follow-up.
+//! Prices come from the price board, which only the protocol's oracle key may write
+//! (`post_prices`): the keeper has fresh prices posted just before each step that reads
+//! them. Open and finalize price the full basket in one transaction (the real FixedWeights
+//! baskets are 4-10 components). Paged NAV pricing for larger baskets is a follow-up.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::TokenInterface;
@@ -54,9 +54,9 @@ use crate::{
         MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS, MAX_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS,
         MAX_FIXED_WEIGHT_QUOTE_DUST_BPS, MAX_KEEPER_NAV_TOLERANCE_BPS,
         MAX_LARGE_BASKET_INTENT_TTL_SECONDS, MAX_REBALANCE_SWAPS_PER_BATCH,
-        MAX_SWITCHBOARD_QUOTE_AGE_SLOTS, MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS,
-        MIN_KEEPER_NAV_TOLERANCE_BPS, REBALANCE_INTENT_SEED, USDC_DECIMALS, USDC_MINT,
-        VAULT_AUTHORITY_SEED,
+        MAX_PRICE_AGE_SLOTS, MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS,
+        MIN_KEEPER_NAV_TOLERANCE_BPS, PRICE_BOARD_SEED, REBALANCE_INTENT_SEED, USDC_DECIMALS,
+        USDC_MINT, VAULT_AUTHORITY_SEED,
     },
     errors::BasketError,
     events::{
@@ -64,19 +64,18 @@ use crate::{
         RebalanceIntentOpened, RebalanceIntentUnwound,
     },
     state::{
-        IndexKind, IndexState, LargeBasketComponent, LargeBasketComponentPage, RebalanceIntent,
-        RebalanceMode, RebalanceStatus,
+        IndexKind, IndexState, LargeBasketComponent, LargeBasketComponentPage, PriceBoard,
+        RebalanceIntent, RebalanceMode, RebalanceStatus,
     },
     utils::{
         associated_token_address_with_token_program, bitmap_all_set, bitmap_get, bitmap_set_once,
-        create_associated_token_account_idempotent_for_token_program, invoke_jupiter_swap,
-        load_interface_token_account, load_mint, nav_loss_within_tolerance_u128,
-        switchboard_feed_price, unpack_account_metas, units_per_index_for_amount,
+        board_price, create_associated_token_account_idempotent_for_token_program,
+        invoke_jupiter_swap, load_interface_token_account, load_mint,
+        nav_loss_within_tolerance_u128, unpack_account_metas, units_per_index_for_amount,
         units_per_index_for_amount_saturating, validate_buy_execution_price,
-        validate_jupiter_route_account_scope,
+        validate_jupiter_route_account_scope, validate_price_age_slots,
         validate_sell_execution_price, validate_vault_authority_token_account_scope,
-        verified_switchboard_prices, SwitchboardPrice, ASSOCIATED_TOKEN_ID, LargeBasketSwapPlan,
-        SWITCHBOARD_NAD_SCALE_FACTOR, SWITCHBOARD_PRICE_SCALE,
+        ASSOCIATED_TOKEN_ID, LargeBasketSwapPlan, PRICE_NAD_SCALE_FACTOR, PRICE_SCALE,
     },
 };
 
@@ -88,7 +87,7 @@ use crate::{
 pub struct OpenRebalanceIntentArgs {
     pub nonce: u64,
     pub expires_at: i64,
-    pub switchboard_max_age_slots: u64,
+    pub max_price_age_slots: u64,
     pub nav_tolerance_bps: u16,
     pub max_post_rebalance_drift_bps: u16,
 }
@@ -105,7 +104,7 @@ pub struct RebalanceBatchEntry {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct ExecuteRebalanceBatchArgs {
     pub entries: Vec<RebalanceBatchEntry>,
-    pub switchboard_max_age_slots: u64,
+    pub max_price_age_slots: u64,
     pub max_oracle_slippage_bps: u16,
 }
 
@@ -113,12 +112,12 @@ pub struct ExecuteRebalanceBatchArgs {
 pub struct VerifyRebalanceComponentPriceArgs {
     pub component_index: u16,
     pub max_oracle_slippage_bps: u16,
-    pub switchboard_max_age_slots: u64,
+    pub max_price_age_slots: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct FinalizeRebalanceArgs {
-    pub switchboard_max_age_slots: u64,
+    pub max_price_age_slots: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -154,14 +153,9 @@ pub struct OpenRebalanceIntent<'info> {
         bump
     )]
     pub intent: Account<'info, RebalanceIntent>,
-    /// CHECK: Verified by Switchboard's quote verifier.
-    pub switchboard_queue: UncheckedAccount<'info>,
-    /// CHECK: Verified by Switchboard's quote verifier and canonical key check.
-    pub switchboard_quote: UncheckedAccount<'info>,
-    /// CHECK: Switchboard verifier validates this sysvar id.
-    pub slothashes: UncheckedAccount<'info>,
-    /// CHECK: Switchboard verifier validates this sysvar id.
-    pub instructions_sysvar: UncheckedAccount<'info>,
+    /// Prices the protocol's oracle posted; each must be at most `max_price_age_slots` old.
+    #[account(seeds = [PRICE_BOARD_SEED], bump = price_board.bump)]
+    pub price_board: Box<Account<'info, PriceBoard>>,
     /// CHECK: Validated as the Associated Token Program.
     #[account(address = ASSOCIATED_TOKEN_ID @ BasketError::InvalidAssociatedTokenProgram)]
     pub associated_token_program: UncheckedAccount<'info>,
@@ -195,15 +189,9 @@ pub struct ExecuteRebalanceBatch<'info> {
     pub associated_token_program: UncheckedAccount<'info>,
     pub quote_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
-    /// CHECK: Verified by Switchboard before any swap is executed.
-    pub switchboard_queue: UncheckedAccount<'info>,
-    /// CHECK: Verified by Switchboard and canonical quote-key validation.
-    pub switchboard_quote: UncheckedAccount<'info>,
-    /// CHECK: Switchboard verifier validates this sysvar id.
-    pub slothashes: UncheckedAccount<'info>,
-    /// CHECK: Switchboard verifier validates this sysvar id.
-    pub instructions_sysvar: UncheckedAccount<'info>,
-
+    /// Prices the protocol's oracle posted; each must be at most `max_price_age_slots` old.
+    #[account(seeds = [PRICE_BOARD_SEED], bump = price_board.bump)]
+    pub price_board: Box<Account<'info, PriceBoard>>,
 }
 
 #[derive(Accounts)]
@@ -213,14 +201,9 @@ pub struct VerifyRebalanceComponentPrice<'info> {
     #[account(mut, has_one = index @ BasketError::InvalidLargeBasketIntent)]
     pub intent: Account<'info, RebalanceIntent>,
     pub component_page: Account<'info, LargeBasketComponentPage>,
-    /// CHECK: Verified by Switchboard's quote verifier.
-    pub switchboard_queue: UncheckedAccount<'info>,
-    /// CHECK: Verified by Switchboard's quote verifier and canonical key check.
-    pub switchboard_quote: UncheckedAccount<'info>,
-    /// CHECK: Switchboard verifier validates this sysvar id.
-    pub slothashes: UncheckedAccount<'info>,
-    /// CHECK: Switchboard verifier validates this sysvar id.
-    pub instructions_sysvar: UncheckedAccount<'info>,
+    /// Prices the protocol's oracle posted; each must be at most `max_price_age_slots` old.
+    #[account(seeds = [PRICE_BOARD_SEED], bump = price_board.bump)]
+    pub price_board: Box<Account<'info, PriceBoard>>,
 }
 
 #[derive(Accounts)]
@@ -242,14 +225,9 @@ pub struct FinalizeRebalance<'info> {
     pub quote_mint: UncheckedAccount<'info>,
     /// CHECK: Validated as the vault authority's USDC ATA.
     pub vault_quote_token_account: UncheckedAccount<'info>,
-    /// CHECK: Verified by Switchboard's quote verifier.
-    pub switchboard_queue: UncheckedAccount<'info>,
-    /// CHECK: Verified by Switchboard's quote verifier and canonical key check.
-    pub switchboard_quote: UncheckedAccount<'info>,
-    /// CHECK: Switchboard verifier validates this sysvar id.
-    pub slothashes: UncheckedAccount<'info>,
-    /// CHECK: Switchboard verifier validates this sysvar id.
-    pub instructions_sysvar: UncheckedAccount<'info>,
+    /// Prices the protocol's oracle posted; each must be at most `max_price_age_slots` old.
+    #[account(seeds = [PRICE_BOARD_SEED], bump = price_board.bump)]
+    pub price_board: Box<Account<'info, PriceBoard>>,
     pub quote_token_program: Interface<'info, TokenInterface>,
 }
 
@@ -425,9 +403,9 @@ impl<'info> OpenRebalanceIntent<'info> {
             );
         }
         require!(
-            args.switchboard_max_age_slots > 0
-                && args.switchboard_max_age_slots <= MAX_SWITCHBOARD_QUOTE_AGE_SLOTS,
-            BasketError::InvalidSwitchboardMaxAge
+            args.max_price_age_slots > 0
+                && args.max_price_age_slots <= MAX_PRICE_AGE_SLOTS,
+            BasketError::InvalidOraclePriceAge
         );
         let now = Clock::get()?.unix_timestamp;
         require!(
@@ -452,14 +430,11 @@ impl<'info> OpenRebalanceIntent<'info> {
         let supply = load_mint(&ctx.accounts.index_mint.to_account_info())?.supply;
         require!(supply > 0, BasketError::InvalidIndexAmount);
 
-        let prices = verified_switchboard_prices(
-            &ctx.accounts.switchboard_queue.to_account_info(),
-            &ctx.accounts.switchboard_quote.to_account_info(),
-            &ctx.accounts.slothashes.to_account_info(),
-            &ctx.accounts.instructions_sysvar.to_account_info(),
-            Clock::get()?.slot,
-            args.switchboard_max_age_slots,
-        )?;
+        let prices = Prices {
+            board: &ctx.accounts.price_board,
+            slot: Clock::get()?.slot,
+            max_age_slots: args.max_price_age_slots,
+        };
 
         // remaining_accounts = [ordered component pages..] ++ [component vaults in global order..]
         let component_count = usize::from(ctx.accounts.index.large_basket_component_count);
@@ -506,7 +481,7 @@ impl<'info> OpenRebalanceIntent<'info> {
             let (oracle_price, value) = if retired {
                 (0, 0)
             } else {
-                let oracle_price = price_for_component(&prices, component)?;
+                let oracle_price = prices.of(component)?;
                 (
                     oracle_price,
                     component_value_scaled(current_amount, component.decimals, oracle_price)?,
@@ -534,13 +509,13 @@ impl<'info> OpenRebalanceIntent<'info> {
             let parked_value = component_value_scaled(
                 scratch_quote_atoms,
                 USDC_DECIMALS,
-                SWITCHBOARD_PRICE_SCALE as i128,
+                PRICE_SCALE as i128,
             )?;
             total_value = total_value
                 .checked_add(parked_value)
                 .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
         }
-        require!(total_value > 0, BasketError::InvalidSwitchboardPrice);
+        require!(total_value > 0, BasketError::InvalidOraclePrice);
 
         // Drift / time gate.
         let (max_drift_bps, drift_triggered) =
@@ -599,7 +574,7 @@ impl<'info> OpenRebalanceIntent<'info> {
         let completed_sells = (component_count as u16) - sell_legs;
         let completed_buys = (component_count as u16) - buy_legs;
         let total_nav_nad = total_value
-            .checked_div(SWITCHBOARD_NAD_SCALE_FACTOR)
+            .checked_div(PRICE_NAD_SCALE_FACTOR)
             .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
 
         let intent = &mut ctx.accounts.intent;
@@ -739,14 +714,12 @@ impl<'info> ExecuteRebalanceBatch<'info> {
         // undo an already committed bad trade, especially if the intent is unwound.
         require!(args.max_oracle_slippage_bps <= MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS,
             BasketError::InvalidOraclePriceTolerance);
-        let prices = verified_switchboard_prices(
-            &ctx.accounts.switchboard_queue.to_account_info(),
-            &ctx.accounts.switchboard_quote.to_account_info(),
-            &ctx.accounts.slothashes.to_account_info(),
-            &ctx.accounts.instructions_sysvar.to_account_info(),
-            Clock::get()?.slot,
-            args.switchboard_max_age_slots,
-        )?;
+        validate_price_age_slots(args.max_price_age_slots)?;
+        let prices = Prices {
+            board: &ctx.accounts.price_board,
+            slot: Clock::get()?.slot,
+            max_age_slots: args.max_price_age_slots,
+        };
 
         let mut cursor = 0usize;
         for entry in &args.entries {
@@ -854,7 +827,7 @@ impl<'info> ExecuteRebalanceBatch<'info> {
                 let minimum = minimum_rebalance_buy_amount(
                     open_amount, leg, ctx.accounts.intent.nav_tolerance_bps)?;
                 require!(dest_received >= minimum, BasketError::RebalanceTargetNotMet);
-                let oracle_price = switchboard_feed_price(&prices, &component.oracle_pair)?;
+                let oracle_price = prices.of(&component)?;
                 let max_spend = maximum_rebalance_buy_quote(leg, component.decimals,
                     oracle_price, args.max_oracle_slippage_bps)?;
                 require!(source_spent <= max_spend, BasketError::QuoteBudgetExceeded);
@@ -866,8 +839,7 @@ impl<'info> ExecuteRebalanceBatch<'info> {
             };
 
             validate_atomic_rebalance_fill(is_sell, quote_atoms, component_atoms,
-                component.decimals, switchboard_feed_price(&prices, &component.oracle_pair)?,
-                args.max_oracle_slippage_bps)?;
+                component.decimals, prices.of(&component)?, args.max_oracle_slippage_bps)?;
 
             // Only persist completion after the atomic price check succeeds.
             let intent = &mut ctx.accounts.intent;
@@ -956,15 +928,12 @@ impl<'info> VerifyRebalanceComponentPrice<'info> {
 
         if leg > 0 {
             require!(fill > 0, BasketError::InvalidLargeBasketIntent);
-            let prices = verified_switchboard_prices(
-                &ctx.accounts.switchboard_queue.to_account_info(),
-                &ctx.accounts.switchboard_quote.to_account_info(),
-                &ctx.accounts.slothashes.to_account_info(),
-                &ctx.accounts.instructions_sysvar.to_account_info(),
-                Clock::get()?.slot,
-                args.switchboard_max_age_slots,
-            )?;
-            let oracle_price = switchboard_feed_price(&prices, &component.oracle_pair)?;
+            let oracle_price = Prices {
+                board: &ctx.accounts.price_board,
+                slot: Clock::get()?.slot,
+                max_age_slots: args.max_price_age_slots,
+            }
+            .of(component)?;
             if is_sell {
                 validate_sell_execution_price(
                     quote,
@@ -1040,14 +1009,12 @@ impl<'info> FinalizeRebalance<'info> {
 
         let supply = ctx.accounts.intent.supply_snapshot;
         let base_units = ctx.accounts.index.index_base_units()?;
-        let prices = verified_switchboard_prices(
-            &ctx.accounts.switchboard_queue.to_account_info(),
-            &ctx.accounts.switchboard_quote.to_account_info(),
-            &ctx.accounts.slothashes.to_account_info(),
-            &ctx.accounts.instructions_sysvar.to_account_info(),
-            Clock::get()?.slot,
-            args.switchboard_max_age_slots,
-        )?;
+        validate_price_age_slots(args.max_price_age_slots)?;
+        let prices = Prices {
+            board: &ctx.accounts.price_board,
+            slot: Clock::get()?.slot,
+            max_age_slots: args.max_price_age_slots,
+        };
 
         let component_count = usize::from(ctx.accounts.index.large_basket_component_count);
         let page_count = usize::from(ctx.accounts.index.large_basket_page_count);
@@ -1071,7 +1038,7 @@ impl<'info> FinalizeRebalance<'info> {
         )?
         .amount;
         let scratch_value =
-            component_value_scaled(scratch_atoms, USDC_DECIMALS, SWITCHBOARD_PRICE_SCALE as i128)?;
+            component_value_scaled(scratch_atoms, USDC_DECIMALS, PRICE_SCALE as i128)?;
 
         // Re-price BOTH the post-rebalance NAV and the pre-rebalance holdings at the SAME
         // fresh oracle. `expected_value_now` is what the basket would be worth had the
@@ -1104,7 +1071,7 @@ impl<'info> FinalizeRebalance<'info> {
                         if is_retired(component) {
                             (0, 0)
                         } else {
-                            let oracle_price = price_for_component(&prices, component)?;
+                            let oracle_price = prices.of(component)?;
                             (
                                 component_value_scaled(
                                     amounts[global],
@@ -1141,13 +1108,13 @@ impl<'info> FinalizeRebalance<'info> {
             let open_scratch_value = component_value_scaled(
                 ctx.accounts.intent.open_scratch_quote_atoms,
                 USDC_DECIMALS,
-                SWITCHBOARD_PRICE_SCALE as i128,
+                PRICE_SCALE as i128,
             )?;
             expected_value_now = expected_value_now
                 .checked_add(open_scratch_value)
                 .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
         }
-        require!(final_total_value > 0, BasketError::InvalidSwitchboardPrice);
+        require!(final_total_value > 0, BasketError::InvalidOraclePrice);
 
         // Post-rebalance drift must be within tolerance. With no USDC component, parked
         // scratch value inflates the denominator and depresses every actual weight, so
@@ -1214,7 +1181,7 @@ impl<'info> FinalizeRebalance<'info> {
 
         let now = Clock::get()?.unix_timestamp;
         let new_nav_nad = final_total_value
-            .checked_div(SWITCHBOARD_NAD_SCALE_FACTOR)
+            .checked_div(PRICE_NAD_SCALE_FACTOR)
             .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
 
         ctx.accounts.index.fixed_weight_last_rebalanced_at = now;
@@ -1299,7 +1266,7 @@ impl<'info> UnwindRebalance<'info> {
     /// the keeper's per-leg `quote_limit`; any bad-execution loss is therefore ALREADY
     /// realized on-chain before unwind runs — unwind only records the resulting balances,
     /// it cannot create new loss. The deferred per-leg oracle verify and the finalize NAV
-    /// gate are intentionally skipped here: requiring a fresh Switchboard quote (or any
+    /// gate are intentionally skipped here: requiring a fresh posted price (or any
     /// value gate that can fail) would reintroduce exactly the liveness hole this hatch
     /// exists to close (a down/stale oracle, or an un-passable bound, must never be able
     /// to keep the operation lock stuck). The exposure between execute and unwind is thus
@@ -1393,37 +1360,42 @@ impl<'info> CloseRebalanceIntent<'info> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// A removed component worth less than this (USD at Switchboard scale: one cent) is left
+// A removed component worth less than this (USD at oracle price scale: one cent) is left
 // unsold by a rebalance and written off at finalize.
-const REMOVED_COMPONENT_DUST_VALUE: u128 = SWITCHBOARD_PRICE_SCALE / 100;
+const REMOVED_COMPONENT_DUST_VALUE: u128 = PRICE_SCALE / 100;
 
 /// A component a composition change removed (zero weight, not USDC) whose holdings a
-/// rebalance has already sold. It is neither priced nor traded, so its feed can retire
-/// with it. Judged by the basket's own accounting, not the live vault: anyone can send
-/// tokens to a public vault, and dust there must not force a dead feed back into use.
+/// rebalance has already sold. It is neither priced nor traded, so the oracle can stop
+/// pricing it. Judged by the basket's own accounting, not the live vault: anyone can send
+/// tokens to a public vault, and dust there must not force a dead token back into pricing.
 fn is_retired(component: &LargeBasketComponent) -> bool {
     component.mint != USDC_MINT
         && component.target_weight_bps == 0
         && component.accounted_reserve == 0
 }
 
-fn price_for_component(prices: &[SwitchboardPrice], component: &LargeBasketComponent) -> Result<i128> {
-    if component.mint == USDC_MINT {
-        Ok(SWITCHBOARD_PRICE_SCALE as i128)
-    } else {
-        require_keys_neq!(
-            component.oracle_pair,
-            Pubkey::default(),
-            BasketError::InvalidFixedWeightConfig
-        );
-        switchboard_feed_price(prices, &component.oracle_pair)
+/// The posted prices a rebalance step reads: each at most `max_age_slots` old at `slot`.
+struct Prices<'a> {
+    board: &'a PriceBoard,
+    slot: u64,
+    max_age_slots: u64,
+}
+
+impl Prices<'_> {
+    /// USD per whole token (PRICE_SCALE). USDC, the quote asset, is always worth $1.
+    fn of(&self, component: &LargeBasketComponent) -> Result<i128> {
+        if component.mint == USDC_MINT {
+            Ok(PRICE_SCALE as i128)
+        } else {
+            board_price(self.board, &component.mint, self.slot, self.max_age_slots)
+        }
     }
 }
 
 fn component_value_scaled(amount: u64, decimals: u8, oracle_price: i128) -> Result<u128> {
-    require!(oracle_price > 0, BasketError::InvalidSwitchboardPrice);
+    require!(oracle_price > 0, BasketError::InvalidOraclePrice);
     let oracle_price =
-        u128::try_from(oracle_price).map_err(|_| error!(BasketError::InvalidSwitchboardPrice))?;
+        u128::try_from(oracle_price).map_err(|_| error!(BasketError::InvalidOraclePrice))?;
     let denominator = pow10_u128(decimals)?;
     u128::from(amount)
         .checked_mul(oracle_price)
@@ -1432,9 +1404,9 @@ fn component_value_scaled(amount: u64, decimals: u8, oracle_price: i128) -> Resu
 }
 
 fn target_amount_for_value_scaled(value: u128, decimals: u8, oracle_price: i128) -> Result<u64> {
-    require!(oracle_price > 0, BasketError::InvalidSwitchboardPrice);
+    require!(oracle_price > 0, BasketError::InvalidOraclePrice);
     let oracle_price =
-        u128::try_from(oracle_price).map_err(|_| error!(BasketError::InvalidSwitchboardPrice))?;
+        u128::try_from(oracle_price).map_err(|_| error!(BasketError::InvalidOraclePrice))?;
     let amount = value
         .checked_mul(pow10_u128(decimals)?)
         .and_then(|v| v.checked_div(oracle_price))
@@ -1476,7 +1448,7 @@ fn maximum_rebalance_buy_quote(leg: u64, decimals: u8, price: i128, slippage_bps
     let numerator = value.checked_mul(10_000 + u128::from(slippage_bps))
         .and_then(|v| v.checked_mul(1_000_000))
         .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
-    let denominator = SWITCHBOARD_PRICE_SCALE * 10_000;
+    let denominator = PRICE_SCALE * 10_000;
     let atoms = numerator / denominator + u128::from(numerator % denominator != 0);
     u64::try_from(atoms).map_err(|_| error!(BasketError::ArithmeticOverflow))
 }
@@ -1789,7 +1761,7 @@ fn rewrite_pages_from_amounts<'info>(
 /// A component's (units_per_index, accounted_reserve) after a rebalance, from its vault
 /// balance. A retired component, or a removed one this rebalance sold out (`sold_out`), stays
 /// at zero: what its public vault holds was sent there, and must not put the component back
-/// into pricing (its feed may be gone) or leave a dust sell leg no swap can fill.
+/// into pricing (the oracle may no longer price it) or leave a dust sell leg no swap can fill.
 fn rewritten_accounting(
     component: &LargeBasketComponent,
     amount: u64,
@@ -1961,12 +1933,12 @@ mod tests {
         ComponentSnapshot {
             decimals: 6,
             target_weight_bps,
-            oracle_price: SWITCHBOARD_PRICE_SCALE as i128,
+            oracle_price: PRICE_SCALE as i128,
             current_amount: 0,
             accounted_reserve: 0,
             is_quote: false,
             retired: false,
-            value: value_units * SWITCHBOARD_PRICE_SCALE,
+            value: value_units * PRICE_SCALE,
         }
     }
 
@@ -1975,18 +1947,18 @@ mod tests {
         ComponentSnapshot {
             decimals: 6,
             target_weight_bps,
-            oracle_price: SWITCHBOARD_PRICE_SCALE as i128,
+            oracle_price: PRICE_SCALE as i128,
             current_amount: current,
             accounted_reserve: accounted,
             is_quote: false,
             retired: false,
-            value: u128::from(current) * SWITCHBOARD_PRICE_SCALE / 1_000_000,
+            value: u128::from(current) * PRICE_SCALE / 1_000_000,
         }
     }
 
     #[test]
     fn removed_components_sell_only_what_the_basket_owns() {
-        let total = 100 * SWITCHBOARD_PRICE_SCALE;
+        let total = 100 * PRICE_SCALE;
         // Owned $5, plus $1 sent to the vault: sells the $5.
         assert_eq!(plan_leg(&holding(6_000_000, 5_000_000, 0), total).unwrap(), LegPlan::Sell(5_000_000));
         // Owned less than a cent: written off, even with a larger donation on top.
@@ -2005,7 +1977,7 @@ mod tests {
 
     #[test]
     fn weighted_components_trade_toward_their_target() {
-        let total = 100 * SWITCHBOARD_PRICE_SCALE;
+        let total = 100 * PRICE_SCALE;
         // 50% of $100 is $50.
         assert_eq!(plan_leg(&holding(60_000_000, 60_000_000, 5_000), total).unwrap(), LegPlan::Sell(10_000_000));
         assert_eq!(plan_leg(&holding(40_000_000, 40_000_000, 5_000), total).unwrap(), LegPlan::Buy(10_000_000));
@@ -2072,25 +2044,25 @@ mod tests {
 
     #[test]
     fn value_and_target_round_trip() {
-        let price = 2_i128 * SWITCHBOARD_PRICE_SCALE as i128; // $2, 1e18-scaled
+        let price = 2_i128 * PRICE_SCALE as i128; // $2, 1e18-scaled
         // 1.5 tokens (6 decimals) at $2 = $3 worth.
         let value = component_value_scaled(1_500_000, 6, price).unwrap();
-        assert_eq!(value, 3 * SWITCHBOARD_PRICE_SCALE);
+        assert_eq!(value, 3 * PRICE_SCALE);
         let amount = target_amount_for_value_scaled(value, 6, price).unwrap();
         assert_eq!(amount, 1_500_000);
     }
 
     #[test]
     fn weight_drift_is_absolute_bps_gap() {
-        let total = 100 * SWITCHBOARD_PRICE_SCALE;
-        let value = 40 * SWITCHBOARD_PRICE_SCALE; // 4000 bps of NAV
+        let total = 100 * PRICE_SCALE;
+        let value = 40 * PRICE_SCALE; // 4000 bps of NAV
         assert_eq!(weight_drift_bps(value, total, 3000).unwrap(), 1000);
         assert_eq!(weight_drift_bps(value, total, 4000).unwrap(), 0);
     }
 
     #[test]
     fn drift_status_triggers_at_threshold_and_zero_disables() {
-        let total = 100 * SWITCHBOARD_PRICE_SCALE;
+        let total = 100 * PRICE_SCALE;
         // actual weights 6000 / 4000 vs targets 5000 / 5000 -> max drift 1000 bps.
         let snaps = vec![snap(60, 5000), snap(40, 5000)];
         let (max_drift, triggered) = drift_status(&snaps, total, 1000).unwrap();
@@ -2124,7 +2096,7 @@ mod tests {
 
     #[test]
     fn buy_spend_cap_rejects_cash_sweep_even_at_fair_execution_price() {
-        let price = SWITCHBOARD_PRICE_SCALE as i128;
+        let price = PRICE_SCALE as i128;
         let cap = maximum_rebalance_buy_quote(10_000_000, 6, price, 500).unwrap();
         assert_eq!(cap, 10_500_000);
         // Fair price alone used to accept spending the entire $910 cash vault
@@ -2158,7 +2130,7 @@ mod atomic_execution_tests {
     use super::*;
     #[test]
     fn rejects_keeper_selling_backing_for_dust_or_buying_at_excessive_cost() {
-        let price = SWITCHBOARD_PRICE_SCALE as i128;
+        let price = PRICE_SCALE as i128;
         assert!(validate_atomic_rebalance_fill(true, 1, 1_000_000, 6, price, 100).is_err());
         assert!(validate_atomic_rebalance_fill(false, 2_000_000, 1_000_000, 6, price, 100).is_err());
         assert!(validate_atomic_rebalance_fill(true, 990_000, 1_000_000, 6, price, 100).is_ok());
@@ -2167,6 +2139,6 @@ mod atomic_execution_tests {
     #[test]
     fn keeper_cannot_disable_atomic_price_bound() {
         assert!(validate_atomic_rebalance_fill(true, 1, 1_000_000, 6,
-            SWITCHBOARD_PRICE_SCALE as i128, MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS + 1).is_err());
+            PRICE_SCALE as i128, MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS + 1).is_err());
     }
 }

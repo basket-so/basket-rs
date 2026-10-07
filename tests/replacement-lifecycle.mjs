@@ -1,5 +1,6 @@
 import { prepareRebalanceFixtures, testRebalanceMigration } from "./rebalance-migration-fixtures.mjs";
 import { prepareCompositionFixtures, testCompositionChange } from "./composition-change-fixtures.mjs";
+import { preparePriceBoardFixtures, testPriceBoard } from "./price-board-fixtures.mjs";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -25,8 +26,6 @@ import {
   PublicKey,
   sendAndConfirmTransaction,
   SystemProgram,
-  SYSVAR_INSTRUCTIONS_PUBKEY,
-  SYSVAR_SLOT_HASHES_PUBKEY,
   Transaction,
 } from "@solana/web3.js";
 
@@ -284,6 +283,7 @@ async function main() {
 
   const rebalanceFixtures = await prepareRebalanceFixtures(fixtureDir, programId, payer.publicKey);
   const compositionFixtures = await prepareCompositionFixtures(fixtureDir, programId, payer.publicKey);
+  const priceBoardFixtures = await preparePriceBoardFixtures(fixtureDir, programId, payer.publicKey);
   const validatorArgs = [
       "--reset",
       "--quiet",
@@ -306,7 +306,7 @@ async function main() {
       usdcMint.toBase58(),
       usdcMintDump,
     ];
-  validatorArgs.push(...rebalanceFixtures.validatorArgs, ...compositionFixtures.validatorArgs);
+  validatorArgs.push(...rebalanceFixtures.validatorArgs, ...compositionFixtures.validatorArgs, ...priceBoardFixtures.validatorArgs);
   const wslPath = p => p.replace(/^([A-Za-z]):/, (_, drive) => '/mnt/' + drive.toLowerCase()).replaceAll('\\','/');
   const validatorProcess = spawn(process.env.BASKET_WSL ? 'wsl.exe' : validator,
     process.env.BASKET_WSL ? ['-d','Ubuntu','--','/home/gainsu/.cache/basket-validator/solana-release/bin/solana-test-validator', ...validatorArgs.map(wslPath)] : validatorArgs,
@@ -437,6 +437,7 @@ async function main() {
 
     await testRebalanceMigration(program, connection, payer, stakingPool, rebalanceFixtures.fixtures);
     await testCompositionChange(program, connection, payer, user, stakingPool, compositionFixtures.fixtures);
+    await testPriceBoard(program, connection, payer, user, priceBoardFixtures.fixtures);
     for (const fixedWeights of [false, true]) {
       const symbol = fixedWeights ? 'FIXED' : 'UNITS';
       const index = pda('index', payer.publicKey, symbol);
@@ -517,7 +518,7 @@ async function main() {
         await transferSol(connection, payer, keeper.publicKey, 1);
         const request = (kp) => program.methods.requestRebalance().accounts({ operator: kp.publicKey, index }).signers([kp]).rpc();
         const rebalanceNonce = bn(1);
-        const openRebalance = async (kp) => program.methods.openRebalanceIntent({ nonce: rebalanceNonce, expiresAt: bn((await chainNow()) + 600), switchboardMaxAgeSlots: bn(50), navToleranceBps: 50, maxPostRebalanceDriftBps: 100 }).accounts({ initiator: kp.publicKey, index, indexMint, vaultAuthority, quoteMint: usdcMint, vaultQuoteTokenAccount: vaults[1], intent: pda('rebalance-intent', index, rebalanceNonce.toArrayLike(Buffer, 'le', 8)), switchboardQueue: Keypair.generate().publicKey, switchboardQuote: Keypair.generate().publicKey, slothashes: SYSVAR_SLOT_HASHES_PUBKEY, instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, quoteTokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).signers([kp]).rpc();
+        const openRebalance = async (kp) => program.methods.openRebalanceIntent({ nonce: rebalanceNonce, expiresAt: bn((await chainNow()) + 600), maxPriceAgeSlots: bn(50), navToleranceBps: 50, maxPostRebalanceDriftBps: 100 }).accounts({ initiator: kp.publicKey, index, indexMint, vaultAuthority, quoteMint: usdcMint, vaultQuoteTokenAccount: vaults[1], intent: pda('rebalance-intent', index, rebalanceNonce.toArrayLike(Buffer, 'le', 8)), priceBoard: pda('price-board'), associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, quoteTokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).signers([kp]).rpc();
         await assert.rejects(request(alice.kp), /NotRebalanceOperator/);
         await assert.rejects(request(keeper), /NotRebalanceOperator/);
         await assert.rejects(program.methods.setRebalanceKeeper({ keeper: keeper.publicKey }).accounts({ authority: alice.kp.publicKey, index }).signers([alice.kp]).rpc(), /UnauthorizedAuthority/);

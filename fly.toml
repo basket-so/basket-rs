@@ -4,6 +4,8 @@
 # Secrets (set before the first deploy):
 #   SOLANA_RPC_URL  mainnet RPC that allows getProgramAccounts (used for basket discovery)
 #   KEEPER_KEYPAIR  keeper secret key as a JSON array; a dedicated wallet funded with a little SOL
+#   ORACLE_KEYPAIR  secret key (JSON array) of the price board's oracle; signs posted prices, needs
+#                   no SOL, and must not be the keeper key (scripts/set-price-oracle.mjs)
 #
 # Deploy with `fly deploy --ha=false` so only one keeper runs.
 app = "basket-rebalance-bot"

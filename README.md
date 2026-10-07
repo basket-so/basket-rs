@@ -4,10 +4,11 @@ Anchor workspace for an index protocol on Solana. Index tokens are pro-rata
 claims on component vault balances, with support for fixed-unit baskets and
 fixed-weight target policies.
 
-The protocol uses Jupiter for routed execution and Switchboard for price
-verification. Jupiter is treated only as liquidity/execution; Switchboard feeds
-are the source of truth for NAV checks, rebalance weights, and execution-price
-guards.
+The protocol uses Jupiter for routed execution. Mints and redeems need no
+oracle: each is bounded by the user's own `max_quote_in` / `min_quote_out`.
+Fixed-weight rebalances read USD prices from the program's price board, which
+only the protocol's oracle key can write (see Rebalance Prices); those prices
+drive rebalance weights, NAV checks, and execution-price guards.
 
 ## Accounting Model
 
@@ -35,8 +36,8 @@ token. Authority-managed rebalancing of that target basket is not currently
 available; the legacy timelocked propose/execute flow was removed and its
 replacement on the intent model has not shipped yet (see Rebalancing).
 
-For non-USDC components, the component's `oracle_pair` is interpreted as its
-Switchboard feed id. The field name is legacy.
+Components keep an `oracle_pair` field from the Switchboard era; nothing reads it.
+Rebalances look prices up on the price board by component mint.
 
 ## Fixed-Weight Indexes
 
@@ -53,7 +54,7 @@ Fixed-weight rebalancing runs on a batched intent flow
 (`open_rebalance_intent` -> `execute_rebalance_sell_batch` /
 `execute_rebalance_buy_batch` -> `finalize_rebalance`), so the swaps span multiple transactions. It:
 
-- uses Switchboard USD prices to compute current weights and target amounts
+- uses the price board's USD prices to compute current weights and target amounts
 - uses native Solana USDC as the quote leg
 - sells overweight components to USDC, then buys underweight components
 - verifies every Jupiter route's mints, token accounts, protected vault scope,
@@ -73,7 +74,9 @@ Fixed-weight rebalancing runs on a batched intent flow
 - `create_large_basket_index`: creates the index account and the classic SPL index mint PDA, and records the index kind, fee recipients, supply cap, rebalance config, and component count
 - `initialize_large_basket_component_page`: writes one page of up to ten components and idempotently creates each component's vault ATA; pages are filled while supply is zero and the config is unfinalized
 - `finalize_large_basket_config`: checks that the pages tile every component index with no gaps or duplicates, runs strategy validation, and locks the component set
-- `set_large_basket_component_oracle_pair`: re-points a component's Switchboard feed; only allowed while supply is zero and no intent is mid-flight
+- `set_large_basket_component_oracle_pair`: sets a component's legacy `oracle_pair` field (unused); only allowed while supply is zero and no intent is mid-flight
+- `set_price_oracle`: protocol authority sets the key allowed to post rebalance prices, creating the price board on first use; changing the key clears every posted price
+- `post_prices`: the oracle key posts USD prices (by mint) to the price board, stamped with the current slot
 - `create_index_metadata`: creates Metaplex metadata for the index mint
 - `update_index_metadata`: updates the index mint metadata URI
 - `migrate_index_metadata_authority`: moves legacy Metaplex update authority to the index vault-authority PDA
@@ -87,13 +90,12 @@ Fixed-weight rebalancing runs on a batched intent flow
 - `execute_large_basket_mint_component` / `execute_large_basket_redeem_component`: fill one component by routing USDC<->component through caller-provided Jupiter routes (or moving USDC directly when the component is USDC), recording the leg's quote atoms
 - `execute_large_basket_mint_component_in_kind` / `execute_large_basket_redeem_component_in_kind`: fill one component by depositing/withdrawing the exact component tokens to/from the owner, skimming the fee in-kind; used when the intent was opened `in_kind`
 - `execute_large_basket_mint_batch` / `execute_large_basket_redeem_batch`: fill several components in one transaction, each route scoped to its own entry's accounts
-- `verify_large_basket_mint_component_price` / `verify_large_basket_redeem_component_price`: optional deferred check that bounds a filled component's effective price against a fresh single-feed Switchboard quote
 - `collect_large_basket_intent_fees`: after every component has executed, charges the USDC fee split (protocol, creator, staking) on the realized swap volume; swap-path intents only
 - `finalize_large_basket_mint_intent`: requires collected fees on swap-path intents, re-checks backing and supply against the budget and cap, books the filled reserves, mints the index tokens, and releases the lock
 - `finalize_large_basket_redeem_intent`: enforces the net USDC min-out on swap-path intents and releases the lock
 - `cancel_unfilled_large_basket_mint_intent` / `cancel_unfilled_large_basket_redeem_intent`: owner aborts an intent before any component fills; redeem restores reserves and re-mints the burned tokens
 - `cancel_expired_large_basket_intent`: permissionless after expiry; returns filled mint backing (or unfilled redeem backing) to the owner and releases the lock
-- `open_rebalance_intent`: permissionlessly opens a fixed-weight rebalance when the drift or time trigger fires; prices NAV via Switchboard, derives per-component sell/buy legs, and takes the operation lock
+- `open_rebalance_intent`: the index authority or its rebalance keeper opens a fixed-weight rebalance when the drift, time, or composition trigger fires; prices NAV from the price board, derives per-component sell/buy legs, and takes the operation lock
 - `execute_rebalance_sell_batch` / `execute_rebalance_buy_batch`: execute batched Jupiter swap legs (component->USDC, then USDC->component) validate execution prices atomically, and record each leg's quote and fill atoms; blocked after expiry or while rebalancing is paused
 - `verify_rebalance_component_price`: legacy separate price check; new executions are already verified atomically
 - `finalize_rebalance`: requires every leg executed and verified, enforces post-rebalance drift, one-sided NAV preservation, and quote dust, then rewrites page units/reserves and releases the lock
@@ -148,17 +150,19 @@ non-empty, a drift-enabled index must be configured with a drift threshold
 strictly above `MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS`.
 
 The binding per-rebalance value protection is the atomic per-leg execution
-check, which caps each swap's effective price against verified Switchboard
-prices before the transaction can commit. The finalize
+check, which caps each swap's effective price against the posted price before
+the transaction can commit. The finalize
 NAV-preservation gate is a one-sided aggregate backstop: it re-prices the
-original holdings and the post-rebalance holdings at the same fresh oracle (so
-market drift over the intent's life nets out), but because the keeper selects
-the finalize quote it cannot tighten below the per-leg bound and should not be
-read as a hard standalone NAV guarantee.
+original holdings and the post-rebalance holdings at the same fresh prices (so
+market drift over the intent's life nets out), but because the keeper chooses
+when prices are posted it cannot tighten below the per-leg bound and should not
+be read as a hard standalone NAV guarantee.
 
 Swap legs execute in batches and validate their effective quote/fill amounts
-against Switchboard in the same transaction. Keep batches small enough for the
-oracle update and swap to fit together; oversized batches must be split.
+against the posted prices in the same transaction. Open, every batch, and
+finalize each require their prices to be at most `max_price_age_slots` (capped at
+`MAX_PRICE_AGE_SLOTS`, about a minute) old, so the keeper posts fresh prices just
+before each step.
 Execution stops at `expires_at` (at most 30 minutes after open) and while the
 authority has paused rebalancing.
 
@@ -179,6 +183,31 @@ USDC left in the scratch ATA is counted into NAV by the next
 Fixed-unit (authority-proposed, timelocked) rebalancing is not currently
 available; the legacy atomic flow was removed with the batched rewrite and its
 replacement on the intent model has not shipped yet.
+
+## Rebalance Prices
+
+Switchboard shut down in September 2026. Rebalances now read the price board, a
+single PDA (`["price-board"]`) holding up to `PRICE_BOARD_CAPACITY` prices, each a
+mint, a USD price per whole token scaled by 1e18, and the slot it was posted in
+(set by the program). USDC is always $1 and is never posted.
+
+Only the board's `oracle` key can post (`post_prices`), and only the protocol
+authority can change that key (`set_price_oracle`), which also clears the board.
+The oracle key is separate from the rebalance keeper's: the keeper trades but
+cannot set prices, and the oracle sets prices but cannot trade, so one leaked key
+alone cannot move value through a rebalance beyond the per-leg and NAV bounds. Both
+keys currently live in the same keeper deployment, so a compromise of that host
+yields both; running the oracle elsewhere needs no program change. Holders trust the
+protocol's oracle for rebalance pricing; mints and redeems never read it.
+
+`scripts/lib/price-oracle.mjs` computes the posted prices from free sources: the
+midpoint of a small Jupiter round trip (USDC -> token -> USDC). It is posted only when
+every available reference (Jupiter's price API, if recently updated, and DexScreener's
+most liquid pair) agrees within 3%, at least one is available, and the round trip costs
+under 4% without gaining money. A token that fails any check is not priced, so its basket
+does not rebalance until it can be. Before trading, the keeper also checks every leg's
+worst allowed fill against the posted price and the per-leg bound, and cancels the intent
+before any swap if one cannot pass.
 
 ## Remaining Account Order
 
@@ -232,14 +261,6 @@ component token accounts are named. Mint deposits the exact backing plus the in-
 fee from the owner; redeem releases the net backing to the owner and skims the fee,
 all from the component vault.
 
-`verify_large_basket_mint_component_price` and
-`verify_large_basket_redeem_component_price` name the component's page plus the
-Switchboard queue, verified quote account, slot hashes sysvar, and instructions
-sysvar. Include the Switchboard quote update/signature instructions before the
-Basket instruction in the same transaction. These checks are optional: finalize
-relies on the aggregate `max_quote_in` / `min_quote_out` bounds and Jupiter per-swap
-slippage instead.
-
 `collect_large_basket_intent_fees` takes no remaining accounts; it requires every
 component executed, then transfers the USDC fee split from the owner's USDC account
 to the protocol and creator fee token accounts and the staking reward vault.
@@ -260,12 +281,13 @@ components for a mint, unfilled components for a redeem). Pass no component grou
 when there is nothing to return.
 
 `open_rebalance_intent` takes `OpenRebalanceIntentArgs { nonce, expires_at,
-switchboard_max_age_slots, nav_tolerance_bps, max_post_rebalance_drift_bps }`
-and remaining accounts of all component pages in page-index order followed by
-all component vaults in global component order.
+max_price_age_slots, nav_tolerance_bps, max_post_rebalance_drift_bps }`, the price
+board as a named account, and remaining accounts of all component pages in
+page-index order followed by all component vaults in global component order.
 
 `execute_rebalance_sell_batch` / `execute_rebalance_buy_batch` take
-`ExecuteRebalanceBatchArgs { entries }` where each entry carries
+`ExecuteRebalanceBatchArgs { entries, max_price_age_slots, max_oracle_slippage_bps }`
+and the price board, where each entry carries
 `component_index`, a keeper-side `quote_limit` (sell: minimum USDC out; buy:
 maximum USDC in), `route_account_count`, and the compact Jupiter swap plan.
 Remaining accounts are per-entry groups of
@@ -279,11 +301,10 @@ destination are rejected from every route.
 
 `verify_rebalance_component_price` takes `component_index`,
 `max_oracle_slippage_bps` (capped by
-`MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS`), and `switchboard_max_age_slots`,
-and bounds the recorded quote/fill effective price against a fresh single-feed
-Switchboard quote.
+`MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS`), and `max_price_age_slots`,
+and bounds the recorded quote/fill effective price against a fresh posted price.
 
-`finalize_rebalance` takes `switchboard_max_age_slots` plus the same
+`finalize_rebalance` takes `max_price_age_slots`, the price board, and the same
 pages-then-vaults remaining accounts as open (pages writable).
 `unwind_rebalance` takes no args and the same pages-then-vaults layout.
 
@@ -292,8 +313,8 @@ pages-then-vaults remaining accounts as open (pages writable).
 This cut targets paged large-basket indexes (up to 50 components across pages of
 ten) with a classic SPL index mint and Token-2022-capable component vaults, the
 batched mint/redeem intent state machine (Jupiter swap path plus in-kind variants),
-Switchboard-priced execution and fee checks, permissionless fixed-weight rebalancing
-on the intent model, Metaplex metadata, BASKET staking with protocol/creator/staking
+keeper-run fixed-weight rebalancing on the intent model priced by the protocol's
+price board, Metaplex metadata, BASKET staking with protocol/creator/staking
 fee splits, pause/supply-cap controls, and external governance ownership of index
 authority. Fixed-unit (authority-proposed, timelocked) rebalancing is not yet
 available (see Rebalancing).
@@ -305,8 +326,10 @@ every FixedWeights index (or targets one with `--index <pubkey>`), prices the ba
 Jupiter, computes each component's weight drift, and — when the index's drift threshold or
 time interval has triggered — drives the on-chain rebalance state machine end to end:
 `open_rebalance_intent` → batched `execute_rebalance_sell_batch` / `execute_rebalance_buy_batch`
-(Jupiter routes encoded as the compact `LargeBasketSwapPlan`) → `verify_rebalance_component_price`
-per leg → `finalize_rebalance`. It also detects a stuck/expired intent and calls
+(Jupiter routes encoded as the compact `LargeBasketSwapPlan`, each leg price-checked
+atomically) → `finalize_rebalance`. Before each of those steps it prices the tokens involved
+with `scripts/lib/price-oracle.mjs` and posts them with `post_prices`, signed by the oracle
+key (the keeper pays the fee). It also detects a stuck/expired intent and calls
 `unwind_rebalance` to release the operation lock.
 
 It is **dry-run by default** — it reads chain state, fetches quotes, and prints the plan but
@@ -316,6 +339,7 @@ fees + rent) and moves basket assets; trading costs are paid from basket assets,
 ```bash
 node scripts/rebalance-bot.mjs                 # detect-only, scan all FixedWeights baskets
 node scripts/rebalance-bot.mjs --preview-swaps # dry-run + encode the Jupiter swaps read-only
+node scripts/rebalance-bot.mjs --show-prices   # dry-run + compute the prices it would post
 node scripts/rebalance-bot.mjs --index <pk>    # only this index (skips getProgramAccounts)
 node scripts/rebalance-bot.mjs --execute       # actually rebalance triggered baskets
 node scripts/rebalance-bot.mjs --watch         # poll forever (--interval <seconds>)
@@ -325,9 +349,9 @@ On `--execute` the worker builds, tx-size-packs, and route-scope-validates every
 buy batch *before* sending any execute transaction; if a leg can't be built/sized/scoped it
 cancels the just-opened (zero-legs-executed) intent and reclaims its rent rather than
 stranding the operation lock. It derives time from the on-chain clock, keeps the intent TTL
-under the program cap, sizes compute units per batch, and retries a step if its Switchboard
-quote goes stale. Each batch includes its oracle accounts in transaction sizing and
-refreshes its managed quote before execution. Failed transaction confirmations stop execution.
+under the program cap, sizes compute units per batch, and posts fresh prices before each
+step, retrying the pair once if a price aged out before the step landed. Failed transaction
+confirmations stop execution.
 
 Before selling, the worker bounds total buy cost by existing USDC plus minimum sell
 proceeds. If needed, it reduces buy targets within the intent's NAV tolerance, using
@@ -341,9 +365,17 @@ Market movement or route failures can still interrupt a multi-transaction rebala
 Run keeper regression checks with `npm run test:keeper` after generating the current IDL.
 
 Env: `SOLANA_RPC_URL` (default mainnet-beta; discovery needs a `getProgramAccounts`-capable
-RPC), `ANCHOR_WALLET` (keeper keypair, default `deployer-keypair.json`), `JUPITER_SWAP_API`,
-`JUPITER_PRICE_API`. Flags: `--batch-size` (default 2), `--slippage-bps`, `--verify-buffer-bps`,
-`--nav-tolerance-bps`, `--drift-margin-bps`, `--ttl`, `--priority-fee`, `--interval`.
+RPC), `KEEPER_KEYPAIR` or `ANCHOR_WALLET` (keeper keypair, default `deployer-keypair.json`),
+`ORACLE_KEYPAIR` or `ORACLE_WALLET` (the price board's oracle key, default
+`oracle-keypair.json`; it needs no SOL and must differ from the keeper's), `JUPITER_SWAP_API`,
+`JUPITER_PRICE_API`. Without the oracle key the worker can still dry-run but skips rebalances.
+Flags: `--batch-size` (default 2), `--slippage-bps`, `--verify-buffer-bps`,
+`--nav-tolerance-bps`, `--drift-margin-bps`, `--ttl`, `--priority-fee`, `--interval`,
+`--price-probe-usd` (default 50), `--price-max-spread-bps` (default 400),
+`--price-max-deviation-bps` (default 300).
+
+Set or rotate the oracle key with `node scripts/set-price-oracle.mjs [--oracle <pubkey>]
+[--execute]` (signed by the protocol authority; creates the board on first use).
 
 Prerequisites: the program build that includes the rebalance intent flow must be deployed and
 `target/idl/basket.json` regenerated (`anchor build`) so the worker decodes accounts and
@@ -412,11 +444,10 @@ Safe sequence:
 
 The replacement program is `bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv`.
 See `docs/program-replacement` for its deployment journal and review.
-Rebalance batch execution now requires `switchboard_max_age_slots`,
-`max_oracle_slippage_bps`, and the Switchboard queue, quote, slot-hashes and
-instruction-sysvar accounts. Execution validates the realized price atomically
-and marks the leg verified. Size batches to fit the oracle update and swap in
-one transaction; a deferred check cannot protect an already committed swap.
+Rebalance batch execution requires `max_price_age_slots`, `max_oracle_slippage_bps`,
+and the price board. Execution validates the realized price atomically against the
+posted price and marks the leg verified; a deferred check cannot protect an already
+committed swap.
 
 ## USDC reserve accounting migration
 

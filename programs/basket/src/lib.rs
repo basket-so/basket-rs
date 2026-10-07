@@ -152,20 +152,6 @@ pub mod basket {
         ExecuteLargeBasketRedeemBatch::handle(ctx, args)
     }
 
-    pub fn verify_large_basket_mint_component_price<'info>(
-        ctx: Context<'_, '_, 'info, 'info, VerifyLargeBasketComponentPrice<'info>>,
-        args: VerifyLargeBasketComponentPriceArgs,
-    ) -> Result<()> {
-        VerifyLargeBasketComponentPrice::handle_mint(ctx, args)
-    }
-
-    pub fn verify_large_basket_redeem_component_price<'info>(
-        ctx: Context<'_, '_, 'info, 'info, VerifyLargeBasketComponentPrice<'info>>,
-        args: VerifyLargeBasketComponentPriceArgs,
-    ) -> Result<()> {
-        VerifyLargeBasketComponentPrice::handle_redeem(ctx, args)
-    }
-
     pub fn finalize_large_basket_mint_intent<'info>(
         ctx: Context<'_, '_, 'info, 'info, FinalizeLargeBasketMintIntent<'info>>,
     ) -> Result<()> {
@@ -200,6 +186,14 @@ pub mod basket {
         ctx: Context<'_, '_, 'info, 'info, ClaimLargeBasketRefund<'info>>,
     ) -> Result<()> {
         ClaimLargeBasketRefund::handle(ctx)
+    }
+
+    pub fn set_price_oracle(ctx: Context<SetPriceOracle>, args: SetPriceOracleArgs) -> Result<()> {
+        SetPriceOracle::handle(ctx, args)
+    }
+
+    pub fn post_prices(ctx: Context<PostPrices>, args: PostPricesArgs) -> Result<()> {
+        PostPrices::handle(ctx, args)
     }
 
     pub fn set_large_basket_component_oracle_pair(

@@ -1,10 +1,9 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{BPS_DENOMINATOR, USDC_DECIMALS, USDC_MINT},
+    constants::{BPS_DENOMINATOR, USDC_MINT},
     errors::BasketError,
     state::IndexComponent,
-    utils::{switchboard_feed_price, switchboard_price_to_nad, SwitchboardPrice},
 };
 
 pub const REBALANCE_PRICE_SCALE: u64 = 1_000_000_000;
@@ -25,71 +24,6 @@ pub struct RebalancePrice {
 pub fn validate_rebalance_quote_mint(quote_mint: &Pubkey) -> Result<()> {
     require_keys_eq!(*quote_mint, USDC_MINT, BasketError::InvalidQuoteMint);
     Ok(())
-}
-
-pub fn resolve_rebalance_prices(
-    rebalance_mints: &[Pubkey],
-    old_components: &[IndexComponent],
-    new_components: &[IndexComponent],
-    mint_decimals: &[u8],
-    price_inputs: &[RebalancePriceInput],
-    oracle_price_tolerance_bps: u16,
-    switchboard_prices: &[SwitchboardPrice],
-) -> Result<Vec<RebalancePrice>> {
-    require!(
-        price_inputs.len() == rebalance_mints.len() && mint_decimals.len() == rebalance_mints.len(),
-        BasketError::InvalidRebalancePriceInput
-    );
-
-    let mut prices = Vec::with_capacity(rebalance_mints.len());
-
-    for ((expected_mint, price_input), decimals) in rebalance_mints
-        .iter()
-        .zip(price_inputs.iter())
-        .zip(mint_decimals.iter().copied())
-    {
-        require_keys_eq!(
-            price_input.mint,
-            *expected_mint,
-            BasketError::InvalidRebalancePriceInput
-        );
-
-        let oracle_price_nad = if *expected_mint == USDC_MINT {
-            require!(
-                decimals == USDC_DECIMALS,
-                BasketError::InvalidRebalancePriceInput
-            );
-            REBALANCE_PRICE_SCALE
-        } else {
-            let feed = oracle_feed_for_mint(old_components, new_components, expected_mint)?;
-            let price = switchboard_feed_price(switchboard_prices, &feed)?;
-            switchboard_price_to_nad(price)?
-        };
-
-        let price_nad = match price_input.price_nad {
-            Some(price_nad) => {
-                require!(price_nad > 0, BasketError::InvalidRebalancePriceInput);
-                require!(
-                    within_bps_tolerance_u64(
-                        oracle_price_nad,
-                        price_nad,
-                        oracle_price_tolerance_bps,
-                    )?,
-                    BasketError::PriceOutsideOracleTolerance
-                );
-                price_nad
-            }
-            None => oracle_price_nad,
-        };
-
-        prices.push(RebalancePrice {
-            mint: *expected_mint,
-            price_nad,
-            decimals,
-        });
-    }
-
-    Ok(prices)
 }
 
 pub fn rebalance_price_for_mint<'a>(
@@ -148,36 +82,6 @@ pub fn validate_rebalance_execution_value(
         BasketError::ExecutionPriceOutsideOracleTolerance
     );
     Ok(())
-}
-
-fn oracle_feed_for_mint(
-    old_components: &[IndexComponent],
-    new_components: &[IndexComponent],
-    mint: &Pubkey,
-) -> Result<Pubkey> {
-    let mut feed = None;
-
-    for component in old_components.iter().chain(new_components.iter()) {
-        if component.mint != *mint || component.oracle_pair == Pubkey::default() {
-            continue;
-        }
-
-        if let Some(existing) = feed {
-            require_keys_eq!(
-                existing,
-                component.oracle_pair,
-                BasketError::InvalidRebalancePriceInput
-            );
-        } else {
-            feed = Some(component.oracle_pair);
-        }
-    }
-
-    feed.ok_or_else(|| error!(BasketError::MissingSwitchboardFeed))
-}
-
-fn within_bps_tolerance_u64(reference: u64, value: u64, tolerance_bps: u16) -> Result<bool> {
-    within_bps_tolerance_u128(u128::from(reference), u128::from(value), tolerance_bps)
 }
 
 pub fn within_bps_tolerance_u128(reference: u128, value: u128, tolerance_bps: u16) -> Result<bool> {

@@ -1,6 +1,6 @@
-# Rebalance keeper image for Fly.io (see fly.toml). Only the bot, its Switchboard helper
-# and the deployed program's IDL are copied in; .dockerignore keeps keypairs out of the
-# build context entirely.
+# Rebalance keeper image for Fly.io (see fly.toml). Only the bot, its price oracle and the
+# deployed program's IDL are copied in; .dockerignore keeps keypairs out of the build
+# context entirely.
 FROM node:22-slim
 
 WORKDIR /app
@@ -10,8 +10,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY scripts/rebalance-bot.mjs scripts/
-COPY scripts/lib/switchboard-gateway.mjs scripts/lib/
-COPY scripts/switchboard-feeds.json scripts/
+COPY scripts/lib/price-oracle.mjs scripts/lib/
 # The bot loads target/idl/basket.json; ship the IDL recorded for the deployed program.
 COPY docs/program-upgrade/basket.idl.json target/idl/basket.json
 

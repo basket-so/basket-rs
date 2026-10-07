@@ -64,12 +64,6 @@ pub fn validate_composition_change(
             );
         } else if weight > 0 {
             require!(weight >= MIN_COMPOSITION_WEIGHT_BPS, BasketError::InvalidCompositionChange);
-            // A weighted component must be priceable by rebalances.
-            require_keys_neq!(
-                component.oracle_pair,
-                Pubkey::default(),
-                BasketError::InvalidCompositionChange
-            );
         }
         changed |= weight != component.target_weight_bps;
         total += u32::from(weight);
@@ -80,11 +74,6 @@ pub fn validate_composition_change(
     for addition in additions {
         require!(
             addition.target_weight_bps >= MIN_COMPOSITION_WEIGHT_BPS,
-            BasketError::InvalidCompositionChange
-        );
-        require_keys_neq!(
-            addition.oracle_pair,
-            Pubkey::default(),
             BasketError::InvalidCompositionChange
         );
         // USDC joins only as the cash slot (register_rebalance_quote), and a basket
@@ -202,9 +191,6 @@ mod tests {
         let mut zero_weight = addition(0);
         zero_weight.target_weight_bps = 0;
         assert!(validate_composition_change(&existing, &index_mint, &[6_000, 4_000, 0], &[zero_weight]).is_err());
-        let mut no_oracle = addition(1_000);
-        no_oracle.oracle_pair = Pubkey::default();
-        assert!(validate_composition_change(&existing, &index_mint, &weights, &[no_oracle]).is_err());
         let mut usdc = addition(1_000);
         usdc.mint = USDC_MINT;
         assert!(validate_composition_change(&existing, &index_mint, &weights, &[usdc]).is_err());

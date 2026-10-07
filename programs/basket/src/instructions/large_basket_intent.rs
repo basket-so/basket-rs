@@ -29,10 +29,9 @@ use crate::{
         invoke_jupiter_swap_with_scratch, large_basket_fee_split, load_interface_token_account,
         load_mint, load_user_token_account, pro_rata_mint_amount, pro_rata_redeem_amount,
         quote_component_amount, route_creator_fee,
-        switchboard_feed_price, validate_buy_execution_price, validate_jupiter_route_account_scope,
-        validate_sell_execution_price,
+        validate_jupiter_route_account_scope,
         validate_staking_vault, validate_total_index_fee_bps, validate_user_token_account,
-        validate_vault_authority_token_account_scope, verified_switchboard_prices,
+        validate_vault_authority_token_account_scope,
         unpack_account_metas, bitmap_get, bitmap_set_once, JupiterInvokeScratch,
         LargeBasketSwapPlan, ASSOCIATED_TOKEN_ID,
     },
@@ -64,6 +63,7 @@ pub struct ExecuteLargeBasketMintComponentArgs {
     pub max_quote_in: u64,
     pub max_oracle_slippage_bps: u16,
     pub swap: Option<LargeBasketSwapPlan>,
+    /// Unused: mints and redeems read no oracle. Kept so existing clients encode unchanged.
     pub switchboard_max_age_slots: u64,
 }
 
@@ -73,6 +73,7 @@ pub struct ExecuteLargeBasketRedeemComponentArgs {
     pub min_quote_out: u64,
     pub max_oracle_slippage_bps: u16,
     pub swap: Option<LargeBasketSwapPlan>,
+    /// Unused: mints and redeems read no oracle. Kept so existing clients encode unchanged.
     pub switchboard_max_age_slots: u64,
 }
 
@@ -387,40 +388,6 @@ pub struct ExecuteLargeBasketRedeemComponent<'info> {
     /// CHECK: Validated against the component page.
     pub component_token_program: UncheckedAccount<'info>,
     pub quote_token_program: Interface<'info, TokenInterface>,
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct VerifyLargeBasketComponentPriceArgs {
-    pub component_index: u16,
-    pub max_oracle_slippage_bps: u16,
-    pub switchboard_max_age_slots: u64,
-}
-
-// Deferred oracle price-bound check for a single component. Runs AFTER the
-// component's swap (in its own swap-free tx) so the swap tx never has to carry the
-// oracle quote. Validates the stored effective price against a fresh 1-feed quote.
-#[derive(Accounts)]
-pub struct VerifyLargeBasketComponentPrice<'info> {
-    pub owner: Signer<'info>,
-    #[account(has_one = index_mint @ BasketError::IndexMintMismatch)]
-    pub index: Account<'info, IndexState>,
-    /// CHECK: Validated as the configured classic SPL index mint.
-    pub index_mint: UncheckedAccount<'info>,
-    #[account(
-        mut,
-        has_one = owner @ BasketError::InvalidLargeBasketIntent,
-        has_one = index @ BasketError::InvalidLargeBasketIntent
-    )]
-    pub intent: Account<'info, LargeBasketIntent>,
-    pub component_page: Account<'info, LargeBasketComponentPage>,
-    /// CHECK: Verified by Switchboard's quote verifier.
-    pub switchboard_queue: UncheckedAccount<'info>,
-    /// CHECK: Verified by Switchboard's quote verifier and canonical key check.
-    pub switchboard_quote: UncheckedAccount<'info>,
-    /// CHECK: Switchboard verifier validates this sysvar id.
-    pub slothashes: UncheckedAccount<'info>,
-    /// CHECK: Switchboard verifier validates this sysvar id.
-    pub instructions_sysvar: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -1399,113 +1366,6 @@ impl<'info> ExecuteLargeBasketRedeemComponent<'info> {
         _args: ExecuteLargeBasketRedeemComponentArgs,
     ) -> Result<()> {
         err!(BasketError::RedeemRequiresBatchExecution)
-    }
-}
-
-// Shared logic for the deferred per-component price verification (mint & redeem).
-fn verify_component_price_inner<'info>(
-    intent: &mut LargeBasketIntent,
-    page: &LargeBasketComponentPage,
-    page_key: &Pubkey,
-    queue: &AccountInfo<'info>,
-    quote: &AccountInfo<'info>,
-    slothashes: &AccountInfo<'info>,
-    instructions: &AccountInfo<'info>,
-    args: &VerifyLargeBasketComponentPriceArgs,
-    is_mint: bool,
-) -> Result<()> {
-    validate_component_execution_args(args.max_oracle_slippage_bps)?;
-    validate_open_intent(
-        intent,
-        if is_mint { LargeBasketIntentKind::Mint } else { LargeBasketIntentKind::Redeem },
-        args.component_index,
-    )?;
-    // Must be filled (swap done) and not already verified.
-    require!(
-        component_filled(intent, args.component_index)?,
-        BasketError::LargeBasketComponentNotFilled
-    );
-    // Resolve the component from the page it lives on.
-    validate_component_page_identity(&intent.index, page_key, page)?;
-    let local_index = page.component_offset(args.component_index)?;
-    let component = &page.components[local_index];
-
-    let component_amount = intent_component_amount(intent, args.component_index)?;
-    let quote_atoms = intent_component_quote_atoms(intent, args.component_index)?;
-
-    // A zero-amount component never swapped; nothing to price-check, just mark it.
-    if component_amount > 0 {
-        let oracle_price = {
-            let prices = verified_switchboard_prices(
-                queue,
-                quote,
-                slothashes,
-                instructions,
-                Clock::get()?.slot,
-                args.switchboard_max_age_slots,
-            )?;
-            switchboard_feed_price(&prices, &component.oracle_pair)?
-        };
-        if is_mint {
-            validate_buy_execution_price(
-                quote_atoms,
-                component_amount,
-                crate::constants::USDC_DECIMALS,
-                component.decimals,
-                oracle_price,
-                args.max_oracle_slippage_bps,
-            )?;
-        } else {
-            validate_sell_execution_price(
-                quote_atoms,
-                component_amount,
-                crate::constants::USDC_DECIMALS,
-                component.decimals,
-                oracle_price,
-                args.max_oracle_slippage_bps,
-            )?;
-        }
-    }
-
-    mark_component_verified(intent, args.component_index)?;
-    Ok(())
-}
-
-impl<'info> VerifyLargeBasketComponentPrice<'info> {
-    pub fn handle_mint(
-        ctx: Context<'_, '_, 'info, 'info, Self>,
-        args: VerifyLargeBasketComponentPriceArgs,
-    ) -> Result<()> {
-        let page_key = ctx.accounts.component_page.key();
-        verify_component_price_inner(
-            &mut ctx.accounts.intent,
-            &ctx.accounts.component_page,
-            &page_key,
-            &ctx.accounts.switchboard_queue.to_account_info(),
-            &ctx.accounts.switchboard_quote.to_account_info(),
-            &ctx.accounts.slothashes.to_account_info(),
-            &ctx.accounts.instructions_sysvar.to_account_info(),
-            &args,
-            true,
-        )
-    }
-
-    pub fn handle_redeem(
-        ctx: Context<'_, '_, 'info, 'info, Self>,
-        args: VerifyLargeBasketComponentPriceArgs,
-    ) -> Result<()> {
-        let page_key = ctx.accounts.component_page.key();
-        verify_component_price_inner(
-            &mut ctx.accounts.intent,
-            &ctx.accounts.component_page,
-            &page_key,
-            &ctx.accounts.switchboard_queue.to_account_info(),
-            &ctx.accounts.switchboard_quote.to_account_info(),
-            &ctx.accounts.slothashes.to_account_info(),
-            &ctx.accounts.instructions_sysvar.to_account_info(),
-            &args,
-            false,
-        )
     }
 }
 
@@ -3083,36 +2943,6 @@ fn set_component_quote_atoms(
     Ok(())
 }
 
-fn intent_component_quote_atoms(intent: &LargeBasketIntent, component_index: u16) -> Result<u64> {
-    intent
-        .component_quote_atoms
-        .get(usize::from(component_index))
-        .copied()
-        .ok_or_else(|| error!(BasketError::InvalidLargeBasketIntent))
-}
-
-fn component_verified(intent: &LargeBasketIntent, component_index: u16) -> Result<bool> {
-    let (byte_index, bit) = bitmap_position(component_index)?;
-    Ok((intent.component_verified_bitmap[byte_index] & bit) != 0)
-}
-
-fn mark_component_verified(intent: &mut LargeBasketIntent, component_index: u16) -> Result<()> {
-    if component_verified(intent, component_index)? {
-        return err!(BasketError::LargeBasketComponentAlreadyVerified);
-    }
-    let (byte_index, bit) = bitmap_position(component_index)?;
-    intent.component_verified_bitmap[byte_index] |= bit;
-    Ok(())
-}
-
-// True only if every filled component has also been price-verified. No longer a
-// finalize gate (per-component verify was dropped), but retained for the optional
-// verify_*_component_price path and tests.
-#[allow(dead_code)]
-fn all_components_verified(intent: &LargeBasketIntent) -> bool {
-    intent.component_fill_bitmap == intent.component_verified_bitmap
-}
-
 fn validate_component_accounts(
     index: &Pubkey,
     page: &LargeBasketComponentPage,
@@ -3641,35 +3471,10 @@ mod tests {
     }
 
     #[test]
-    fn verified_bitmap_marks_once() {
-        let mut intent = intent(50);
-        assert!(!component_verified(&intent, 7).unwrap());
-        mark_component_verified(&mut intent, 7).unwrap();
-        assert!(component_verified(&intent, 7).unwrap());
-        // double-verify rejected
-        assert!(mark_component_verified(&mut intent, 7).is_err());
-    }
-
-    #[test]
-    fn all_verified_requires_every_filled_component() {
-        let mut intent = intent(3);
-        // fill all 3, verify only 2 -> not all verified
-        for i in 0..3 {
-            mark_component_filled(&mut intent, i).unwrap();
-        }
-        mark_component_verified(&mut intent, 0).unwrap();
-        mark_component_verified(&mut intent, 1).unwrap();
-        assert!(!all_components_verified(&intent), "2 of 3 verified must not pass");
-        mark_component_verified(&mut intent, 2).unwrap();
-        assert!(all_components_verified(&intent), "all filled+verified must pass");
-    }
-
-    #[test]
     fn set_and_read_component_quote_atoms() {
         let mut intent = intent(3);
         set_component_quote_atoms(&mut intent, 1, 12_345).unwrap();
-        assert_eq!(intent_component_quote_atoms(&intent, 1).unwrap(), 12_345);
-        assert_eq!(intent_component_quote_atoms(&intent, 0).unwrap(), 0);
+        assert_eq!(intent.component_quote_atoms, vec![0, 12_345, 0]);
         // out of range
         assert!(set_component_quote_atoms(&mut intent, 9, 1).is_err());
     }
