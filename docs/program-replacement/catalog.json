@@ -673,7 +673,7 @@
       "startingNavUsd": 1,
       "rebalanceIntervalSeconds": 0,
       "driftThresholdBps": 0,
-      "description": "Ownership coins of futarchy-governed companies launched through MetaDAO, led by META. Starts at 25% META, 18% CRED, 16% SOLO, 10% P2P, 8% UMBRA, 8% AVICI and 5% each of OMFG, LASO and CARS; fixed token quantities then let weights move with prices, with no rebalancing. Several components have thin liquidity, so large mints and redeems can cost more in slippage.",
+      "description": "MetaDAO is the Solana platform where organizations are governed by futarchy: traders bet on whether a proposal will raise the token's value, and those markets, not token votes, decide what passes. The basket holds META, MetaDAO's own token, alongside the ownership coins of eight companies that raised through its launchpad and whose treasuries are governed by markets rather than by their teams. It is an early-stage, high-risk bet on market-governed companies, and several of its tokens trade in thin markets.",
       "blockers": [],
       "components": [
         {
