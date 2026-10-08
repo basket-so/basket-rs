@@ -61,11 +61,13 @@ const mintAccounts = await connection.getMultipleAccountsInfo(usedSymbols.map(s 
 const slot = await connection.getSlot();
 const prices = await fetchJson(`${priceApi}?ids=${usedSymbols.map(s => catalog.tokens[s].mint).join(',')}`);
 
-// The price the rebalance oracle would post (scripts/lib/price-oracle.mjs): fixed-weight
-// baskets rebalance against it, so every component must be priceable by it.
+// The price the rebalance oracle would post (scripts/lib/price-oracle.mjs): the live midpoint
+// of a Jupiter round trip, which every fresh reference (Jupiter's price API unless it has gone
+// quiet for an hour, DexScreener) confirms. Fixed-weight baskets rebalance against it, so every
+// component must be priceable by it; it also sizes every basket's starting units.
 const oraclePrice = async (symbol, token) =>
   (await oraclePrices([{ mint: token.mint, decimals: token.decimals, label: symbol }],
-    { swapApi, priceApi, fetchJson: url => fetchJson(url) })).get(token.mint).usd;
+    { swapApi, priceApi, fetchJson: url => fetchJson(url) })).get(token.mint);
 
 for (const [i, symbol] of usedSymbols.entries()) {
   try {
@@ -77,8 +79,10 @@ for (const [i, symbol] of usedSymbols.entries()) {
     if (!info.owner.equals(TOKEN_PROGRAM_ID)) throw new Error('Deployed small-index vaults require classic SPL tokens');
     if (!parsed.isInitialized || parsed.decimals !== token.decimals) throw new Error('Mint decimals/initialization mismatch');
     const quote = prices[token.mint];
-    if (!quote || !Number.isFinite(quote.usdPrice) || quote.usdPrice <= 0 || !Number.isInteger(quote.blockId) || Math.abs(slot - quote.blockId) > 9000)
-      throw new Error('Missing or stale Jupiter price');
+    // Jupiter's price API only refreshes on trades it sees, so tokens that trade mostly on their
+    // own venue (MetaDAO's AMM) can read an hour old while liquid; the live round trip below
+    // prices them instead.
+    if (!quote || !Number.isFinite(quote.usdPrice) || quote.usdPrice <= 0) throw new Error('Missing Jupiter price');
     if (!(quote.liquidity >= 10000)) throw new Error('Less than $10,000 reported liquidity');
     // Confirm both directions at $10 per component, not merely the existence of a mint.
     let routePrice;
@@ -92,8 +96,11 @@ for (const [i, symbol] of usedSymbols.entries()) {
     }
     let price = quote.usdPrice;
     if (token.mint !== USDC) {
-      price = await oraclePrice(symbol, token);
-      if (Math.abs(price / quote.usdPrice - 1) > 0.01) throw new Error('Oracle/Jupiter prices disagree by more than 1%');
+      const oracle = await oraclePrice(symbol, token);
+      price = oracle.usd;
+      // The oracle already holds every fresh reference within 3%; sizing also needs one within 1%.
+      if (!oracle.references.some(ref => Math.abs(price / ref.usd - 1) <= 0.01))
+        throw new Error(`Oracle price is more than 1% from every reference (${oracle.references.map(r => `${r.source} $${r.usd}`).join(', ')})`);
       if (Math.abs(price / routePrice - 1) > 0.02) throw new Error('Oracle price differs from current two-way route midpoint by more than 2%');
     } else price = 1; // The deployed protocol itself values native USDC at $1.
     assets[symbol] = { ...token, price, priceObservedAt: new Date().toISOString(), liquidityUsd: quote.liquidity,

@@ -249,6 +249,30 @@
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "source": "https://lite-api.jup.ag/tokens/v2/search?query=BANKJmvhT8tiJRsBSS1n2HryMBPvT5Ze4HU95DUAmeta"
+    },
+    "P2P": {
+      "mint": "P2PXup1ZvMpCDkJn3PQxtBYgxeCSfH39SFeurGSmeta",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=P2PXup1ZvMpCDkJn3PQxtBYgxeCSfH39SFeurGSmeta"
+    },
+    "OMFG": {
+      "mint": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta"
+    },
+    "LASO": {
+      "mint": "LASocYgQAo8GfypSjedNQgLft8y8DVGg1kSqR3smeta",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=LASocYgQAo8GfypSjedNQgLft8y8DVGg1kSqR3smeta"
+    },
+    "CARS": {
+      "mint": "CARSsxWPkpQWvfyRBwfGMGvysJBHdHGfE46X5MNgmeta",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=CARSsxWPkpQWvfyRBwfGMGvysJBHdHGfE46X5MNgmeta"
     }
   },
   "baskets": [
@@ -610,12 +634,14 @@
       "symbol": "MDAO",
       "name": "MetaDAO Ecosystem Index",
       "origin": "research",
-      "kind": "fixedWeights",
+      "kind": "fixedUnits",
       "startingNavUsd": 1,
-      "rebalanceIntervalSeconds": 2592000,
-      "driftThresholdBps": 500,
-      "description": "Ownership coins of futarchy-governed companies launched through MetaDAO, led by META. Monthly or 5 percentage-point drift rebalancing. Components are limited to tokens with enough liquidity and active pricing for basket mints, redeems and rebalances.",
-      "blockers": [],
+      "rebalanceIntervalSeconds": 0,
+      "driftThresholdBps": 0,
+      "description": "Ownership coins of futarchy-governed companies launched through MetaDAO, led by META. Starts at 32% META, 20% CRED, 20% SOLO, 14% UMBRA and 14% AVICI; fixed token quantities then let weights move with prices, with no rebalancing. Components are limited to tokens with enough liquidity for basket mints and redeems.",
+      "blockers": [
+        "Superseded by METADAO; created 2026-10-07 with five tokens, then paused and hidden"
+      ],
       "components": [
         {
           "symbol": "META",
@@ -636,6 +662,55 @@
         {
           "symbol": "AVICI",
           "weightBps": 1400
+        }
+      ]
+    },
+    {
+      "symbol": "METADAO",
+      "name": "MetaDAO Ecosystem Index",
+      "origin": "research",
+      "kind": "fixedUnits",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 0,
+      "driftThresholdBps": 0,
+      "description": "Ownership coins of futarchy-governed companies launched through MetaDAO, led by META. Starts at 25% META, 18% CRED, 16% SOLO, 10% P2P, 8% UMBRA, 8% AVICI and 5% each of OMFG, LASO and CARS; fixed token quantities then let weights move with prices, with no rebalancing. Several components have thin liquidity, so large mints and redeems can cost more in slippage.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "META",
+          "weightBps": 2500
+        },
+        {
+          "symbol": "CRED",
+          "weightBps": 1800
+        },
+        {
+          "symbol": "SOLO",
+          "weightBps": 1600
+        },
+        {
+          "symbol": "P2P",
+          "weightBps": 1000
+        },
+        {
+          "symbol": "UMBRA",
+          "weightBps": 800
+        },
+        {
+          "symbol": "AVICI",
+          "weightBps": 800
+        },
+        {
+          "symbol": "OMFG",
+          "weightBps": 500
+        },
+        {
+          "symbol": "LASO",
+          "weightBps": 500
+        },
+        {
+          "symbol": "CARS",
+          "weightBps": 500
         }
       ]
     }

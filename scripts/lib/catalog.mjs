@@ -42,7 +42,7 @@ export function validateCatalog(catalog) {
     if (!b.name || Buffer.byteLength(b.name) > 32 || b.startingNavUsd !== 1)
       throw new Error(`${b.symbol}: invalid name or initial NAV`);
     if (!['fixedUnits', 'fixedWeights'].includes(b.kind)) throw new Error('Invalid kind');
-    if (!b.components.length || b.components.length > 8) throw new Error('Deployed small-index ABI supports at most eight components');
+    if (!b.components.length || b.components.length > 10) throw new Error('A basket is created on one component page, so at most ten components');
     if (b.components.some(c => !Number.isInteger(c.weightBps) || c.weightBps <= 0) ||
         b.components.reduce((n, c) => n + c.weightBps, 0) !== 10000)
       throw new Error(`${b.symbol}: weights must sum to 10000 bps`);

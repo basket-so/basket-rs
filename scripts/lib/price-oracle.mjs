@@ -100,7 +100,8 @@ async function dexscreenerReferences(env, mints) {
 
 /**
  * Prices `tokens` ([{ mint, decimals, label? }], USDC excluded) for posting.
- * Returns Map(mint -> { scaled: bigint (PRICE_SCALE), usd, spreadBps, confirmedBy: [...] }).
+ * Returns Map(mint -> { scaled: bigint (PRICE_SCALE), usd, spreadBps, confirmedBy: [sources],
+ * references: [{ source, usd }] }).
  * Throws OraclePriceError naming every token it could not price.
  *
  * env: { swapApi, priceApi, fetchJson(url, init), probeUsd?, maxSpreadBps?, maxDeviationBps? }
@@ -146,6 +147,7 @@ export async function oraclePrices(tokens, env) {
         usd,
         spreadBps: trip.spreadBps,
         confirmedBy: confirmedBy.map((r) => r.source),
+        references,
       });
     } catch (error) {
       failures.push({ mint: token.mint, label, reason: error.message ?? String(error) });
