@@ -12,12 +12,8 @@
     "test:keeper": "node --test tests/rebalance-keeper.test.mjs",
     "test:rust": "cargo test -p basket",
     "test:catalog": "node --test tests/catalog.test.mjs",
-    "catalog:check": "node scripts/bootstrap-catalog-mainnet.mjs --dry-run",
-    "catalog:deploy": "node scripts/bootstrap-catalog-mainnet.mjs --execute",
-    "catalog:verify": "node scripts/verify-catalog-mainnet.mjs",
     "test:replacement": "node tests/replacement-lifecycle.mjs",
-    "replacement:check": "node scripts/bootstrap-replacement-catalog.mjs --dry-run",
-    "replacement:deploy": "node scripts/replace-mainnet-program.mjs --execute"
+    "replacement:check": "node scripts/bootstrap-replacement-catalog.mjs --dry-run"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",

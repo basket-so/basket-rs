@@ -1,0 +1,19 @@
+# Price oracle service image for Fly.io (see fly.oracle.toml). Only the service, its pricing and
+# signing modules and the program IDL are copied in; .dockerignore keeps keypairs out of the build
+# context entirely.
+FROM node:22-slim
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
+
+COPY scripts/oracle-service.mjs scripts/
+COPY scripts/lib/price-oracle.mjs scripts/lib/signed-prices.mjs scripts/lib/
+# The service loads target/idl/basket.json; ship the IDL of the program build with signed prices.
+COPY target/idl/basket.json target/idl/basket.json
+
+USER node
+EXPOSE 8080
+CMD ["node", "scripts/oracle-service.mjs"]

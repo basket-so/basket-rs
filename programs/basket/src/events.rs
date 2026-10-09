@@ -239,6 +239,15 @@ pub struct LargeBasketIntentFinalized {
     pub quote_atoms_executed: u64,
 }
 
+/// A settled intent was closed and its rent returned to its owner.
+#[event]
+pub struct LargeBasketIntentClosed {
+    pub intent: Pubkey,
+    pub index: Pubkey,
+    pub owner: Pubkey,
+    pub lamports: u64,
+}
+
 #[event]
 pub struct StakingPoolInitialized {
     pub authority: Pubkey,
@@ -355,8 +364,8 @@ pub struct CompositionChangeApplied {
     pub component_count: u8,
 }
 
-/// The protocol authority set the key that posts rebalance prices; every posted price was
-/// cleared.
+/// The protocol authority set the key whose signed prices rebalances accept; prices the
+/// previous key signed no longer verify.
 #[event]
 pub struct PriceOracleSet {
     pub previous: Pubkey,

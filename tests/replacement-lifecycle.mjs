@@ -1,6 +1,6 @@
 import { prepareRebalanceFixtures, testRebalanceMigration } from "./rebalance-migration-fixtures.mjs";
 import { prepareCompositionFixtures, testCompositionChange } from "./composition-change-fixtures.mjs";
-import { preparePriceBoardFixtures, testPriceBoard } from "./price-board-fixtures.mjs";
+import { ACCOUNT_LOCK_LIMIT_128_FEATURE, prepareSignedPriceFixtures, testSignedPrices } from "./signed-prices-fixtures.mjs";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -283,7 +283,7 @@ async function main() {
 
   const rebalanceFixtures = await prepareRebalanceFixtures(fixtureDir, programId, payer.publicKey);
   const compositionFixtures = await prepareCompositionFixtures(fixtureDir, programId, payer.publicKey);
-  const priceBoardFixtures = await preparePriceBoardFixtures(fixtureDir, programId, payer.publicKey);
+  const signedPriceFixtures = await prepareSignedPriceFixtures(fixtureDir, programId, payer.publicKey);
   const validatorArgs = [
       "--reset",
       "--quiet",
@@ -306,7 +306,9 @@ async function main() {
       usdcMint.toBase58(),
       usdcMintDump,
     ];
-  validatorArgs.push(...rebalanceFixtures.validatorArgs, ...compositionFixtures.validatorArgs, ...priceBoardFixtures.validatorArgs);
+  validatorArgs.push(...rebalanceFixtures.validatorArgs, ...compositionFixtures.validatorArgs, ...signedPriceFixtures.validatorArgs);
+  // Enforce mainnet's 64 accounts per transaction (the 128 feature is inactive there).
+  validatorArgs.push("--deactivate-feature", ACCOUNT_LOCK_LIMIT_128_FEATURE);
   const wslPath = p => p.replace(/^([A-Za-z]):/, (_, drive) => '/mnt/' + drive.toLowerCase()).replaceAll('\\','/');
   const validatorProcess = spawn(process.env.BASKET_WSL ? 'wsl.exe' : validator,
     process.env.BASKET_WSL ? ['-d','Ubuntu','--','/home/gainsu/.cache/basket-validator/solana-release/bin/solana-test-validator', ...validatorArgs.map(wslPath)] : validatorArgs,
@@ -437,7 +439,7 @@ async function main() {
 
     await testRebalanceMigration(program, connection, payer, stakingPool, rebalanceFixtures.fixtures);
     await testCompositionChange(program, connection, payer, user, stakingPool, compositionFixtures.fixtures);
-    await testPriceBoard(program, connection, payer, user, priceBoardFixtures.fixtures);
+    await testSignedPrices(program, connection, payer, user, signedPriceFixtures.fixtures);
     for (const fixedWeights of [false, true]) {
       const symbol = fixedWeights ? 'FIXED' : 'UNITS';
       const index = pda('index', payer.publicKey, symbol);
@@ -448,7 +450,10 @@ async function main() {
       const vaults = components.map(m => getAssociatedTokenAddressSync(m, vaultAuthority, true));
       const owners = await Promise.all(components.map(m => getOrCreateAssociatedTokenAccount(connection, payer, m, payer.publicKey)));
       await mintTo(connection, payer, components[0], owners[0].address, payer, 10_000_000);
-      await program.methods.createLargeBasketIndex({ name: symbol + ' test', symbol, metadataUri: '', decimals: 6, feeRecipient: payer.publicKey, creatorFeeRecipient: PublicKey.default, maxSupply: bn(10_000_000), rebalanceDelaySeconds: bn(0), kind: fixedWeights ? { fixedWeights: {} } : { fixedUnits: {} }, fixedWeightQuoteMint: fixedWeights ? usdcMint : PublicKey.default, fixedWeightRebalanceIntervalSeconds: bn(fixedWeights ? 86400 : 0), fixedWeightDriftThresholdBps: fixedWeights ? 500 : 0, fixedWeightSpotEmaMaxDeviationBps: fixedWeights ? 500 : 0, componentCount: 2 }).accounts({ payer: payer.publicKey, authority: payer.publicKey, protocolConfig, index, indexMint, vaultAuthority, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc();
+      const createIndex = (componentCount) => program.methods.createLargeBasketIndex({ name: symbol + ' test', symbol, metadataUri: '', decimals: 6, feeRecipient: payer.publicKey, creatorFeeRecipient: PublicKey.default, maxSupply: bn(10_000_000), rebalanceDelaySeconds: bn(0), kind: fixedWeights ? { fixedWeights: {} } : { fixedUnits: {} }, fixedWeightQuoteMint: fixedWeights ? usdcMint : PublicKey.default, fixedWeightRebalanceIntervalSeconds: bn(fixedWeights ? 86400 : 0), fixedWeightDriftThresholdBps: fixedWeights ? 500 : 0, fixedWeightSpotEmaMaxDeviationBps: fixedWeights ? 500 : 0, componentCount }).accounts({ payer: payer.publicKey, authority: payer.publicKey, protocolConfig, index, indexMint, vaultAuthority, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc();
+      // Every basket kind is capped at 40 components.
+      await assert.rejects(createIndex(41), /InvalidComponentCount/);
+      await createIndex(2);
       await program.methods.initializeLargeBasketComponentPage({ pageIndex: 0, startComponentIndex: 0, components: components.map(mint => ({ mint, unitsPerIndex: bn(fixedWeights && mint.equals(usdcMint) ? 0 : 500_000), targetWeightBps: fixedWeights && !mint.equals(usdcMint) ? 10000 : 0, oraclePair: mint.equals(usdcMint) ? PublicKey.default : Keypair.generate().publicKey })) }).accounts({ payer: payer.publicKey, authority: payer.publicKey, index, indexMint, vaultAuthority, page, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).remainingAccounts(components.flatMap((mint,i) => [meta(mint), meta(vaults[i],true), meta(TOKEN_PROGRAM_ID)])).rpc();
       await program.methods.finalizeLargeBasketConfig().accounts({ authority: payer.publicKey, index }).remainingAccounts([meta(page,true)]).rpc();
       const chainNow = async () => connection.getBlockTime(await connection.getSlot('confirmed'));
@@ -487,12 +492,19 @@ async function main() {
         await fill(h);
         await finalize(h);
       }
+      // Anyone may close a settled intent (the payer sends these); its rent goes back to its owner.
+      const close = (h, owner = h.o.kp.publicKey) => program.methods.closeLargeBasketIntent().accounts({ owner, intent: h.intent, intentLock: h.o.common.intentLock }).rpc();
+      const lamportsOf = async (key) => (await connection.getAccountInfo(key, 'confirmed'))?.lamports ?? 0;
       const supplyOf = async () => (await getMint(connection, indexMint)).supply;
       await operation(me, 'mint', 1_000_000);
       await operation(me, 'mint', 1_000_000);
       assert.equal(await supplyOf(), 2_000_000n);
       for (const [i,v] of vaults.entries()) assert.equal((await getAccount(connection,v)).amount, fixedWeights && components[i].equals(usdcMint) ? 0n : 1_000_000n);
-      await cancelUnfilled(await open(me, 'mint', 1_000_000));
+      const unfilledMint = await open(me, 'mint', 1_000_000);
+      await assert.rejects(close(unfilledMint), /LargeBasketIntentNotClosable/);
+      await cancelUnfilled(unfilledMint);
+      await close(unfilledMint);
+      assert.equal(await lamportsOf(unfilledMint.intent), 0);
       await cancelUnfilled(await open(me, 'redeem', 1_000_000));
       assert.equal(await supplyOf(), 2_000_000n);
 
@@ -504,6 +516,14 @@ async function main() {
       assert.equal((await indexState()).openIntentCount, 2);
       await fill(mintAlongside);
       await finalize(mintAlongside);
+      // Someone other than alice closes her settled mint: the rent goes to alice, and naming
+      // anyone else as the owner is refused.
+      const aliceRent = await lamportsOf(mintAlongside.intent);
+      const aliceBefore = await lamportsOf(alice.kp.publicKey);
+      await assert.rejects(close(mintAlongside, payer.publicKey), /InvalidLargeBasketIntent/);
+      await close(mintAlongside);
+      assert.equal(await lamportsOf(alice.kp.publicKey), aliceBefore + aliceRent);
+      assert.equal(await lamportsOf(mintAlongside.intent), 0);
       await fill(redeemInFlight);
       await finalize(redeemInFlight);
       assert.equal((await indexState()).openIntentCount, 0);
@@ -518,7 +538,7 @@ async function main() {
         await transferSol(connection, payer, keeper.publicKey, 1);
         const request = (kp) => program.methods.requestRebalance().accounts({ operator: kp.publicKey, index }).signers([kp]).rpc();
         const rebalanceNonce = bn(1);
-        const openRebalance = async (kp) => program.methods.openRebalanceIntent({ nonce: rebalanceNonce, expiresAt: bn((await chainNow()) + 600), maxPriceAgeSlots: bn(50), navToleranceBps: 50, maxPostRebalanceDriftBps: 100 }).accounts({ initiator: kp.publicKey, index, indexMint, vaultAuthority, quoteMint: usdcMint, vaultQuoteTokenAccount: vaults[1], intent: pda('rebalance-intent', index, rebalanceNonce.toArrayLike(Buffer, 'le', 8)), priceBoard: pda('price-board'), associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, quoteTokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).signers([kp]).rpc();
+        const openRebalance = async (kp) => program.methods.openRebalanceIntent({ nonce: rebalanceNonce, expiresAt: bn((await chainNow()) + 600), maxPriceAgeSlots: bn(50), navToleranceBps: 50, maxPostRebalanceDriftBps: 100 }).accounts({ initiator: kp.publicKey, index, indexMint, vaultAuthority, quoteMint: usdcMint, vaultQuoteTokenAccount: vaults[1], intent: pda('rebalance-intent', index, rebalanceNonce.toArrayLike(Buffer, 'le', 8)), priceOracle: pda('price-oracle'), associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, quoteTokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).signers([kp]).rpc();
         await assert.rejects(request(alice.kp), /NotRebalanceOperator/);
         await assert.rejects(request(keeper), /NotRebalanceOperator/);
         await assert.rejects(program.methods.setRebalanceKeeper({ keeper: keeper.publicKey }).accounts({ authority: alice.kp.publicKey, index }).signers([alice.kp]).rpc(), /UnauthorizedAuthority/);
@@ -588,18 +608,26 @@ async function main() {
         if (!last) {
           await assert.rejects(refund(group), /InvalidRemainingAccounts/);
           await assert.rejects(finalize(stranded), /InvalidLargeBasketIntent/);
+          await assert.rejects(close(stranded), /LargeBasketIntentNotClosable/);
         }
       }
       // The escrowed component waits for bob, whose lock keeps pointing at the intent until he
       // claims it; only bob's own new intents wait meanwhile.
       const lockOf = async () => (await program.account.largeBasketIntentLock.fetch(bob.common.intentLock)).activeIntent.toBase58();
       assert.equal(await lockOf(), stranded.intent.toBase58());
+      // Cancelled, but with a component still in escrow it stays open for bob's claim.
+      await assert.rejects(close(stranded), /LargeBasketIntentNotClosable/);
       assert.equal((await getAccount(connection, bob.tokenAccounts[owed[0]].address)).amount, bobBefore[owed[0]] - BigInt(amounts[owed[0]].toString()));
       const claim = (kp) => program.methods.claimLargeBasketRefund().accounts({ owner: kp.publicKey, index, intent: stranded.intent, intentLock: bob.common.intentLock, refundEscrow }).remainingAccounts([meta(page), ...refundGroup(owed[0], true).map((m, k) => (k === 1 ? meta(escrowAccounts[owed[0]].address, true) : k === 2 ? meta(bob.tokenAccounts[owed[0]].address, true) : m))]).signers([kp]).rpc();
       await assert.rejects(claim(alice.kp));
       await claim(bob.kp);
       await assert.rejects(claim(bob.kp), /InvalidRemainingAccounts/);
       assert.equal(await lockOf(), PublicKey.default.toBase58());
+      // Claimed in full, it closes, and bob gets its rent back.
+      const bobRent = await lamportsOf(stranded.intent);
+      const bobSol = await lamportsOf(bob.kp.publicKey);
+      await close(stranded);
+      assert.equal(await lamportsOf(bob.kp.publicKey), bobSol + bobRent);
       for (const [i, a] of bob.tokenAccounts.entries()) assert.equal((await getAccount(connection, a.address)).amount, bobBefore[i]);
       for (const a of escrowAccounts) assert.equal((await getAccount(connection, a.address)).amount, 0n);
       for (const v of vaults) assert.equal((await getAccount(connection, v)).amount, 0n);
@@ -674,7 +702,7 @@ async function main() {
       assert.equal(await usdcOf(feeUsdc),2_000n);
       assert.equal((await getAccount(connection,rewardVault)).amount,2_000n);
     }
-    console.log('integration ok: six-decimal staking, rewards, unstaking; fixed-unit and fixed-weight paged creation, initial/pro-rata mint, cancellation, complete redemption; concurrent intents from several owners, keeper-only spaced rebalance requests, empty-basket eras, incremental expiry refunds and escrow claims; swap-path mint fee collection; redeem fees charged with proceeds, auto-finalize, closed bypasses');
+    console.log('integration ok: six-decimal staking, rewards, unstaking; fixed-unit and fixed-weight paged creation, initial/pro-rata mint, cancellation, complete redemption; concurrent intents from several owners, keeper-only spaced rebalance requests, empty-basket eras, incremental expiry refunds and escrow claims; settled intents closed with the rent back to the owner, unsettled ones refused; 40-component cap; swap-path mint fee collection; redeem fees charged with proceeds, auto-finalize, closed bypasses');
   } catch (error) {
     if (!/privilege error 1314/i.test(error.message)) {
       console.error(validatorOutput);

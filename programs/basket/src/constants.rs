@@ -10,6 +10,15 @@ pub const STAKE_POSITION_SEED: &[u8] = b"stake-position";
 
 pub const MAX_COMPONENTS: usize = 8;
 pub const MAX_LARGE_BASKET_COMPONENTS: usize = 50;
+// Components (slots, removed ones included) any basket may have, fixed-unit or fixed-weight, checked
+// wherever a basket gains slots. Rebalance open names every page and every slot's vault in one
+// transaction, and mainnet locks at most 64 accounts per transaction: open's 15 fixed accounts and
+// 5 pages leave room for 44 more vaults (the USDC slot's vault is one of the fixed accounts), so 45
+// slots is the most that fits. The cap keeps a margin below that: 40 slots name at most 15 + 4
+// pages + 39 vaults = 58 accounts. Account layouts stay sized for MAX_LARGE_BASKET_COMPONENTS
+// (accounts already on chain have that size), so this is a validation cap only.
+pub const MAX_BASKET_COMPONENTS: usize = 40;
+const _: () = assert!(MAX_BASKET_COMPONENTS <= MAX_LARGE_BASKET_COMPONENTS);
 pub const MAX_LARGE_BASKET_COMPONENTS_PER_PAGE: usize = 10;
 pub const MAX_LARGE_BASKET_PAGES: usize =
     MAX_LARGE_BASKET_COMPONENTS.div_ceil(MAX_LARGE_BASKET_COMPONENTS_PER_PAGE);
@@ -22,15 +31,10 @@ pub const LARGE_BASKET_INTENT_LOCK_SEED: &[u8] = b"large-basket-intent-lock";
 pub const LARGE_BASKET_COMPONENT_PAGE_SEED: &[u8] = b"large-basket-component-page";
 pub const REBALANCE_INTENT_SEED: &[u8] = b"rebalance-intent";
 pub const COMPOSITION_CHANGE_SEED: &[u8] = b"composition-change";
-pub const PRICE_BOARD_SEED: &[u8] = b"price-board";
-// Distinct mints the price board holds. A full board reuses the entry of a price too old to
-// be read; this is several times the tokens every rebalanced basket holds together. The board
-// is allocated at this size, so raising it later needs a realloc path first.
-pub const PRICE_BOARD_CAPACITY: usize = 64;
-// Prices one post may carry (a post must fit one transaction).
-pub const MAX_PRICES_PER_POST: usize = 20;
-// Oldest posted price (about a minute) open, swap and finalize accept.
-pub const MAX_PRICE_AGE_SLOTS: u64 = 150;
+pub const PRICE_ORACLE_SEED: &[u8] = b"price-oracle";
+// Oldest signed price (about 20 seconds) a rebalance step accepts. The keeper has prices signed
+// right before each step and sends it at once; a step that misses the window is re-signed.
+pub const MAX_PRICE_AGE_SLOTS: u64 = 50;
 // Notice holders get before a basket's weights or components change, so they can redeem first.
 pub const COMPOSITION_CHANGE_DELAY_SECONDS: i64 = 3 * 24 * 60 * 60;
 // A due change must be applied within this window; after it the proposal lapses and has to
@@ -42,6 +46,8 @@ pub const MAX_COMPOSITION_ADDITIONS: usize = MAX_LARGE_BASKET_COMPONENTS_PER_PAG
 // held component in one transaction. A change may leave at most this many slots, and this
 // many components to price while the basket switches over.
 pub const MAX_COMPOSITION_COMPONENTS: usize = 2 * MAX_LARGE_BASKET_COMPONENTS_PER_PAGE;
+// Composition changes count slots the same way and stay within the basket cap.
+const _: () = assert!(MAX_COMPOSITION_COMPONENTS <= MAX_BASKET_COMPONENTS);
 pub const MAX_COMPOSITION_PRICED_COMPONENTS: usize = 10;
 // Smallest nonzero target weight a change may set, so a component's backing per index token
 // does not round to zero units.

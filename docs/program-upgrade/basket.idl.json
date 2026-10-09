@@ -866,6 +866,81 @@
       "args": []
     },
     {
+      "name": "close_large_basket_intent",
+      "discriminator": [
+        7,
+        39,
+        63,
+        140,
+        104,
+        184,
+        132,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "intent_lock",
+          "docs": [
+            "The owner's lock on the intent's basket, which must not still point at this intent."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116,
+                  45,
+                  108,
+                  111,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "intent.index",
+                "account": "LargeBasketIntent"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "close_rebalance_intent",
       "discriminator": [
         84,
@@ -2096,16 +2171,39 @@
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "switchboard_queue"
+          "name": "price_oracle",
+          "docs": [
+            "The key whose signed prices this step accepts."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  45,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
         },
         {
-          "name": "switchboard_quote"
-        },
-        {
-          "name": "slothashes"
-        },
-        {
-          "name": "instructions_sysvar"
+          "name": "instructions_sysvar",
+          "docs": [
+            "The instructions sysvar, to read the oracle's Ed25519 signature instruction, which must",
+            "come immediately before this step."
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
         }
       ],
       "args": [
@@ -2201,16 +2299,39 @@
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "switchboard_queue"
+          "name": "price_oracle",
+          "docs": [
+            "The key whose signed prices this step accepts."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  45,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
         },
         {
-          "name": "switchboard_quote"
-        },
-        {
-          "name": "slothashes"
-        },
-        {
-          "name": "instructions_sysvar"
+          "name": "instructions_sysvar",
+          "docs": [
+            "The instructions sysvar, to read the oracle's Ed25519 signature instruction, which must",
+            "come immediately before this step."
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
         }
       ],
       "args": [
@@ -2526,16 +2647,39 @@
           "name": "vault_quote_token_account"
         },
         {
-          "name": "switchboard_queue"
+          "name": "price_oracle",
+          "docs": [
+            "The key whose signed prices this step accepts."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  45,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
         },
         {
-          "name": "switchboard_quote"
-        },
-        {
-          "name": "slothashes"
-        },
-        {
-          "name": "instructions_sysvar"
+          "name": "instructions_sysvar",
+          "docs": [
+            "The instructions sysvar, to read the oracle's Ed25519 signature instruction, which must",
+            "come immediately before this step."
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
           "name": "quote_token_program"
@@ -3464,16 +3608,39 @@
           }
         },
         {
-          "name": "switchboard_queue"
+          "name": "price_oracle",
+          "docs": [
+            "The key whose signed prices this step accepts."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  45,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
         },
         {
-          "name": "switchboard_quote"
-        },
-        {
-          "name": "slothashes"
-        },
-        {
-          "name": "instructions_sysvar"
+          "name": "instructions_sysvar",
+          "docs": [
+            "The instructions sysvar, to read the oracle's Ed25519 signature instruction, which must",
+            "come immediately before this step."
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
         },
         {
           "name": "associated_token_program",
@@ -3723,6 +3890,95 @@
           "type": {
             "defined": {
               "name": "SetLargeBasketComponentOraclePairArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "set_price_oracle",
+      "discriminator": [
+        189,
+        75,
+        36,
+        144,
+        201,
+        68,
+        8,
+        248
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "protocol_config"
+          ]
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "price_oracle",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  45,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "SetPriceOracleArgs"
             }
           }
         }
@@ -4371,132 +4627,6 @@
       ]
     },
     {
-      "name": "verify_large_basket_mint_component_price",
-      "discriminator": [
-        210,
-        2,
-        242,
-        221,
-        91,
-        57,
-        200,
-        252
-      ],
-      "accounts": [
-        {
-          "name": "owner",
-          "signer": true,
-          "relations": [
-            "intent"
-          ]
-        },
-        {
-          "name": "index",
-          "relations": [
-            "intent"
-          ]
-        },
-        {
-          "name": "index_mint",
-          "relations": [
-            "index"
-          ]
-        },
-        {
-          "name": "intent",
-          "writable": true
-        },
-        {
-          "name": "component_page"
-        },
-        {
-          "name": "switchboard_queue"
-        },
-        {
-          "name": "switchboard_quote"
-        },
-        {
-          "name": "slothashes"
-        },
-        {
-          "name": "instructions_sysvar"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "VerifyLargeBasketComponentPriceArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "verify_large_basket_redeem_component_price",
-      "discriminator": [
-        149,
-        188,
-        173,
-        220,
-        56,
-        33,
-        229,
-        207
-      ],
-      "accounts": [
-        {
-          "name": "owner",
-          "signer": true,
-          "relations": [
-            "intent"
-          ]
-        },
-        {
-          "name": "index",
-          "relations": [
-            "intent"
-          ]
-        },
-        {
-          "name": "index_mint",
-          "relations": [
-            "index"
-          ]
-        },
-        {
-          "name": "intent",
-          "writable": true
-        },
-        {
-          "name": "component_page"
-        },
-        {
-          "name": "switchboard_queue"
-        },
-        {
-          "name": "switchboard_quote"
-        },
-        {
-          "name": "slothashes"
-        },
-        {
-          "name": "instructions_sysvar"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "VerifyLargeBasketComponentPriceArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "verify_rebalance_component_price",
       "discriminator": [
         231,
@@ -4527,16 +4657,39 @@
           "name": "component_page"
         },
         {
-          "name": "switchboard_queue"
+          "name": "price_oracle",
+          "docs": [
+            "The key whose signed prices this step accepts."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  45,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              }
+            ]
+          }
         },
         {
-          "name": "switchboard_quote"
-        },
-        {
-          "name": "slothashes"
-        },
-        {
-          "name": "instructions_sysvar"
+          "name": "instructions_sysvar",
+          "docs": [
+            "The instructions sysvar, to read the oracle's Ed25519 signature instruction, which must",
+            "come immediately before this step."
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
         }
       ],
       "args": [
@@ -4615,6 +4768,19 @@
         235,
         126,
         226
+      ]
+    },
+    {
+      "name": "PriceOracle",
+      "discriminator": [
+        57,
+        140,
+        120,
+        176,
+        191,
+        65,
+        52,
+        89
       ]
     },
     {
@@ -5023,6 +5189,19 @@
       ]
     },
     {
+      "name": "LargeBasketIntentClosed",
+      "discriminator": [
+        33,
+        42,
+        38,
+        117,
+        220,
+        124,
+        131,
+        108
+      ]
+    },
+    {
       "name": "LargeBasketIntentFinalized",
       "discriminator": [
         96,
@@ -5046,6 +5225,19 @@
         241,
         102,
         36
+      ]
+    },
+    {
+      "name": "PriceOracleSet",
+      "discriminator": [
+        18,
+        3,
+        124,
+        21,
+        171,
+        58,
+        66,
+        32
       ]
     },
     {
@@ -5512,23 +5704,23 @@
     },
     {
       "code": 6066,
-      "name": "SwitchboardVerificationFailed",
-      "msg": "Switchboard oracle verification failed."
+      "name": "StaleOraclePrice",
+      "msg": "The signed oracle prices are older than the allowed age."
     },
     {
       "code": 6067,
-      "name": "InvalidSwitchboardMaxAge",
-      "msg": "The requested Switchboard quote maximum age is outside the supported range."
+      "name": "InvalidOraclePriceAge",
+      "msg": "The requested oracle price age is outside the supported range."
     },
     {
       "code": 6068,
-      "name": "MissingSwitchboardFeed",
-      "msg": "The required Switchboard feed was not present in the verified quote."
+      "name": "MissingOraclePrice",
+      "msg": "The signed prices have no price for a component this needs."
     },
     {
       "code": 6069,
-      "name": "InvalidSwitchboardPrice",
-      "msg": "The Switchboard oracle price is invalid."
+      "name": "InvalidOraclePrice",
+      "msg": "The oracle price is invalid."
     },
     {
       "code": 6070,
@@ -5664,6 +5856,41 @@
       "code": 6096,
       "name": "CompositionChangeExitRestricted",
       "msg": "A composition change only applies while redemptions are open at fees no higher than when it was proposed."
+    },
+    {
+      "code": 6097,
+      "name": "MissingPriceSignature",
+      "msg": "A rebalance step must come right after the price oracle's Ed25519 signature instruction."
+    },
+    {
+      "code": 6098,
+      "name": "InvalidPriceSignature",
+      "msg": "The price signature instruction is malformed, reads another instruction, or is not signed by the price oracle."
+    },
+    {
+      "code": 6099,
+      "name": "InvalidPriceMessage",
+      "msg": "The signed price message is malformed."
+    },
+    {
+      "code": 6100,
+      "name": "SignedPricesMismatch",
+      "msg": "The signed prices are for another rebalance intent."
+    },
+    {
+      "code": 6101,
+      "name": "SignedPriceSlotInFuture",
+      "msg": "The signed prices are from a slot after the current one."
+    },
+    {
+      "code": 6102,
+      "name": "DuplicateOraclePrice",
+      "msg": "The signed prices list a component more than once."
+    },
+    {
+      "code": 6103,
+      "name": "LargeBasketIntentNotClosable",
+      "msg": "Only a settled intent with nothing left to claim, which its owner's lock no longer points at, can be closed."
     }
   ],
   "types": [
@@ -6029,6 +6256,9 @@
           },
           {
             "name": "switchboard_max_age_slots",
+            "docs": [
+              "Unused: mints and redeems read no oracle. Kept so existing clients encode unchanged."
+            ],
             "type": "u64"
           }
         ]
@@ -6093,6 +6323,9 @@
           },
           {
             "name": "switchboard_max_age_slots",
+            "docs": [
+              "Unused: mints and redeems read no oracle. Kept so existing clients encode unchanged."
+            ],
             "type": "u64"
           }
         ]
@@ -6126,7 +6359,7 @@
             }
           },
           {
-            "name": "switchboard_max_age_slots",
+            "name": "max_price_age_slots",
             "type": "u64"
           },
           {
@@ -6142,7 +6375,7 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "switchboard_max_age_slots",
+            "name": "max_price_age_slots",
             "type": "u64"
           }
         ]
@@ -7319,6 +7552,33 @@
       }
     },
     {
+      "name": "LargeBasketIntentClosed",
+      "docs": [
+        "A settled intent was closed and its rent returned to its owner."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "intent",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "lamports",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "LargeBasketIntentFinalized",
       "type": {
         "kind": "struct",
@@ -7629,7 +7889,7 @@
             "type": "i64"
           },
           {
-            "name": "switchboard_max_age_slots",
+            "name": "max_price_age_slots",
             "type": "u64"
           },
           {
@@ -7639,6 +7899,61 @@
           {
             "name": "max_post_rebalance_drift_bps",
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PriceOracle",
+      "docs": [
+        "The key whose signed prices rebalances accept. Mints and redeems never read prices. The",
+        "oracle signs prices off chain for one rebalance intent at a time; each rebalance step checks",
+        "that signature in its own transaction (see `utils::signed_prices`), so nothing is stored here",
+        "but the key."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oracle",
+            "docs": [
+              "The only key whose price signatures rebalances accept. Set by the protocol authority;",
+              "changing it invalidates every price the previous key signed."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PriceOracleSet",
+      "docs": [
+        "The protocol authority set the key whose signed prices rebalances accept; prices the",
+        "previous key signed no longer verify."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "previous",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle",
+            "type": "pubkey"
           }
         ]
       }
@@ -8197,6 +8512,18 @@
       }
     },
     {
+      "name": "SetPriceOracleArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "SetRebalanceKeeperArgs",
       "type": {
         "kind": "struct",
@@ -8506,26 +8833,6 @@
       }
     },
     {
-      "name": "VerifyLargeBasketComponentPriceArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "component_index",
-            "type": "u16"
-          },
-          {
-            "name": "max_oracle_slippage_bps",
-            "type": "u16"
-          },
-          {
-            "name": "switchboard_max_age_slots",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "VerifyRebalanceComponentPriceArgs",
       "type": {
         "kind": "struct",
@@ -8539,7 +8846,7 @@
             "type": "u16"
           },
           {
-            "name": "switchboard_max_age_slots",
+            "name": "max_price_age_slots",
             "type": "u64"
           }
         ]

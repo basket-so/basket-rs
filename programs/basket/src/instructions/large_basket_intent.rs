@@ -15,7 +15,10 @@ use crate::{
         STAKING_AUTHORITY_SEED, STAKING_POOL_SEED, USDC_MINT, VAULT_AUTHORITY_SEED,
     },
     errors::BasketError,
-    events::{LargeBasketComponentFilled, LargeBasketIntentFinalized, LargeBasketIntentOpened},
+    events::{
+        LargeBasketComponentFilled, LargeBasketIntentClosed, LargeBasketIntentFinalized,
+        LargeBasketIntentOpened,
+    },
     state::{
         IndexState, LargeBasketComponent, LargeBasketComponentPage,
         LargeBasketIntent, LargeBasketIntentKind, LargeBasketIntentLock, LargeBasketIntentStatus,
@@ -1704,6 +1707,61 @@ impl<'info> ClaimLargeBasketRefund<'info> {
     }
 }
 
+/// Returns a settled intent's rent to its owner, who paid it at open. Anyone may close one, so
+/// settled intents can be cleaned up on their owners' behalf; the rent only ever goes to the owner.
+#[derive(Accounts)]
+pub struct CloseLargeBasketIntent<'info> {
+    /// CHECK: The intent's owner (has_one below), who gets its rent back.
+    #[account(mut)]
+    pub owner: UncheckedAccount<'info>,
+    #[account(mut, close = owner, has_one = owner @ BasketError::InvalidLargeBasketIntent)]
+    pub intent: Account<'info, LargeBasketIntent>,
+    /// The owner's lock on the intent's basket, which must not still point at this intent.
+    #[account(
+        seeds = [
+            LARGE_BASKET_INTENT_LOCK_SEED,
+            intent.index.as_ref(),
+            owner.key().as_ref(),
+        ],
+        bump = intent_lock.bump
+    )]
+    pub intent_lock: Account<'info, LargeBasketIntentLock>,
+}
+
+impl<'info> CloseLargeBasketIntent<'info> {
+    pub fn handle(ctx: Context<Self>) -> Result<()> {
+        let intent = &ctx.accounts.intent;
+        require_closable(intent, &intent.key(), &ctx.accounts.intent_lock.active_intent)?;
+        emit!(LargeBasketIntentClosed {
+            intent: intent.key(),
+            index: intent.index,
+            owner: intent.owner,
+            lamports: intent.to_account_info().lamports(),
+        });
+        Ok(())
+    }
+}
+
+/// A settled intent is never read again: nothing reads a finalized one, and the refund claim,
+/// the only step after a cancel, needs components still in escrow. The owner's lock points at an
+/// intent only while it is unsettled or has refunds waiting, and must never point at a closed one,
+/// which would leave the owner unable to open anything new on that basket.
+fn require_closable(
+    intent: &LargeBasketIntent,
+    intent_key: &Pubkey,
+    lock_active_intent: &Pubkey,
+) -> Result<()> {
+    require!(
+        matches!(
+            intent.status,
+            LargeBasketIntentStatus::Finalized | LargeBasketIntentStatus::Cancelled
+        ) && intent.escrowed_bitmap.iter().all(|byte| *byte == 0)
+            && lock_active_intent != intent_key,
+        BasketError::LargeBasketIntentNotClosable
+    );
+    Ok(())
+}
+
 fn find_component_by_mint<'a>(
     pages: &'a [Account<'_, LargeBasketComponentPage>],
     mint: &Pubkey,
@@ -3384,6 +3442,30 @@ mod tests {
             bump: 255,
             reserved: [0; 6],
         }
+    }
+
+    #[test]
+    fn only_settled_intents_with_nothing_to_claim_and_no_lock_close() {
+        let key = Pubkey::new_unique();
+        let unlocked = Pubkey::default();
+        let closable = |status, escrowed: bool, lock: &Pubkey| {
+            let mut intent = intent(3);
+            intent.status = status;
+            if escrowed {
+                intent.escrowed_bitmap[0] = 0b100;
+            }
+            require_closable(&intent, &key, lock).is_ok()
+        };
+        assert!(closable(LargeBasketIntentStatus::Finalized, false, &unlocked));
+        assert!(closable(LargeBasketIntentStatus::Cancelled, false, &unlocked));
+        // The lock may point at the owner's next intent; only this one blocks the close.
+        assert!(closable(LargeBasketIntentStatus::Finalized, false, &Pubkey::new_unique()));
+        // Unsettled, refunds still owed, or still the owner's active intent.
+        assert!(!closable(LargeBasketIntentStatus::Open, false, &unlocked));
+        assert!(!closable(LargeBasketIntentStatus::Refunding, false, &unlocked));
+        assert!(!closable(LargeBasketIntentStatus::Cancelled, true, &key));
+        assert!(!closable(LargeBasketIntentStatus::Cancelled, true, &unlocked));
+        assert!(!closable(LargeBasketIntentStatus::Finalized, false, &key));
     }
 
     fn index_with_component_counts(large_basket_component_count: u8) -> IndexState {

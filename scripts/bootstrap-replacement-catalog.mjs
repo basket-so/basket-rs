@@ -7,7 +7,7 @@ import { AddressLookupTableProgram, Connection, ComputeBudgetProgram, Keypair, P
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync,
   unpackMint, getAccountLenForMint } from '@solana/spl-token';
 import { USDC, validateCatalog, sizeBasket, fetchJson } from './lib/catalog.mjs';
-import { oraclePrices } from './lib/price-oracle.mjs';
+import { jupiterApis, oraclePrices } from './lib/price-oracle.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
@@ -26,7 +26,7 @@ const reportFile = path.join(root, 'docs/program-replacement/readiness.json');
 const journalFile = path.join(root, 'docs/program-replacement/deployment.json');
 const journal = fs.existsSync(journalFile) ? JSON.parse(fs.readFileSync(journalFile, 'utf8')) : { transactions: [], baskets: {} };
 const saveJournal = () => fs.writeFileSync(journalFile, JSON.stringify(journal, null, 2) + '\n');
-const connection = new Connection(process.env.SOLANA_RPC_URL ?? JSON.parse(fs.readFileSync(path.join(root, '../basket-ui/public/mainnet-state.json'), 'utf8')).rpcUrl, 'confirmed');
+const connection = new Connection(process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com', 'confirmed');
 const keyFile = process.env.ANCHOR_WALLET ?? path.join(root, 'deployer-keypair.json');
 const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(keyFile, 'utf8'))));
 const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(payer), { commitment: 'confirmed', preflightCommitment: 'confirmed' });
@@ -50,8 +50,8 @@ async function fetchCreatedIndex(address) {
   }
   throw new Error(`Confirmed index not yet readable: ${address}`);
 }
-const priceApi = process.env.JUPITER_PRICE_API ?? 'https://lite-api.jup.ag/price/v3';
-const swapApi = process.env.JUPITER_SWAP_API ?? 'https://lite-api.jup.ag/swap/v1';
+// Jupiter's keyed API with JUPITER_API_KEY (lib/catalog.mjs's fetchJson sends the key), else keyless.
+const { priceApi, swapApi } = jupiterApis();
 const metadataProgram = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
 const assets = {};
 const failures = {};
@@ -209,7 +209,7 @@ for (const plan of plans) {
     plan.initialNavUsd = refreshed.initialNavUsd;
   }
   const { index, indexMint, vaultAuthority, metadata } = plan.addresses;
-  // Rebalances price components by mint from the price board; oracle pairs are unused.
+  // Rebalances price components from the oracle's signed prices; oracle pairs are unused.
   const onchain = plan.components.map(component => ({ ...component, oraclePair: PublicKey.default }));
   const accounts = { payer: payer.publicKey, authority: payer.publicKey, index, indexMint, vaultAuthority };
   const create = await program.methods.createLargeBasketIndex({ name: plan.name, symbol: plan.symbol, metadataUri: '', decimals: 6,

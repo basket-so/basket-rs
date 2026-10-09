@@ -188,12 +188,12 @@ pub mod basket {
         ClaimLargeBasketRefund::handle(ctx)
     }
 
-    pub fn set_price_oracle(ctx: Context<SetPriceOracle>, args: SetPriceOracleArgs) -> Result<()> {
-        SetPriceOracle::handle(ctx, args)
+    pub fn close_large_basket_intent(ctx: Context<CloseLargeBasketIntent>) -> Result<()> {
+        CloseLargeBasketIntent::handle(ctx)
     }
 
-    pub fn post_prices(ctx: Context<PostPrices>, args: PostPricesArgs) -> Result<()> {
-        PostPrices::handle(ctx, args)
+    pub fn set_price_oracle(ctx: Context<SetPriceOracle>, args: SetPriceOracleArgs) -> Result<()> {
+        SetPriceOracle::handle(ctx, args)
     }
 
     pub fn set_large_basket_component_oracle_pair(

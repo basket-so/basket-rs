@@ -8,7 +8,7 @@
 //!
 //! Lifecycle:
 //!   1. `open_rebalance_intent`  — price the whole NAV (paged component vaults + the
-//!      oracle's posted prices), gate on drift/time, derive each component's swap
+//!      oracle's signed prices), gate on drift/time, derive each component's swap
 //!      LEG (atoms to sell or buy) and direction, snapshot supply + NAV, take the
 //!      `large_basket_operation_in_progress` lock and create the vault USDC ATA. Only the
 //!      index authority or its rebalance keeper may open, and only with no mint/redeem
@@ -16,10 +16,10 @@
 //!      (see MIN/MAX_KEEPER_NAV_TOLERANCE_BPS).
 //!   2. `execute_rebalance_sell_batch` ×N — batched component->USDC swaps (vault authority
 //!      signs); `execute_rebalance_buy_batch` ×N — batched USDC->component swaps funded by
-//!      the proceeds. Executes, verifies and finalize are keeper/authority-only. Each checks execution against the posted price in the same transaction and records the verified fill.
+//!      the proceeds. Executes, verifies and finalize are keeper/authority-only. Each checks execution against the signed price in the same transaction and records the verified fill.
 //!      Blocked once the intent expires or the index pauses rebalancing.
 //!   3. `verify_rebalance_component_price` — bounds each executed leg's effective price
-//!      (recorded quote / recorded fill) against a fresh posted price.
+//!      (recorded quote / recorded fill) against a fresh signed price.
 //!   4. `finalize_rebalance` — require every leg executed + verified, re-price the NAV,
 //!      enforce post-rebalance drift + one-sided NAV preservation + quote dust, rewrite
 //!      each page's `units_per_index` / `accounted_reserve`, release the lock.
@@ -40,12 +40,14 @@
 //! leftover USDC (e.g. from an unwound rebalance) back into components, and the finalize
 //! dust check bounds only the parked EXCESS, not the USDC component's own backing.
 //!
-//! Prices come from the price board, which only the protocol's oracle key may write
-//! (`post_prices`): the keeper has fresh prices posted just before each step that reads
-//! them. Open and finalize price the full basket in one transaction (the real FixedWeights
-//! baskets are 4-10 components). Paged NAV pricing for larger baskets is a follow-up.
+//! Prices are signed by the protocol's price oracle for this intent: the keeper has fresh
+//! prices signed right before each step that reads them and sends the oracle's Ed25519
+//! signature instruction immediately before the step (see `utils::signed_prices`). Open and
+//! finalize price the full basket in one transaction (the real FixedWeights baskets are 3-7
+//! components). Paged NAV pricing for larger baskets is a follow-up.
 
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 use anchor_spl::token_interface::TokenInterface;
 
 use crate::{
@@ -55,7 +57,7 @@ use crate::{
         MAX_FIXED_WEIGHT_QUOTE_DUST_BPS, MAX_KEEPER_NAV_TOLERANCE_BPS,
         MAX_LARGE_BASKET_INTENT_TTL_SECONDS, MAX_REBALANCE_SWAPS_PER_BATCH,
         MAX_PRICE_AGE_SLOTS, MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS,
-        MIN_KEEPER_NAV_TOLERANCE_BPS, PRICE_BOARD_SEED, REBALANCE_INTENT_SEED, USDC_DECIMALS,
+        MIN_KEEPER_NAV_TOLERANCE_BPS, PRICE_ORACLE_SEED, REBALANCE_INTENT_SEED, USDC_DECIMALS,
         USDC_MINT, VAULT_AUTHORITY_SEED,
     },
     errors::BasketError,
@@ -64,18 +66,18 @@ use crate::{
         RebalanceIntentOpened, RebalanceIntentUnwound,
     },
     state::{
-        IndexKind, IndexState, LargeBasketComponent, LargeBasketComponentPage, PriceBoard,
+        IndexKind, IndexState, LargeBasketComponent, LargeBasketComponentPage, PriceOracle,
         RebalanceIntent, RebalanceMode, RebalanceStatus,
     },
     utils::{
         associated_token_address_with_token_program, bitmap_all_set, bitmap_get, bitmap_set_once,
-        board_price, create_associated_token_account_idempotent_for_token_program,
-        invoke_jupiter_swap, load_interface_token_account, load_mint,
+        create_associated_token_account_idempotent_for_token_program,
+        invoke_jupiter_swap, load_interface_token_account, load_mint, load_signed_prices,
         nav_loss_within_tolerance_u128, unpack_account_metas, units_per_index_for_amount,
         units_per_index_for_amount_saturating, validate_buy_execution_price,
-        validate_jupiter_route_account_scope, validate_price_age_slots,
+        validate_jupiter_route_account_scope,
         validate_sell_execution_price, validate_vault_authority_token_account_scope,
-        ASSOCIATED_TOKEN_ID, LargeBasketSwapPlan, PRICE_NAD_SCALE_FACTOR, PRICE_SCALE,
+        ASSOCIATED_TOKEN_ID, LargeBasketSwapPlan, SignedPrices, PRICE_NAD_SCALE_FACTOR, PRICE_SCALE,
     },
 };
 
@@ -153,9 +155,14 @@ pub struct OpenRebalanceIntent<'info> {
         bump
     )]
     pub intent: Account<'info, RebalanceIntent>,
-    /// Prices the protocol's oracle posted; each must be at most `max_price_age_slots` old.
-    #[account(seeds = [PRICE_BOARD_SEED], bump = price_board.bump)]
-    pub price_board: Box<Account<'info, PriceBoard>>,
+    /// The key whose signed prices this step accepts.
+    #[account(seeds = [PRICE_ORACLE_SEED], bump = price_oracle.bump)]
+    pub price_oracle: Box<Account<'info, PriceOracle>>,
+    /// The instructions sysvar, to read the oracle's Ed25519 signature instruction, which must
+    /// come immediately before this step.
+    /// CHECK: Address-checked.
+    #[account(address = INSTRUCTIONS_SYSVAR_ID @ BasketError::MissingPriceSignature)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
     /// CHECK: Validated as the Associated Token Program.
     #[account(address = ASSOCIATED_TOKEN_ID @ BasketError::InvalidAssociatedTokenProgram)]
     pub associated_token_program: UncheckedAccount<'info>,
@@ -189,9 +196,14 @@ pub struct ExecuteRebalanceBatch<'info> {
     pub associated_token_program: UncheckedAccount<'info>,
     pub quote_token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
-    /// Prices the protocol's oracle posted; each must be at most `max_price_age_slots` old.
-    #[account(seeds = [PRICE_BOARD_SEED], bump = price_board.bump)]
-    pub price_board: Box<Account<'info, PriceBoard>>,
+    /// The key whose signed prices this step accepts.
+    #[account(seeds = [PRICE_ORACLE_SEED], bump = price_oracle.bump)]
+    pub price_oracle: Box<Account<'info, PriceOracle>>,
+    /// The instructions sysvar, to read the oracle's Ed25519 signature instruction, which must
+    /// come immediately before this step.
+    /// CHECK: Address-checked.
+    #[account(address = INSTRUCTIONS_SYSVAR_ID @ BasketError::MissingPriceSignature)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -201,9 +213,14 @@ pub struct VerifyRebalanceComponentPrice<'info> {
     #[account(mut, has_one = index @ BasketError::InvalidLargeBasketIntent)]
     pub intent: Account<'info, RebalanceIntent>,
     pub component_page: Account<'info, LargeBasketComponentPage>,
-    /// Prices the protocol's oracle posted; each must be at most `max_price_age_slots` old.
-    #[account(seeds = [PRICE_BOARD_SEED], bump = price_board.bump)]
-    pub price_board: Box<Account<'info, PriceBoard>>,
+    /// The key whose signed prices this step accepts.
+    #[account(seeds = [PRICE_ORACLE_SEED], bump = price_oracle.bump)]
+    pub price_oracle: Box<Account<'info, PriceOracle>>,
+    /// The instructions sysvar, to read the oracle's Ed25519 signature instruction, which must
+    /// come immediately before this step.
+    /// CHECK: Address-checked.
+    #[account(address = INSTRUCTIONS_SYSVAR_ID @ BasketError::MissingPriceSignature)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -225,9 +242,14 @@ pub struct FinalizeRebalance<'info> {
     pub quote_mint: UncheckedAccount<'info>,
     /// CHECK: Validated as the vault authority's USDC ATA.
     pub vault_quote_token_account: UncheckedAccount<'info>,
-    /// Prices the protocol's oracle posted; each must be at most `max_price_age_slots` old.
-    #[account(seeds = [PRICE_BOARD_SEED], bump = price_board.bump)]
-    pub price_board: Box<Account<'info, PriceBoard>>,
+    /// The key whose signed prices this step accepts.
+    #[account(seeds = [PRICE_ORACLE_SEED], bump = price_oracle.bump)]
+    pub price_oracle: Box<Account<'info, PriceOracle>>,
+    /// The instructions sysvar, to read the oracle's Ed25519 signature instruction, which must
+    /// come immediately before this step.
+    /// CHECK: Address-checked.
+    #[account(address = INSTRUCTIONS_SYSVAR_ID @ BasketError::MissingPriceSignature)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
     pub quote_token_program: Interface<'info, TokenInterface>,
 }
 
@@ -430,11 +452,12 @@ impl<'info> OpenRebalanceIntent<'info> {
         let supply = load_mint(&ctx.accounts.index_mint.to_account_info())?.supply;
         require!(supply > 0, BasketError::InvalidIndexAmount);
 
-        let prices = Prices {
-            board: &ctx.accounts.price_board,
-            slot: Clock::get()?.slot,
-            max_age_slots: args.max_price_age_slots,
-        };
+        let prices = Prices::load(
+            &ctx.accounts.instructions_sysvar,
+            &ctx.accounts.price_oracle,
+            &ctx.accounts.intent.key(),
+            args.max_price_age_slots,
+        )?;
 
         // remaining_accounts = [ordered component pages..] ++ [component vaults in global order..]
         let component_count = usize::from(ctx.accounts.index.large_basket_component_count);
@@ -481,7 +504,7 @@ impl<'info> OpenRebalanceIntent<'info> {
             let (oracle_price, value) = if retired {
                 (0, 0)
             } else {
-                let oracle_price = prices.of(component)?;
+                let oracle_price = prices.of(i as u16, component)?;
                 (
                     oracle_price,
                     component_value_scaled(current_amount, component.decimals, oracle_price)?,
@@ -714,12 +737,12 @@ impl<'info> ExecuteRebalanceBatch<'info> {
         // undo an already committed bad trade, especially if the intent is unwound.
         require!(args.max_oracle_slippage_bps <= MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS,
             BasketError::InvalidOraclePriceTolerance);
-        validate_price_age_slots(args.max_price_age_slots)?;
-        let prices = Prices {
-            board: &ctx.accounts.price_board,
-            slot: Clock::get()?.slot,
-            max_age_slots: args.max_price_age_slots,
-        };
+        let prices = Prices::load(
+            &ctx.accounts.instructions_sysvar,
+            &ctx.accounts.price_oracle,
+            &ctx.accounts.intent.key(),
+            args.max_price_age_slots,
+        )?;
 
         let mut cursor = 0usize;
         for entry in &args.entries {
@@ -827,7 +850,7 @@ impl<'info> ExecuteRebalanceBatch<'info> {
                 let minimum = minimum_rebalance_buy_amount(
                     open_amount, leg, ctx.accounts.intent.nav_tolerance_bps)?;
                 require!(dest_received >= minimum, BasketError::RebalanceTargetNotMet);
-                let oracle_price = prices.of(&component)?;
+                let oracle_price = prices.of(component_index, &component)?;
                 let max_spend = maximum_rebalance_buy_quote(leg, component.decimals,
                     oracle_price, args.max_oracle_slippage_bps)?;
                 require!(source_spent <= max_spend, BasketError::QuoteBudgetExceeded);
@@ -839,7 +862,7 @@ impl<'info> ExecuteRebalanceBatch<'info> {
             };
 
             validate_atomic_rebalance_fill(is_sell, quote_atoms, component_atoms,
-                component.decimals, prices.of(&component)?, args.max_oracle_slippage_bps)?;
+                component.decimals, prices.of(component_index, &component)?, args.max_oracle_slippage_bps)?;
 
             // Only persist completion after the atomic price check succeeds.
             let intent = &mut ctx.accounts.intent;
@@ -928,12 +951,13 @@ impl<'info> VerifyRebalanceComponentPrice<'info> {
 
         if leg > 0 {
             require!(fill > 0, BasketError::InvalidLargeBasketIntent);
-            let oracle_price = Prices {
-                board: &ctx.accounts.price_board,
-                slot: Clock::get()?.slot,
-                max_age_slots: args.max_price_age_slots,
-            }
-            .of(component)?;
+            let oracle_price = Prices::load(
+                &ctx.accounts.instructions_sysvar,
+                &ctx.accounts.price_oracle,
+                &ctx.accounts.intent.key(),
+                args.max_price_age_slots,
+            )?
+            .of(component_index, component)?;
             if is_sell {
                 validate_sell_execution_price(
                     quote,
@@ -1009,12 +1033,12 @@ impl<'info> FinalizeRebalance<'info> {
 
         let supply = ctx.accounts.intent.supply_snapshot;
         let base_units = ctx.accounts.index.index_base_units()?;
-        validate_price_age_slots(args.max_price_age_slots)?;
-        let prices = Prices {
-            board: &ctx.accounts.price_board,
-            slot: Clock::get()?.slot,
-            max_age_slots: args.max_price_age_slots,
-        };
+        let prices = Prices::load(
+            &ctx.accounts.instructions_sysvar,
+            &ctx.accounts.price_oracle,
+            &ctx.accounts.intent.key(),
+            args.max_price_age_slots,
+        )?;
 
         let component_count = usize::from(ctx.accounts.index.large_basket_component_count);
         let page_count = usize::from(ctx.accounts.index.large_basket_page_count);
@@ -1071,7 +1095,7 @@ impl<'info> FinalizeRebalance<'info> {
                         if is_retired(component) {
                             (0, 0)
                         } else {
-                            let oracle_price = prices.of(component)?;
+                            let oracle_price = prices.of(global as u16, component)?;
                             (
                                 component_value_scaled(
                                     amounts[global],
@@ -1266,7 +1290,7 @@ impl<'info> UnwindRebalance<'info> {
     /// the keeper's per-leg `quote_limit`; any bad-execution loss is therefore ALREADY
     /// realized on-chain before unwind runs — unwind only records the resulting balances,
     /// it cannot create new loss. The deferred per-leg oracle verify and the finalize NAV
-    /// gate are intentionally skipped here: requiring a fresh posted price (or any
+    /// gate are intentionally skipped here: requiring fresh signed prices (or any
     /// value gate that can fail) would reintroduce exactly the liveness hole this hatch
     /// exists to close (a down/stale oracle, or an un-passable bound, must never be able
     /// to keep the operation lock stuck). The exposure between execute and unwind is thus
@@ -1374,20 +1398,34 @@ fn is_retired(component: &LargeBasketComponent) -> bool {
         && component.accounted_reserve == 0
 }
 
-/// The posted prices a rebalance step reads: each at most `max_age_slots` old at `slot`.
-struct Prices<'a> {
-    board: &'a PriceBoard,
-    slot: u64,
-    max_age_slots: u64,
-}
+/// The oracle's signed prices a rebalance step reads, by global component index.
+struct Prices(SignedPrices);
 
-impl Prices<'_> {
+impl Prices {
+    /// The prices the oracle signed for `intent`, from the Ed25519 instruction immediately
+    /// before this step, at most `max_age_slots` old.
+    fn load(
+        instructions_sysvar: &AccountInfo,
+        price_oracle: &PriceOracle,
+        intent: &Pubkey,
+        max_age_slots: u64,
+    ) -> Result<Self> {
+        load_signed_prices(
+            instructions_sysvar,
+            &price_oracle.oracle,
+            intent,
+            Clock::get()?.slot,
+            max_age_slots,
+        )
+        .map(Self)
+    }
+
     /// USD per whole token (PRICE_SCALE). USDC, the quote asset, is always worth $1.
-    fn of(&self, component: &LargeBasketComponent) -> Result<i128> {
+    fn of(&self, component_index: u16, component: &LargeBasketComponent) -> Result<i128> {
         if component.mint == USDC_MINT {
             Ok(PRICE_SCALE as i128)
         } else {
-            board_price(self.board, &component.mint, self.slot, self.max_age_slots)
+            self.0.price(component_index)
         }
     }
 }
@@ -1639,9 +1677,11 @@ pub(crate) fn load_components_in_order(
     page_infos: &[AccountInfo],
 ) -> Result<Vec<LargeBasketComponent>> {
     let pages = load_pages_in_order(index_key, program_id, index, page_infos)?;
-    let mut components = Vec::new();
-    for page in &pages {
-        components.extend(page.components.iter().cloned());
+    // Sized once and moved, not cloned into a growing Vec: the program heap is 32 KiB and never
+    // frees, and a wide basket's components would otherwise use most of it.
+    let mut components = Vec::with_capacity(usize::from(index.large_basket_component_count));
+    for page in pages {
+        components.extend(page.components);
     }
     Ok(components)
 }

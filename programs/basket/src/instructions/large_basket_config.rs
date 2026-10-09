@@ -5,8 +5,8 @@ use anchor_spl::token::{self, Mint, Token};
 
 use crate::{
     constants::{
-        INDEX_MINT_SEED, INDEX_SEED, LARGE_BASKET_COMPONENT_PAGE_SEED,
-        MAX_LARGE_BASKET_COMPONENTS, MAX_LARGE_BASKET_COMPONENTS_PER_PAGE, MAX_LARGE_BASKET_PAGES,
+        INDEX_MINT_SEED, INDEX_SEED, LARGE_BASKET_COMPONENT_PAGE_SEED, MAX_BASKET_COMPONENTS,
+        MAX_LARGE_BASKET_COMPONENTS_PER_PAGE, MAX_LARGE_BASKET_PAGES,
         MAX_METADATA_URI_LEN, MAX_NAME_LEN, MAX_REBALANCE_DELAY_SECONDS, MAX_SYMBOL_LEN,
         PROTOCOL_CONFIG_SEED, USDC_MINT, VAULT_AUTHORITY_SEED,
     },
@@ -465,9 +465,10 @@ fn validate_large_index_args(args: &CreateLargeBasketIndexArgs) -> Result<()> {
         args.metadata_uri.len() <= MAX_METADATA_URI_LEN,
         BasketError::MetadataUriTooLong
     );
+    // Every basket kind shares one cap (see MAX_BASKET_COMPONENTS).
     require!(
         args.component_count as usize >= 1
-            && args.component_count as usize <= MAX_LARGE_BASKET_COMPONENTS,
+            && args.component_count as usize <= MAX_BASKET_COMPONENTS,
         BasketError::InvalidComponentCount
     );
     require!(
@@ -547,4 +548,39 @@ fn create_index_mint<'info>(
         &ctx.accounts.vault_authority.key(),
         Some(&ctx.accounts.vault_authority.key()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(kind: IndexKind, component_count: u8) -> CreateLargeBasketIndexArgs {
+        let fixed_weights = kind == IndexKind::FixedWeights;
+        CreateLargeBasketIndexArgs {
+            name: "Index".into(),
+            symbol: "IDX".into(),
+            metadata_uri: String::new(),
+            decimals: 6,
+            fee_recipient: Pubkey::new_unique(),
+            creator_fee_recipient: Pubkey::default(),
+            max_supply: 0,
+            rebalance_delay_seconds: 0,
+            kind,
+            fixed_weight_quote_mint: if fixed_weights { USDC_MINT } else { Pubkey::default() },
+            fixed_weight_rebalance_interval_seconds: 0,
+            fixed_weight_drift_threshold_bps: 0,
+            fixed_weight_spot_ema_max_deviation_bps: 0,
+            component_count,
+        }
+    }
+
+    #[test]
+    fn every_basket_kind_is_capped_at_forty_components() {
+        for kind in [IndexKind::FixedWeights, IndexKind::FixedUnits] {
+            assert!(validate_large_index_args(&args(kind, 1)).is_ok());
+            assert!(validate_large_index_args(&args(kind, 40)).is_ok());
+            assert!(validate_large_index_args(&args(kind, 41)).is_err());
+            assert!(validate_large_index_args(&args(kind, 0)).is_err());
+        }
+    }
 }

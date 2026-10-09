@@ -6,6 +6,7 @@ pub mod large_basket_fees;
 pub mod math;
 pub mod oracle;
 pub mod rebalance;
+pub mod signed_prices;
 pub mod staking;
 pub mod token_accounts;
 
@@ -17,5 +18,6 @@ pub use large_basket_fees::*;
 pub use math::*;
 pub use oracle::*;
 pub use rebalance::*;
+pub use signed_prices::*;
 pub use staking::*;
 pub use token_accounts::*;

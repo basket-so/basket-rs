@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::Token;
 use crate::{
-    constants::{LARGE_BASKET_COMPONENT_PAGE_SEED, MAX_LARGE_BASKET_COMPONENTS,
+    constants::{LARGE_BASKET_COMPONENT_PAGE_SEED, MAX_BASKET_COMPONENTS,
         MAX_LARGE_BASKET_COMPONENTS_PER_PAGE, USDC_MINT, VAULT_AUTHORITY_SEED},
     errors::BasketError,
     state::{IndexKind, IndexState, LargeBasketComponent, LargeBasketComponentPage},
@@ -48,8 +48,7 @@ impl<'info> RegisterRebalanceQuote<'info> {
         require!(!index.large_basket_operation_in_progress, BasketError::InvalidLargeBasketIntent);
         // Appending a component changes the layout open intents settle against.
         require!(index.open_intent_count == 0, BasketError::IntentsStillOpen);
-        require!(usize::from(index.large_basket_component_count) < MAX_LARGE_BASKET_COMPONENTS,
-            BasketError::InvalidFixedWeightConfig);
+        require_room_for_quote_slot(index.large_basket_component_count)?;
         require!(ctx.remaining_accounts.len() == usize::from(index.large_basket_page_count),
             BasketError::InvalidRemainingAccounts);
         let mut count = 0usize;
@@ -107,5 +106,26 @@ impl<'info> RegisterRebalanceQuote<'info> {
         ctx.accounts.index.large_basket_component_count += 1;
         ctx.accounts.index.large_basket_page_count = (page_index + 1) as u8;
         Ok(())
+    }
+}
+
+/// The USDC slot is one more component, so a FixedWeights basket has room for it only below
+/// the basket cap (MAX_BASKET_COMPONENTS).
+fn require_room_for_quote_slot(component_count: u8) -> Result<()> {
+    require!(
+        usize::from(component_count) < MAX_BASKET_COMPONENTS,
+        BasketError::InvalidFixedWeightConfig
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_usdc_slot_never_takes_a_basket_past_the_rebalance_cap() {
+        assert!(require_room_for_quote_slot(39).is_ok(), "39 + USDC = 40");
+        assert!(require_room_for_quote_slot(40).is_err(), "40 + USDC = 41");
     }
 }

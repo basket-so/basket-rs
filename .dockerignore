@@ -1,7 +1,10 @@
-# Allowlist: the build context holds only what Dockerfile.rebalance-bot copies.
+# Allowlist: the build context holds only what Dockerfile.rebalance-bot and
+# Dockerfile.oracle-service copy.
 *
 !package.json
 !package-lock.json
 !scripts/rebalance-bot.mjs
+!scripts/oracle-service.mjs
 !scripts/lib/price-oracle.mjs
-!docs/program-upgrade/basket.idl.json
+!scripts/lib/signed-prices.mjs
+!target/idl/basket.json

@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::{constants::MAX_PRICE_AGE_SLOTS, errors::BasketError, state::PriceBoard};
+use crate::{constants::MAX_PRICE_AGE_SLOTS, errors::BasketError};
 
 /// Scale of every oracle price: USD per whole token × 1e18.
 pub const PRICE_SCALE: u128 = 1_000_000_000_000_000_000;
@@ -13,28 +13,6 @@ pub fn validate_price_age_slots(max_age_slots: u64) -> Result<()> {
         BasketError::InvalidOraclePriceAge
     );
     Ok(())
-}
-
-/// The board's price for `mint`, posted at most `max_age_slots` before `current_slot`.
-pub fn board_price(
-    board: &PriceBoard,
-    mint: &Pubkey,
-    current_slot: u64,
-    max_age_slots: u64,
-) -> Result<i128> {
-    validate_price_age_slots(max_age_slots)?;
-    let entry = board
-        .prices
-        .iter()
-        .find(|entry| entry.mint == *mint)
-        .ok_or_else(|| error!(BasketError::MissingOraclePrice))?;
-    require!(
-        current_slot.saturating_sub(entry.posted_slot) <= max_age_slots,
-        BasketError::StaleOraclePrice
-    );
-    let price = i128::try_from(entry.price).map_err(|_| error!(BasketError::InvalidOraclePrice))?;
-    require!(price > 0, BasketError::InvalidOraclePrice);
-    Ok(price)
 }
 
 pub fn execution_price_scaled(
@@ -131,7 +109,6 @@ fn pow10_u128(decimals: u8) -> Result<u128> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::BoardPrice;
 
     #[test]
     fn execution_price_scales_decimals() {
@@ -157,22 +134,5 @@ mod tests {
     fn rejects_unbounded_price_age() {
         assert!(validate_price_age_slots(MAX_PRICE_AGE_SLOTS).is_ok());
         assert!(validate_price_age_slots(MAX_PRICE_AGE_SLOTS + 1).is_err());
-    }
-
-    #[test]
-    fn board_prices_must_be_present_and_fresh() {
-        let mint = Pubkey::new_unique();
-        let board = PriceBoard {
-            oracle: Pubkey::new_unique(),
-            bump: 255,
-            reserved: [0; 32],
-            prices: vec![BoardPrice { mint, price: 2 * PRICE_SCALE, posted_slot: 1_000 }],
-        };
-        assert_eq!(board_price(&board, &mint, 1_100, 150).unwrap(), 2 * PRICE_SCALE as i128);
-        assert_eq!(board_price(&board, &mint, 1_150, 150).unwrap(), 2 * PRICE_SCALE as i128);
-        assert!(board_price(&board, &mint, 1_151, 150).is_err(), "older than the allowed age");
-        assert!(board_price(&board, &mint, 1_100, 50).is_err(), "caller asked for a tighter age");
-        assert!(board_price(&board, &Pubkey::new_unique(), 1_100, 150).is_err(), "never posted");
-        assert!(board_price(&board, &mint, 1_100, MAX_PRICE_AGE_SLOTS + 1).is_err());
     }
 }

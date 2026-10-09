@@ -23,7 +23,7 @@ const keepPaused = args.includes('--keep-paused');
 const unpause = args.includes('--unpause');
 const MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
 
-const rpc = process.env.SOLANA_RPC_URL ?? JSON.parse(fs.readFileSync('../basket-ui/public/mainnet-state.json', 'utf8')).rpcUrl;
+const rpc = process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const signerPath = path.resolve('deployer-keypair.json');
 const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(signerPath, 'utf8'))));
 const connection = new Connection(rpc, 'confirmed');

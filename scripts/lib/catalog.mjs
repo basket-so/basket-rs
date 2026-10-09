@@ -103,8 +103,8 @@ export function sizeBasket(basket, assets, tolerance = 0.00001) {
 
 export async function fetchJson(url, attempts = 4) {
   for (let i = 0; i < attempts; i++) {
-    const headers = new URL(url).hostname === 'api.jup.ag' && process.env.JUPITER_API_KEY
-      ? { 'x-api-key': process.env.JUPITER_API_KEY } : {};
+    const key = process.env.JUPITER_API_KEY?.trim();
+    const headers = new URL(url).hostname === 'api.jup.ag' && key ? { 'x-api-key': key } : {};
     const r = await fetch(url, { headers, signal: AbortSignal.timeout(20000) });
     if (r.ok) return r.json();
     if (i === attempts - 1 || (r.status !== 429 && r.status < 500))

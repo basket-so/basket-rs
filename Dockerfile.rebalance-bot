@@ -1,5 +1,5 @@
-# Rebalance keeper image for Fly.io (see fly.toml). Only the bot, its price oracle and the
-# deployed program's IDL are copied in; .dockerignore keeps keypairs out of the build
+# Rebalance keeper image for Fly.io (see fly.toml). Only the bot, its pricing and signed-price
+# modules and the program IDL are copied in; .dockerignore keeps keypairs out of the build
 # context entirely.
 FROM node:22-slim
 
@@ -10,9 +10,11 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY scripts/rebalance-bot.mjs scripts/
-COPY scripts/lib/price-oracle.mjs scripts/lib/
-# The bot loads target/idl/basket.json; ship the IDL recorded for the deployed program.
-COPY docs/program-upgrade/basket.idl.json target/idl/basket.json
+COPY scripts/lib/price-oracle.mjs scripts/lib/signed-prices.mjs scripts/lib/
+# The bot loads target/idl/basket.json; ship the IDL of the program build with signed prices,
+# which the bot is written for. Its account layouts match the program deployed before it, where
+# the price oracle account does not exist, so there the bot skips rebalances until the upgrade.
+COPY target/idl/basket.json target/idl/basket.json
 
 USER node
 CMD ["node", "scripts/rebalance-bot.mjs", "--watch"]

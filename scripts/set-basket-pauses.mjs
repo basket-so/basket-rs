@@ -26,7 +26,7 @@ const execute = args.includes('--execute');
 
 const idl = JSON.parse(fs.readFileSync('docs/program-upgrade/basket.idl.json', 'utf8'));
 const authority = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(process.env.ANCHOR_WALLET ?? 'deployer-keypair.json', 'utf8'))));
-const connection = new Connection(process.env.SOLANA_RPC_URL ?? JSON.parse(fs.readFileSync('../basket-ui/public/mainnet-state.json', 'utf8')).rpcUrl, 'confirmed');
+const connection = new Connection(process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com', 'confirmed');
 const program = new anchor.Program(idl, new anchor.AnchorProvider(connection, new anchor.Wallet(authority), { commitment: 'confirmed' }));
 const basket = JSON.parse(fs.readFileSync('docs/program-replacement/deployment.json', 'utf8')).baskets[symbol];
 if (!basket) throw new Error(`${symbol} is not in docs/program-replacement/deployment.json`);

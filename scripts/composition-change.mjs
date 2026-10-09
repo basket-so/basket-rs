@@ -13,14 +13,15 @@
 // docs/program-replacement/catalog.json `tokens` first. The rebalance that switches the
 // basket over prices every component it still holds or targets (removed ones until they are
 // sold), so this checks the rebalance oracle (scripts/lib/price-oracle.mjs) can price them all.
-// Env: SOLANA_RPC_URL, ANCHOR_WALLET (the basket authority), JUPITER_SWAP_API, JUPITER_PRICE_API.
+// Env: SOLANA_RPC_URL, ANCHOR_WALLET (the basket authority), JUPITER_API_KEY (Jupiter's keyed
+// API; keyless without it), JUPITER_SWAP_API, JUPITER_PRICE_API.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import anchor from '@coral-xyz/anchor';
 import { Connection, Keypair, PublicKey, SystemProgram } from '@solana/web3.js';
 import { USDC, fetchJson } from './lib/catalog.mjs';
-import { OraclePriceError, oraclePrices } from './lib/price-oracle.mjs';
+import { OraclePriceError, jupiterApis, oraclePrices } from './lib/price-oracle.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
@@ -35,10 +36,9 @@ if (!basketArg) throw new Error('Pass --basket <symbol or index address>');
 const catalog = read('docs/program-replacement/catalog.json');
 const deployment = read('docs/program-replacement/deployment.json');
 const symbolByMint = new Map(Object.entries(catalog.tokens).map(([symbol, token]) => [token.mint, symbol]));
-const priceApi = process.env.JUPITER_PRICE_API ?? 'https://lite-api.jup.ag/price/v3';
-const swapApi = process.env.JUPITER_SWAP_API ?? 'https://lite-api.jup.ag/swap/v1';
+const { priceApi, swapApi } = jupiterApis();
 
-const connection = new Connection(process.env.SOLANA_RPC_URL ?? read('../basket-ui/public/mainnet-state.json').rpcUrl, 'confirmed');
+const connection = new Connection(process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com', 'confirmed');
 if (await connection.getGenesisHash() !== '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d') throw new Error('Expected Solana mainnet');
 const keyFile = process.env.ANCHOR_WALLET ?? path.join(root, 'deployer-keypair.json');
 const authority = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(keyFile, 'utf8'))));
@@ -105,7 +105,7 @@ if (flag('--cancel')) {
     if (!token) throw new Error(`${symbol} is not in catalog.json tokens`);
     // The program only adds classic SPL tokens (Token-2022 extensions break vault accounting).
     if (token.tokenProgram !== 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') throw new Error(`${symbol} is not a classic SPL token`);
-    // Rebalances price components by mint from the price board; oracle pairs are unused.
+    // Rebalances price components from the oracle's signed prices; oracle pairs are unused.
     additions.push({ mint: new PublicKey(token.mint), oraclePair: PublicKey.default, targetWeightBps: Number(bps) });
     tokens.push({ mint: token.mint, decimals: token.decimals, label: symbol, bps: Number(bps) });
   }

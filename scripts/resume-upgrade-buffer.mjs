@@ -4,7 +4,7 @@ import { Connection, Keypair, PublicKey, TransactionInstruction, TransactionMess
 
 // Fills in buffer chunks a failed `solana program deploy` left unwritten. With --dir <record
 // dir> it resumes an upgrade-program.mjs run; without it, the 2026-09-21 upgrade's buffer.
-const rpc=JSON.parse(fs.readFileSync('../basket-ui/public/mainnet-state.json','utf8')).rpcUrl;
+const rpc=process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const connection=new Connection(rpc,'confirmed');
 const readKey=p=>Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(p,'utf8'))));
 const dir=process.argv.includes('--dir')?process.argv[process.argv.indexOf('--dir')+1]:null;

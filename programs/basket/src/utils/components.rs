@@ -488,7 +488,7 @@ mod tests {
 
     #[test]
     fn fixed_weight_config_needs_no_oracle_pairs() {
-        // Rebalances read prices from the price board by mint.
+        // Rebalances read prices the oracle signs for each component.
         let quote = Pubkey::new_unique();
         let components = vec![
             weighted_component(Pubkey::new_unique(), 5_000, Pubkey::default()),

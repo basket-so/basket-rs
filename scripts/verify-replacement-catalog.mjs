@@ -9,7 +9,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = p => JSON.parse(fs.readFileSync(path.join(root, p), 'utf8'));
 const catalog = read('docs/program-replacement/catalog.json');
 const journal = read('docs/program-replacement/deployment.json');
-const connection = new Connection(process.env.SOLANA_RPC_URL ?? JSON.parse(fs.readFileSync(path.join(root, '../basket-ui/public/mainnet-state.json'), 'utf8')).rpcUrl, 'confirmed');
+const connection = new Connection(process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com', 'confirmed');
 // Verification does not require access to a signing key.
 const program = new anchor.Program(read('target/idl/basket.json'), new anchor.AnchorProvider(connection, new anchor.Wallet(Keypair.generate()), {}));
 if (program.programId.toBase58() !== catalog.programId) throw new Error('IDL/catalog mismatch');

@@ -15,7 +15,7 @@ const keeper = new PublicKey(keeperArg);
 const execute = args.includes('--execute');
 const MAINNET_GENESIS = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';
 
-const rpc = process.env.SOLANA_RPC_URL ?? JSON.parse(fs.readFileSync('../basket-ui/public/mainnet-state.json', 'utf8')).rpcUrl;
+const rpc = process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const authority = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync('deployer-keypair.json', 'utf8'))));
 const connection = new Connection(rpc, 'confirmed');
 const program = new anchor.Program(JSON.parse(fs.readFileSync('target/idl/basket.json', 'utf8')), new anchor.AnchorProvider(connection, new anchor.Wallet(authority), { commitment: 'confirmed', preflightCommitment: 'confirmed' }));

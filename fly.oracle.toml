@@ -1,0 +1,43 @@
+# Fly.io app for scripts/oracle-service.mjs, the only holder of the oracle key. It signs rebalance
+# prices for the keeper and sends no transactions, so the key needs no SOL.
+# It has no public address: the keeper reaches it on Fly's private network at
+# http://basket-price-oracle.internal:8080 (ORACLE_URL on the keeper app).
+#
+# Secrets (set before the first deploy):
+#   ORACLE_KEYPAIR    a fresh secret key (JSON array) made for this app alone; the program's price
+#                     oracle account must name its public key (scripts/set-price-oracle.mjs)
+#   ORACLE_API_TOKEN  random string (32+ characters); the keeper app gets the same value
+#   SOLANA_RPC_URL    the keeper's mainnet RPC provider, so the slots the two read agree; it must
+#                     allow getProgramAccounts (the public mainnet-beta default is a poor fit)
+#   JUPITER_API_KEY   optional; prices through Jupiter's keyed API (api.jup.ag) instead of the
+#                     keyless one. The limit is per Jupiter account, shared with basket-ui and the
+#                     keeper, and pricing a basket's open takes two quotes per token at once.
+#
+# Deploy with `fly deploy -c fly.oracle.toml --ha=false` so one machine holds the key.
+app = "basket-price-oracle"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[build]
+  dockerfile = "Dockerfile.oracle-service"
+
+[processes]
+  app = "node scripts/oracle-service.mjs --port 8080"
+
+[[restart]]
+  policy = "always"
+
+[checks]
+  [checks.health]
+    type = "http"
+    port = 8080
+    method = "get"
+    path = "/health"
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "60s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

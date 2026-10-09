@@ -134,11 +134,11 @@ pub enum BasketError {
     InvalidJupiterProgram,
     #[msg("The provided Jupiter route instruction is invalid.")]
     InvalidJupiterRoute,
-    #[msg("The posted oracle price is older than the allowed age.")]
+    #[msg("The signed oracle prices are older than the allowed age.")]
     StaleOraclePrice,
     #[msg("The requested oracle price age is outside the supported range.")]
     InvalidOraclePriceAge,
-    #[msg("The price board has no price for a component this needs.")]
+    #[msg("The signed prices have no price for a component this needs.")]
     MissingOraclePrice,
     #[msg("The oracle price is invalid.")]
     InvalidOraclePrice,
@@ -196,6 +196,18 @@ pub enum BasketError {
     CompositionChangeExpired,
     #[msg("A composition change only applies while redemptions are open at fees no higher than when it was proposed.")]
     CompositionChangeExitRestricted,
-    #[msg("The price board is full of prices still fresh enough to read.")]
-    PriceBoardFull,
+    #[msg("A rebalance step must come right after the price oracle's Ed25519 signature instruction.")]
+    MissingPriceSignature,
+    #[msg("The price signature instruction is malformed, reads another instruction, or is not signed by the price oracle.")]
+    InvalidPriceSignature,
+    #[msg("The signed price message is malformed.")]
+    InvalidPriceMessage,
+    #[msg("The signed prices are for another rebalance intent.")]
+    SignedPricesMismatch,
+    #[msg("The signed prices are from a slot after the current one.")]
+    SignedPriceSlotInFuture,
+    #[msg("The signed prices list a component more than once.")]
+    DuplicateOraclePrice,
+    #[msg("Only a settled intent with nothing left to claim, which its owner's lock no longer points at, can be closed.")]
+    LargeBasketIntentNotClosable,
 }
