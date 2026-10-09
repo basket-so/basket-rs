@@ -19,7 +19,8 @@ use crate::{
     utils::{
         associated_token_address_with_token_program,
         create_associated_token_account_idempotent_for_token_program, load_interface_mint,
-        load_mint, validate_index_strategy_config, validate_no_self_component,
+        load_mint, require_no_transfer_fee, validate_index_strategy_config,
+        validate_no_self_component,
     },
 };
 
@@ -314,6 +315,7 @@ impl<'info> InitializeLargeBasketComponentPage<'info> {
                 token_program_info.clone(),
             )?;
             let mint = load_interface_mint(mint_info)?;
+            require_no_transfer_fee(mint_info)?;
             components.push(LargeBasketComponent {
                 mint: component.mint,
                 units_per_index: component.units_per_index,

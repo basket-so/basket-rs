@@ -73,7 +73,7 @@ use crate::{
         associated_token_address_with_token_program, bitmap_all_set, bitmap_get, bitmap_set_once,
         create_associated_token_account_idempotent_for_token_program,
         invoke_jupiter_swap, load_interface_token_account, load_mint, load_signed_prices,
-        nav_loss_within_tolerance_u128, unpack_account_metas, units_per_index_for_amount,
+        nav_loss_within_tolerance_u128, unpack_account_metas,
         units_per_index_for_amount_saturating, validate_buy_execution_price,
         validate_jupiter_route_account_scope,
         validate_sell_execution_price, validate_vault_authority_token_account_scope,
@@ -435,6 +435,17 @@ impl<'info> OpenRebalanceIntent<'info> {
                 && args.expires_at <= now + MAX_LARGE_BASKET_INTENT_TTL_SECONDS,
             BasketError::InvalidLargeBasketIntentExpiry
         );
+        // A keeper opens inside its own live request, or once the spacing since the last
+        // request or abandoned rebalance has passed. Otherwise it could reopen the moment an
+        // abandoned rebalance is unwound, its trigger still standing, and hold mints and
+        // redeems back indefinitely. The authority, which appoints the keeper, is not held back.
+        if ctx.accounts.initiator.key() != ctx.accounts.index.authority {
+            require!(
+                ctx.accounts.index.rebalance_request_active(now)
+                    || now >= ctx.accounts.index.next_rebalance_hold_at(),
+                BasketError::RebalanceRequestCooldown
+            );
+        }
 
         create_vault_quote_ata(
             &ctx.accounts.associated_token_program,
@@ -1054,15 +1065,29 @@ impl<'info> FinalizeRebalance<'info> {
             load_writable_pages_in_order(&index_key, ctx.program_id, component_count, page_infos)?;
         let amounts = collect_vault_amounts(&pages, vault_infos)?;
 
-        // The scratch ATA is part of NAV: as the USDC component's vault when one exists
-        // (the aliasing is pinned at open and re-checked below), otherwise as parked
-        // quote value on top of the component vaults — mirroring how open priced it.
+        // The gates below judge what this rebalance's own swaps left in each vault (open
+        // balances moved by each leg's measured fill), not the live balances. The vaults are
+        // public: anyone can send them tokens mid-rebalance, and counting such a gift would let
+        // it push the basket past the drift or dust bound and block finalize (or cover a
+        // shortfall). A vault holding less than its rebalanced amount means value left custody.
+        let (rebalanced, rebalanced_scratch) = rebalanced_amounts(
+            &ctx.accounts.intent,
+            pages.iter().flat_map(|page| page.components.iter()),
+        )?;
         let scratch_atoms = load_interface_token_account(
             &ctx.accounts.vault_quote_token_account.to_account_info(),
         )?
         .amount;
+        require!(scratch_atoms >= rebalanced_scratch, BasketError::RebalanceNavMismatch);
+        for (live, rebalanced) in amounts.iter().zip(&rebalanced) {
+            require!(live >= rebalanced, BasketError::RebalanceNavMismatch);
+        }
+
+        // The scratch ATA is part of NAV: as the USDC component's vault when one exists
+        // (the aliasing is pinned at open and re-checked below), otherwise as parked
+        // quote value on top of the component vaults — mirroring how open priced it.
         let scratch_value =
-            component_value_scaled(scratch_atoms, USDC_DECIMALS, PRICE_SCALE as i128)?;
+            component_value_scaled(rebalanced_scratch, USDC_DECIMALS, PRICE_SCALE as i128)?;
 
         // Re-price BOTH the post-rebalance NAV and the pre-rebalance holdings at the SAME
         // fresh oracle. `expected_value_now` is what the basket would be worth had the
@@ -1098,7 +1123,7 @@ impl<'info> FinalizeRebalance<'info> {
                             let oracle_price = prices.of(global as u16, component)?;
                             (
                                 component_value_scaled(
-                                    amounts[global],
+                                    rebalanced[global],
                                     component.decimals,
                                     oracle_price,
                                 )?,
@@ -1193,7 +1218,8 @@ impl<'info> FinalizeRebalance<'info> {
         let dust_value = scratch_value.saturating_sub(usdc_component_target_value);
         require!(dust_value <= allowed_dust_value, BasketError::RebalanceTargetNotMet);
 
-        // Rewrite each component's units_per_index + accounted_reserve from the new balances.
+        // Rewrite each component's units_per_index + accounted_reserve from the live balances,
+        // so tokens sent to a vault mid-rebalance are booked to holders, as an unwind would.
         // Every zero-weight component has been sold in full (or was dust): anything its vault
         // holds now arrived after open and is left unaccounted.
         let sold_out: Vec<bool> = pages
@@ -1261,6 +1287,7 @@ impl<'info> CancelRebalance<'info> {
         ctx.accounts.intent.status = RebalanceStatus::Cancelled;
         ctx.accounts.index.large_basket_operation_in_progress = false;
         ctx.accounts.index.active_rebalance_intent = Pubkey::default();
+        ctx.accounts.index.note_rebalance_abandoned(Clock::get()?.unix_timestamp);
 
         emit!(IndexRebalanceCancelled {
             index: ctx.accounts.index.key(),
@@ -1353,6 +1380,7 @@ impl<'info> UnwindRebalance<'info> {
         ctx.accounts.intent.status = RebalanceStatus::Cancelled;
         ctx.accounts.index.large_basket_operation_in_progress = false;
         ctx.accounts.index.active_rebalance_intent = Pubkey::default();
+        ctx.accounts.index.note_rebalance_abandoned(Clock::get()?.unix_timestamp);
 
         emit!(RebalanceIntentUnwound {
             intent: ctx.accounts.intent.key(),
@@ -1726,6 +1754,53 @@ pub(crate) fn load_writable_pages_in_order<'info>(
     Ok(pages)
 }
 
+/// What each component vault, and the scratch quote account, hold from this rebalance's own
+/// swaps: the open snapshot moved by each executed leg's measured fill, the scratch netting
+/// every leg's proceeds and spend. A USDC component's vault is the scratch account.
+fn rebalanced_amounts<'a>(
+    intent: &RebalanceIntent,
+    components: impl Iterator<Item = &'a LargeBasketComponent>,
+) -> Result<(Vec<u64>, u64)> {
+    let count = usize::from(intent.component_count);
+    require!(
+        intent.component_open_amounts.len() == count
+            && intent.component_fill_atoms.len() == count
+            && intent.component_quote_atoms.len() == count,
+        BasketError::InvalidLargeBasketIntent
+    );
+    let invalid = || error!(BasketError::InvalidLargeBasketIntent);
+    let mut amounts = intent.component_open_amounts.clone();
+    let mut proceeds = 0u64;
+    let mut spent = 0u64;
+    for (i, amount) in amounts.iter_mut().enumerate() {
+        let index = i as u16;
+        let fill = intent.component_fill_atoms[i];
+        let quote = intent.component_quote_atoms[i];
+        if bitmap_get(&intent.sell_leg_bitmap, index)? {
+            *amount = amount.checked_sub(fill).ok_or_else(invalid)?;
+            proceeds = proceeds.checked_add(quote).ok_or_else(invalid)?;
+        } else if bitmap_get(&intent.buy_leg_bitmap, index)? {
+            *amount = amount.checked_add(fill).ok_or_else(invalid)?;
+            spent = spent.checked_add(quote).ok_or_else(invalid)?;
+        }
+    }
+    let scratch = intent
+        .open_scratch_quote_atoms
+        .checked_add(proceeds)
+        .and_then(|value| value.checked_sub(spent))
+        .ok_or_else(invalid)?;
+    let mut seen = 0usize;
+    for (i, component) in components.enumerate() {
+        require!(i < count, BasketError::InvalidLargeBasketIntent);
+        if component.mint == USDC_MINT {
+            amounts[i] = scratch;
+        }
+        seen += 1;
+    }
+    require!(seen == count, BasketError::InvalidLargeBasketIntent);
+    Ok((amounts, scratch))
+}
+
 /// Reads every component vault's live balance, positionally aligned with the pages'
 /// global component order and key-checked against each component's stored vault.
 fn collect_vault_amounts<'info>(
@@ -1758,15 +1833,15 @@ fn collect_vault_amounts<'info>(
 /// Re-derives every component's `units_per_index` / `accounted_reserve` from the given
 /// vault balances and persists the pages.
 ///
-/// `require_nonzero_units` distinguishes the two callers:
-///   * finalize (`true`): a weighted component flooring to zero units is a failed
-///     rebalance, and unit derivation uses the checked math (overflow is a real error).
-///   * unwind (`false`): the re-sync MUST NOT be blockable, so unit derivation saturates
-///     instead of erroring. A griefer can airdrop tokens into a public component vault to
-///     drive `amount * base_units / supply` past `u64::MAX`; with checked math that would
-///     revert the unwind and strand the operation lock forever. `accounted_reserve` (the
-///     live mint/redeem basis) takes the real `u64` balance regardless; `units_per_index`
-///     only matters when supply returns to zero, so a saturated value there is benign.
+/// `require_nonzero_units` distinguishes the two callers: at finalize (`true`) a weighted
+/// component flooring to zero units is a failed rebalance; an unwind (`false`) must never be
+/// blockable, so it skips that check.
+///
+/// Unit derivation saturates for both. Anyone can send tokens to a public component vault and
+/// drive `amount * base_units / supply` past `u64::MAX`; checked math would then revert the
+/// re-sync and hold the operation lock until expiry (finalize) or forever (unwind).
+/// `accounted_reserve` (the live mint/redeem basis) takes the real `u64` balance regardless;
+/// `units_per_index` only matters when supply returns to zero, so a saturated value is benign.
 fn rewrite_pages_from_amounts<'info>(
     pages: &mut [Account<'info, LargeBasketComponentPage>],
     amounts: &[u64],
@@ -1820,16 +1895,13 @@ fn rewritten_accounting(
     } else {
         amount
     };
-    let units = if require_nonzero_units {
-        let units = units_per_index_for_amount(amount, base_units, supply)?;
+    let units = units_per_index_for_amount_saturating(amount, base_units, supply);
+    if require_nonzero_units {
         require!(
             component.target_weight_bps == 0 || units > 0,
             BasketError::ZeroComponentUnits
         );
-        units
-    } else {
-        units_per_index_for_amount_saturating(amount, base_units, supply)
-    };
+    }
     Ok((units, amount))
 }
 
@@ -2068,6 +2140,72 @@ mod tests {
         let held = component(Pubkey::new_unique(), 5_000);
         assert_eq!(rewritten_accounting(&held, 4_000_000, false, base, supply, true).unwrap(), (2_000_000, 4_000_000));
         assert!(rewritten_accounting(&held, 1, false, base, supply, true).is_err(), "weighted component flooring to zero units");
+        // A vault flooded past u64::MAX units per index token saturates instead of blocking
+        // finalize.
+        assert_eq!(
+            rewritten_accounting(&held, u64::MAX, false, 1_000_000_000, 1, true).unwrap(),
+            (u64::MAX, u64::MAX)
+        );
+    }
+
+    fn rebalance_intent(open_amounts: Vec<u64>, open_scratch_quote_atoms: u64) -> RebalanceIntent {
+        let count = open_amounts.len();
+        RebalanceIntent {
+            index: Pubkey::new_unique(),
+            initiator: Pubkey::new_unique(),
+            nonce: 1,
+            mode: RebalanceMode::KeeperDrift,
+            status: RebalanceStatus::Open,
+            supply_snapshot: 1,
+            opened_at: 0,
+            expires_at: 1,
+            component_count: count as u16,
+            target_generation: 0,
+            component_target_amounts: vec![0; count],
+            sell_done_bitmap: [0; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
+            buy_done_bitmap: [0; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
+            completed_sells: 0,
+            completed_buys: 0,
+            component_quote_atoms: vec![0; count],
+            component_verified_bitmap: [0; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
+            old_nav_nad: 0,
+            new_nav_nad: 0,
+            nav_priced_bitmap: [0; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
+            total_value_snapshot: 0,
+            nav_tolerance_bps: 0,
+            max_post_rebalance_drift_bps: 0,
+            bump: 255,
+            sell_leg_bitmap: [0; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
+            buy_leg_bitmap: [0; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
+            component_fill_atoms: vec![0; count],
+            component_open_amounts: open_amounts,
+            open_scratch_quote_atoms,
+            reserved: [0; 18],
+        }
+    }
+
+    #[test]
+    fn finalize_judges_what_the_legs_left_not_what_was_sent_since() {
+        // [0] sold 400 for 900 USDC, [1] bought 250 for 600 USDC, [2] on target, [3] USDC.
+        let components = [
+            component(Pubkey::new_unique(), 4_000),
+            component(Pubkey::new_unique(), 3_000),
+            component(Pubkey::new_unique(), 3_000),
+            component(USDC_MINT, 0),
+        ];
+        let mut intent = rebalance_intent(vec![1_000, 500, 700, 50], 50);
+        intent.sell_leg_bitmap[0] = 0b0001;
+        intent.buy_leg_bitmap[0] = 0b0010;
+        intent.component_fill_atoms = vec![400, 250, 0, 0];
+        intent.component_quote_atoms = vec![900, 600, 0, 0];
+        let (amounts, scratch) = rebalanced_amounts(&intent, components.iter()).unwrap();
+        assert_eq!(scratch, 350);
+        assert_eq!(amounts, vec![600, 750, 700, 350]);
+        // The pages must cover exactly the intent's components.
+        assert!(rebalanced_amounts(&intent, components[..3].iter()).is_err());
+        // Spending more USDC than the scratch held and the sells raised is not this rebalance.
+        intent.component_quote_atoms[1] = 1_000;
+        assert!(rebalanced_amounts(&intent, components.iter()).is_err());
     }
 
     #[test]

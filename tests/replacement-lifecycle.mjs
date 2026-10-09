@@ -11,13 +11,18 @@ import { fileURLToPath } from "node:url";
 import anchor from "@coral-xyz/anchor";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  createInitializeMintInstruction,
+  createInitializeTransferFeeConfigInstruction,
   createMint,
+  ExtensionType,
   getAccount,
   getAssociatedTokenAddressSync,
   getMint,
+  getMintLen,
   getOrCreateAssociatedTokenAccount,
   MintLayout,
   mintTo,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
@@ -634,7 +639,68 @@ async function main() {
       const settled = await indexState();
       assert.equal(settled.openIntentCount, 0);
       assert.equal(settled.largeBasketOperationInProgress, false);
+
+      if (fixedWeights) {
+        // The zero-weight USDC component is a zero amount in every mint and redeem. A mint
+        // that fills only it, or a redeem that leaves only it unfilled, owes its owner nothing
+        // once expired: no transfer group can name it, and the pages alone settle the intent,
+        // so no one can hold the basket's rebalances back with one.
+        await operation(me, 'mint', 1_000_000);
+        const fillOne = (h, i) => program.methods[h.kind === 'mint' ? 'executeLargeBasketMintComponentInKind' : 'executeLargeBasketRedeemComponentInKind']({ componentIndex: i }).accounts({ ...h.o.common, intent: h.intent, componentPage: page, componentMint: components[i], componentVault: vaults[i], componentTokenProgram: TOKEN_PROGRAM_ID, ownerComponentTokenAccount: h.o.tokenAccounts[i].address, protocolFeeComponentAccount: h.o.tokenAccounts[i].address, creatorFeeComponentAccount: h.o.tokenAccounts[i].address, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID }).signers(h.o.signers).rpc();
+        const zeroMint = await open(alice, 'mint', 1_000_000, 30);
+        const zeroRedeem = await open(me, 'redeem', 500_000, 30);
+        const mintAmounts = (await program.account.largeBasketIntent.fetch(zeroMint.intent)).componentAmounts;
+        const redeemAmounts = (await program.account.largeBasketIntent.fetch(zeroRedeem.intent)).componentAmounts;
+        assert.ok(mintAmounts[1].isZero() && redeemAmounts[1].isZero() && !redeemAmounts[0].isZero());
+        await fillOne(zeroMint, 1);
+        await fillOne(zeroRedeem, 0);
+        const componentBefore = (await getAccount(connection, owners[0].address)).amount;
+        assert.equal((await indexState()).openIntentCount, 2);
+        while ((await chainNow()) <= Math.max(zeroMint.expiresAt, zeroRedeem.expiresAt)) await sleep(1_000);
+        const cancelExpired = (h, transfers = []) => program.methods.cancelExpiredLargeBasketIntent().accounts({ index, indexMint, vaultAuthority, intent: h.intent, intentLock: h.o.common.intentLock, ownerIndexTokenAccount: h.o.common.ownerIndexTokenAccount, tokenProgram: TOKEN_PROGRAM_ID }).remainingAccounts([meta(page, true), ...transfers]).rpc();
+        // A component that is not owed still cannot be named: the mint's zero fill, the
+        // redeem's delivered share.
+        await assert.rejects(cancelExpired(zeroMint, [meta(components[1]), meta(vaults[1], true), meta(alice.tokenAccounts[1].address, true), meta(TOKEN_PROGRAM_ID)]), /InvalidRemainingAccounts/);
+        await assert.rejects(cancelExpired(zeroRedeem, [meta(components[0]), meta(vaults[0], true), meta(owners[0].address, true), meta(TOKEN_PROGRAM_ID)]), /InvalidRemainingAccounts/);
+        for (const h of [zeroMint, zeroRedeem]) {
+          await cancelExpired(h);
+          assert.ok((await program.account.largeBasketIntent.fetch(h.intent)).status.cancelled);
+          assert.equal((await program.account.largeBasketIntentLock.fetch(h.o.common.intentLock)).activeIntent.toBase58(), PublicKey.default.toBase58());
+          await close(h);
+        }
+        assert.equal((await indexState()).openIntentCount, 0);
+        // The redeem's burn and its delivered component stand; nothing moved for the mint.
+        assert.equal(await supplyOf(), 500_000n);
+        assert.equal((await getAccount(connection, owners[0].address)).amount, componentBefore);
+        await operation(me, 'redeem', 500_000);
+        assert.equal(await supplyOf(), 0n);
+        for (const v of vaults) assert.equal((await getAccount(connection, v)).amount, 0n);
+      }
     }
+    // A Token-2022 mint that charges a transfer fee cannot become a component: the fee would
+    // leave the basket's books above what its vault holds. One without the extension can.
+    {
+      const index = pda('index', payer.publicKey, 'TWOK');
+      const indexMint = pda('index-mint', index);
+      const vaultAuthority = pda('vault-authority', index);
+      const page = pda('large-basket-component-page', index, Buffer.from([0]));
+      await program.methods.createLargeBasketIndex({ name: 'TWOK test', symbol: 'TWOK', metadataUri: '', decimals: 6, feeRecipient: payer.publicKey, creatorFeeRecipient: PublicKey.default, maxSupply: bn(10_000_000), rebalanceDelaySeconds: bn(0), kind: { fixedUnits: {} }, fixedWeightQuoteMint: PublicKey.default, fixedWeightRebalanceIntervalSeconds: bn(0), fixedWeightDriftThresholdBps: 0, fixedWeightSpotEmaMaxDeviationBps: 0, componentCount: 1 }).accounts({ payer: payer.publicKey, authority: payer.publicKey, protocolConfig, index, indexMint, vaultAuthority, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc();
+      const token2022Mint = async (transferFee) => {
+        const mint = Keypair.generate();
+        const space = getMintLen(transferFee ? [ExtensionType.TransferFeeConfig] : []);
+        const tx = new Transaction().add(SystemProgram.createAccount({ fromPubkey: payer.publicKey, newAccountPubkey: mint.publicKey, space, lamports: await connection.getMinimumBalanceForRentExemption(space), programId: TOKEN_2022_PROGRAM_ID }));
+        if (transferFee) tx.add(createInitializeTransferFeeConfigInstruction(mint.publicKey, payer.publicKey, payer.publicKey, 50, 1_000_000n, TOKEN_2022_PROGRAM_ID));
+        tx.add(createInitializeMintInstruction(mint.publicKey, 6, payer.publicKey, null, TOKEN_2022_PROGRAM_ID));
+        await sendAndConfirmTransaction(connection, tx, [payer, mint]);
+        return mint.publicKey;
+      };
+      const initializePage = (mint) => program.methods.initializeLargeBasketComponentPage({ pageIndex: 0, startComponentIndex: 0, components: [{ mint, unitsPerIndex: bn(1_000_000), targetWeightBps: 0, oraclePair: PublicKey.default }] }).accounts({ payer: payer.publicKey, authority: payer.publicKey, index, indexMint, vaultAuthority, page, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).remainingAccounts([meta(mint), meta(getAssociatedTokenAddressSync(mint, vaultAuthority, true, TOKEN_2022_PROGRAM_ID), true), meta(TOKEN_2022_PROGRAM_ID)]).rpc();
+      await assert.rejects(initializePage(await token2022Mint(true)), /InvalidTokenMint/);
+      const plain = await token2022Mint(false);
+      await initializePage(plain);
+      assert.ok((await program.account.largeBasketComponentPage.fetch(page)).components[0].tokenProgram.equals(TOKEN_2022_PROGRAM_ID));
+    }
+
     // Exercise the exact swap-path batch interface used by the UI, with a USDC component so
     // this test needs no external liquidity or oracle. Mint fees settle in a separate collect
     // step; redeem fees are charged with each leg and the last leg finalizes the redeem.
@@ -702,7 +768,7 @@ async function main() {
       assert.equal(await usdcOf(feeUsdc),2_000n);
       assert.equal((await getAccount(connection,rewardVault)).amount,2_000n);
     }
-    console.log('integration ok: six-decimal staking, rewards, unstaking; fixed-unit and fixed-weight paged creation, initial/pro-rata mint, cancellation, complete redemption; concurrent intents from several owners, keeper-only spaced rebalance requests, empty-basket eras, incremental expiry refunds and escrow claims; settled intents closed with the rent back to the owner, unsettled ones refused; 40-component cap; swap-path mint fee collection; redeem fees charged with proceeds, auto-finalize, closed bypasses');
+    console.log('integration ok: six-decimal staking, rewards, unstaking; fixed-unit and fixed-weight paged creation, initial/pro-rata mint, cancellation, complete redemption; concurrent intents from several owners, keeper-only spaced rebalance requests, empty-basket eras, incremental expiry refunds and escrow claims; settled intents closed with the rent back to the owner, unsettled ones refused; 40-component cap; zero-amount intents settled once expired; transfer-fee Token-2022 components refused; swap-path mint fee collection; redeem fees charged with proceeds, auto-finalize, closed bypasses');
   } catch (error) {
     if (!/privilege error 1314/i.test(error.message)) {
       console.error(validatorOutput);

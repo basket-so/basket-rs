@@ -96,6 +96,19 @@ test("expired zero-fill redeem restores reservation through the pages only", asy
   assert.deepEqual(txs[0].ixs[0].accounts.slice(7).map(String), [page.toBase58()]);
 });
 
+test("an expired intent that owes nothing is cancelled through the pages only", async () => {
+  // A mint whose only fill is zero-amount component 1, and a redeem that left only it unfilled.
+  for (const intent of [
+    base({ completedComponents: 1, componentFillBitmap: [0b00010, 0, 0, 0, 0, 0, 0] }),
+    base({ kind: { redeem: {} }, completedComponents: 4, componentFillBitmap: [0b11101, 0, 0, 0, 0, 0, 0] }),
+  ]) {
+    const { txs, page } = await settle(intent);
+    assert.equal(txs.length, 1);
+    assert.equal(txs[0].ixs[0].name, "cancelExpiredLargeBasketIntent");
+    assert.deepEqual(txs[0].ixs[0].accounts.slice(7).map(String), [page.toBase58()]);
+  }
+});
+
 test("expired fully-filled redeem is finalized, not cancelled", async () => {
   const { txs } = await settle(base({ kind: { redeem: {} }, completedComponents: 5, componentFillBitmap: [0b11111, 0, 0, 0, 0, 0, 0] }));
   assert.equal(txs[0].ixs[0].name, "finalizeLargeBasketRedeemIntent");

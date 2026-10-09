@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::constants::REBALANCE_REQUEST_WINDOW_SECONDS;
+use crate::constants::{REBALANCE_REQUEST_COOLDOWN_SECONDS, REBALANCE_REQUEST_WINDOW_SECONDS};
 use crate::utils::index_base_units;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,8 +62,10 @@ pub struct IndexState {
     pub rebalance_delay_seconds: i64,
     pub fixed_weight_rebalance_interval_seconds: i64,
     pub fixed_weight_last_rebalanced_at: i64,
-    // When the keeper last requested a rebalance; the request lapses after
-    // REBALANCE_REQUEST_WINDOW_SECONDS. (Reuses the retired pending_rebalance_available_at slot.)
+    // When the keeper last requested a rebalance, or a rebalance was last abandoned (cancelled
+    // or unwound); a request lapses after REBALANCE_REQUEST_WINDOW_SECONDS, and the next request,
+    // or a keeper open without one, waits out the window and cooldown from here. (Reuses the
+    // retired pending_rebalance_available_at slot.)
     pub rebalance_requested_at: i64,
     // Mint and redeem intents opened but not yet finalized or cancelled. Intents from many
     // users run concurrently; a rebalance only opens when this is zero.
@@ -141,6 +143,21 @@ impl IndexState {
     pub fn rebalance_request_active(&self, now: i64) -> bool {
         self.rebalance_requested
             && now < self.rebalance_requested_at.saturating_add(REBALANCE_REQUEST_WINDOW_SECONDS)
+    }
+
+    /// When the operator may next hold the basket back: a new request, or a keeper's open
+    /// without a live request, waits out the request window and cooldown since the last
+    /// request or abandoned rebalance.
+    pub fn next_rebalance_hold_at(&self) -> i64 {
+        self.rebalance_requested_at
+            .saturating_add(REBALANCE_REQUEST_WINDOW_SECONDS)
+            .saturating_add(REBALANCE_REQUEST_COOLDOWN_SECONDS)
+    }
+
+    /// Records an abandoned rebalance so the spacing above applies before the next one.
+    pub fn note_rebalance_abandoned(&mut self, now: i64) {
+        self.rebalance_requested = false;
+        self.rebalance_requested_at = now;
     }
 
     /// The authority, or the keeper it designated, may request and open rebalances.

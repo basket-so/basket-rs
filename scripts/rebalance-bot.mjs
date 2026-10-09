@@ -1370,6 +1370,16 @@ function standInLookupTable(env, ctx, components, pagePdas) {
 
 // --- rebalance request and intent cleanup -------------------------------------
 
+// When the program next lets the keeper open a rebalance, or null if it may now. Without a live
+// request of its own, the keeper waits out the request window and cooldown since the last
+// request or abandoned (cancelled or unwound) rebalance. The authority is never held back.
+function keeperOpenHeldUntil(indexState, now) {
+  const requestedAt = Number(indexState.rebalanceRequestedAt);
+  if (indexState.rebalanceRequested && now < requestedAt + REQUEST_WINDOW_S) return null;
+  const openAt = requestedAt + REQUEST_WINDOW_S + PROGRAM_REQUEST_COOLDOWN_S;
+  return now < openAt ? openAt : null;
+}
+
 async function setRebalanceRequest(env, indexPk, requested) {
   const { connection, program, payer } = env;
   const ix = await program.methods[requested ? "requestRebalance" : "cancelRebalanceRequest"]()
@@ -1465,6 +1475,11 @@ async function settleExpiredIntents(env, indexPk, indexState, components, pagePd
           && !intent.componentAmounts[c.globalIndex].isZero()
           && !bitmapGet(intent.refundedBitmap, c.globalIndex);
       });
+      if (!owed.length) {
+        // Only zero amounts were filled (mint) or left unfilled (redeem): the pages settle it.
+        await sendV0(connection, payer, [...budgetIxs(100_000), await cancelIx(indexAta, pages)], `cancel expired ${label}`);
+        continue;
+      }
       const escrow = refundEscrowPda(indexPk);
       for (let i = 0; i < owed.length; i += REFUNDS_PER_TX) {
         const batch = owed.slice(i, i + REFUNDS_PER_TX);
@@ -1769,6 +1784,10 @@ async function processIndex(env, indexPk) {
     const remaining = (await program.account.indexState.fetch(indexPk)).openIntentCount;
     if (remaining > 0) return void log(`  waiting for ${remaining} open intent(s) to settle or expire`);
   }
+  if (!indexState.authority.equals(payer.publicKey)) {
+    const heldUntil = keeperOpenHeldUntil(await program.account.indexState.fetch(indexPk), now);
+    if (heldUntil) return void log(`  rebalance held back until ${new Date(heldUntil * 1000).toISOString()} (spacing after the last request or abandoned rebalance)`);
+  }
   try {
     if (changeDue) {
       // Needs no open intents, like the rebalance itself; the open below then trades onto it.
@@ -2055,7 +2074,7 @@ export {
   packBatches, pricedStepFootprint, signPrices, sendWithFreshPrices, waitForSlot, isStalePriceError, assertLegsWithinOracle,
   affordableBuys, buyAmount, settleExpiredIntents, requestSignedPrices, oracleProblems, loadComponents, buildContext,
   buildLegEntry, intentPda, basketLookupAddresses, ensureBasketLookupTable, basketTableForSizing,
-  buyQuote, closeIntent, closeSettledRebalanceIntents, noLegExecuted, fetchWritten,
+  buyQuote, closeIntent, closeSettledRebalanceIntents, noLegExecuted, fetchWritten, keeperOpenHeldUntil,
 };
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   await main();

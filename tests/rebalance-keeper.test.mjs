@@ -19,7 +19,7 @@ import {
   compiledSize, PROGRAM_ID, PRICE_ORACLE, sendV0, executeBatchIx, openIx, finalizeIx, packBatches, sendWithFreshPrices,
   waitForSlot, isStalePriceError, assertLegsWithinOracle, affordableBuys, buyAmount, intentPda, basketLookupAddresses,
   ensureBasketLookupTable, pricedStepFootprint, fitsOneTransaction, buyQuote, closeIntent, closeSettledRebalanceIntents,
-  noLegExecuted, fetchWritten,
+  noLegExecuted, fetchWritten, keeperOpenHeldUntil,
 } from "../scripts/rebalance-bot.mjs";
 import { OraclePriceError, PRICE_SCALE, USDC_MINT, fetchJson, jupiterApis, oraclePrices } from "../scripts/lib/price-oracle.mjs";
 import {
@@ -699,4 +699,18 @@ test("legs are checked against the signed price at their worst allowed fill befo
   assertLegsWithinOracle([leg(20_800_000)], prices, "buy");
   assert.throws(() => assertLegsWithinOracle([leg(20_810_000)], prices, "buy"), /buy could fill/);
   assert.throws(() => assertLegsWithinOracle([leg(20_000_000)], new Map(), "buy"), /no signed price/);
+});
+
+test("the keeper opens inside its own request or after the spacing since the last one", () => {
+  const window = 40 * 60;
+  const spacing = window + 20 * 60;
+  const state = (requested, requestedAt) => ({ rebalanceRequested: requested, rebalanceRequestedAt: new anchor.BN(requestedAt) });
+  // Never requested or abandoned: free to open.
+  assert.equal(keeperOpenHeldUntil(state(false, 0), 1_000_000), null);
+  // Inside its own live request.
+  assert.equal(keeperOpenHeldUntil(state(true, 10_000), 10_000 + window - 1), null);
+  // A rebalance abandoned (or a request lapsed) at 10_000 holds the next open until the spacing passes.
+  assert.equal(keeperOpenHeldUntil(state(false, 10_000), 10_001), 10_000 + spacing);
+  assert.equal(keeperOpenHeldUntil(state(true, 10_000), 10_000 + window), 10_000 + spacing);
+  assert.equal(keeperOpenHeldUntil(state(false, 10_000), 10_000 + spacing), null);
 });

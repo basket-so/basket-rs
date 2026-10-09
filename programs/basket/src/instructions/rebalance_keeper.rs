@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{REBALANCE_REQUEST_COOLDOWN_SECONDS, REBALANCE_REQUEST_WINDOW_SECONDS},
     errors::BasketError,
     events::{RebalanceKeeperUpdated, RebalanceRequestUpdated},
     state::{IndexKind, IndexState},
@@ -55,11 +54,10 @@ impl<'info> UpdateRebalanceRequest<'info> {
             !index.large_basket_operation_in_progress,
             BasketError::InvalidLargeBasketIntent
         );
-        let next_request_at = index
-            .rebalance_requested_at
-            .saturating_add(REBALANCE_REQUEST_WINDOW_SECONDS)
-            .saturating_add(REBALANCE_REQUEST_COOLDOWN_SECONDS);
-        require!(now >= next_request_at, BasketError::RebalanceRequestCooldown);
+        require!(
+            now >= index.next_rebalance_hold_at(),
+            BasketError::RebalanceRequestCooldown
+        );
         index.rebalance_requested = true;
         index.rebalance_requested_at = now;
         emit!(RebalanceRequestUpdated {

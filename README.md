@@ -95,7 +95,7 @@ Fixed-weight rebalancing runs on a batched intent flow
 - `cancel_unfilled_large_basket_mint_intent` / `cancel_unfilled_large_basket_redeem_intent`: owner aborts an intent before any component fills; redeem restores reserves and re-mints the burned tokens
 - `cancel_expired_large_basket_intent`: permissionless after expiry; returns filled mint backing (or unfilled redeem backing) to the owner and releases the lock
 - `close_large_basket_intent`: permissionless; closes a settled intent (finalized, or cancelled with nothing left in the refund escrow) that its owner's lock no longer points at, and returns its rent to the owner
-- `open_rebalance_intent`: the index authority or its rebalance keeper opens a fixed-weight rebalance when the drift, time, or composition trigger fires; prices NAV from the oracle's signed prices, derives per-component sell/buy legs, and takes the operation lock
+- `open_rebalance_intent`: the index authority or its rebalance keeper opens a fixed-weight rebalance when the drift, time, or composition trigger fires; prices NAV from the oracle's signed prices, derives per-component sell/buy legs, and takes the operation lock. The keeper opens inside its own live request, or once the request window and cooldown have passed since its last request or the last cancelled or unwound rebalance, so it cannot hold the basket by reopening each time one is abandoned
 - `execute_rebalance_sell_batch` / `execute_rebalance_buy_batch`: execute batched Jupiter swap legs (component->USDC, then USDC->component) validate execution prices atomically, and record each leg's quote and fill atoms; blocked after expiry or while rebalancing is paused
 - `verify_rebalance_component_price`: legacy separate price check; new executions are already verified atomically
 - `finalize_rebalance`: requires every leg executed and verified, enforces post-rebalance drift, one-sided NAV preservation, and quote dust, then rewrites page units/reserves and releases the lock
@@ -169,7 +169,11 @@ authority has paused rebalancing.
 `finalize_rebalance` re-prices the basket, enforces post-rebalance drift,
 one-sided NAV loss within `nav_tolerance_bps`, and a quote-dust bound, then
 refreshes every page's `units_per_index` / `accounted_reserve` from live vault
-balances. When USDC is itself a component, its vault is the same ATA as the
+balances. Those gates judge what the rebalance's own swaps left in each vault (the
+open balances moved by each leg's recorded fill), so tokens anyone sends to the
+public vaults mid-rebalance cannot block finalize or count toward its bounds; a
+vault holding less than that amount fails finalize. The gifts are booked to holders
+by the refresh. When USDC is itself a component, its vault is the same ATA as the
 rebalance scratch account; the dust bound then applies only to the excess over
 that component's target backing.
 
@@ -265,7 +269,9 @@ group per component in this page's `components` argument order:
 2. vault ATA for the vault-authority PDA, that mint, and that mint's token program
 3. token program that owns the mint (`spl_token::ID` or Token-2022)
 
-The handler creates each vault ATA idempotently.
+The handler creates each vault ATA idempotently. A Token-2022 mint with the
+transfer-fee extension is refused: a fee taken on the way into a vault would leave
+the books above what the vault holds.
 
 `finalize_large_basket_config` expects every component page account for the index,
 all writable. Order is normalized by `page_index` internally; the pages must tile
@@ -305,8 +311,11 @@ vault.
 `execute_large_basket_redeem_component_in_kind` take no remaining accounts; the
 owner's component token account and the protocol and creator fee recipients'
 component token accounts are named. Mint deposits the exact backing plus the in-kind
-fee from the owner; redeem releases the net backing to the owner and skims the fee,
-all from the component vault.
+fee from the owner, and refuses a deposit the vault does not receive in full; redeem
+releases the net backing to the owner and skims the fee, all from the component vault.
+The in-kind fee is the configured total rate rounded up once and then split between
+the protocol (with the staking share) and the creator, so it never exceeds the
+component amount.
 
 `collect_large_basket_intent_fees` takes no remaining accounts; it requires every
 component executed, then transfers the USDC fee split from the owner's USDC account
@@ -314,7 +323,9 @@ to the protocol and creator fee token accounts and the staking reward vault.
 
 `finalize_large_basket_mint_intent` expects all component pages in page order, all
 writable; it re-checks backing, books the filled reserves onto the pages, mints the
-index tokens, and releases the lock. `finalize_large_basket_redeem_intent` takes no
+index tokens, and releases the lock. A swap fill records everything its route delivered
+to the vault, so an ExactIn route's surplus is booked as backing (or returned with an
+expiry refund) rather than left outside the books. `finalize_large_basket_redeem_intent` takes no
 remaining accounts.
 
 `cancel_unfilled_large_basket_mint_intent` takes no remaining accounts.
@@ -325,7 +336,8 @@ so it can restore the reserved backing before re-minting the burned tokens.
 then a `[component mint, component vault, owner token account, component token
 program]` group for every component whose backing is returned to the owner (filled
 components for a mint, unfilled components for a redeem). Pass no component groups
-when there is nothing to return.
+when there is nothing to return, including an intent whose only filled (mint) or
+unfilled (redeem) components are zero amounts; the pages alone settle it.
 
 Every priced rebalance step (`open_rebalance_intent`, both execute batches,
 `verify_rebalance_component_price`, `finalize_rebalance`) names the `["price-oracle"]`

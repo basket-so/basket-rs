@@ -26,14 +26,16 @@ use crate::{
     },
     utils::{
         accrue_staking_rewards, associated_token_address,
-        associated_token_address_with_token_program,
+        associated_token_address_with_token_program, basis_points_amount,
         create_associated_token_account_idempotent,
         create_associated_token_account_idempotent_for_token_program,
         invoke_jupiter_swap_with_scratch, large_basket_fee_split, load_interface_token_account,
-        load_mint, load_user_token_account, pro_rata_mint_amount, pro_rata_redeem_amount,
+        load_mint, load_user_token_account, mul_div_floor_u64, pro_rata_mint_amount,
+        pro_rata_redeem_amount,
         quote_component_amount, route_creator_fee,
         validate_jupiter_route_account_scope,
-        validate_staking_vault, validate_total_index_fee_bps, validate_user_token_account,
+        validate_staking_vault, validate_token_account_credit, validate_total_index_fee_bps,
+        validate_user_token_account,
         validate_vault_authority_token_account_scope,
         unpack_account_metas, bitmap_get, bitmap_set_once, JupiterInvokeScratch,
         LargeBasketSwapPlan, ASSOCIATED_TOKEN_ID,
@@ -885,8 +887,8 @@ impl<'info> ExecuteLargeBasketMintComponent<'info> {
             ctx.accounts.component_token_program.to_account_info(),
         )?;
         let amount = intent_component_amount(&ctx.accounts.intent, args.component_index)?;
-        let quote_spent = if amount == 0 {
-            0
+        let (quote_spent, received) = if amount == 0 {
+            (0, 0)
         } else if component.mint == ctx.accounts.quote_mint.key() {
             require!(args.swap.is_none(), BasketError::InvalidJupiterRoute);
             transfer_checked_from_user_quote(
@@ -894,7 +896,7 @@ impl<'info> ExecuteLargeBasketMintComponent<'info> {
                 ctx.accounts.component_vault.to_account_info(),
                 amount,
             )?;
-            amount
+            (amount, amount)
         } else {
             let swap = args
                 .swap
@@ -910,6 +912,7 @@ impl<'info> ExecuteLargeBasketMintComponent<'info> {
         // Record this component's spend so verify_mint_component_price can check the
         // effective price against the oracle in a later (swap-free) transaction.
         set_component_quote_atoms(&mut ctx.accounts.intent, args.component_index, quote_spent)?;
+        record_component_received(&mut ctx.accounts.intent, args.component_index, received)?;
         mark_component_filled(&mut ctx.accounts.intent, args.component_index)?;
 
         emit!(LargeBasketComponentFilled {
@@ -917,7 +920,7 @@ impl<'info> ExecuteLargeBasketMintComponent<'info> {
             index: ctx.accounts.index.key(),
             owner: ctx.accounts.owner.key(),
             component_index: args.component_index,
-            amount,
+            amount: received,
             quote_atoms: quote_spent,
         });
 
@@ -1014,9 +1017,9 @@ impl<'info> ExecuteLargeBasketComponentBatch<'info> {
             )?;
 
             let amount = intent_component_amount(&ctx.accounts.intent, entry.component_index)?;
-            let quote_spent = if amount == 0 {
+            let (quote_spent, received) = if amount == 0 {
                 require!(entry.swap.is_none(), BasketError::InvalidJupiterRoute);
-                0
+                (0, 0)
             } else if component.mint == ctx.accounts.quote_mint.key() {
                 require!(entry.swap.is_none(), BasketError::InvalidJupiterRoute);
                 transfer_user_quote_to(
@@ -1027,7 +1030,7 @@ impl<'info> ExecuteLargeBasketComponentBatch<'info> {
                     vault_info.clone(),
                     amount,
                 )?;
-                amount
+                (amount, amount)
             } else {
                 let swap = entry
                     .swap
@@ -1062,6 +1065,7 @@ impl<'info> ExecuteLargeBasketComponentBatch<'info> {
             );
             add_mint_quote_spent(&mut ctx.accounts.intent, quote_spent)?;
             set_component_quote_atoms(&mut ctx.accounts.intent, entry.component_index, quote_spent)?;
+            record_component_received(&mut ctx.accounts.intent, entry.component_index, received)?;
             mark_component_filled(&mut ctx.accounts.intent, entry.component_index)?;
 
             emit!(LargeBasketComponentFilled {
@@ -1069,7 +1073,7 @@ impl<'info> ExecuteLargeBasketComponentBatch<'info> {
                 index: ctx.accounts.index.key(),
                 owner: ctx.accounts.owner.key(),
                 component_index: entry.component_index,
-                amount,
+                amount: received,
                 quote_atoms: quote_spent,
             });
         }
@@ -1925,7 +1929,11 @@ impl<'info> ExecuteLargeBasketMintComponentInKind<'info> {
         )?;
         let amount = intent_component_amount(&ctx.accounts.intent, args.component_index)?;
         if amount > 0 {
-            // Deposit the exact backing amount from the owner into the component vault.
+            // Deposit the exact backing amount from the owner into the component vault. Only
+            // what reaches the vault backs index tokens, so a deposit that arrives short (a
+            // Token-2022 transfer fee) is refused rather than booked at its nominal amount.
+            let vault_before =
+                load_interface_token_account(&ctx.accounts.component_vault.to_account_info())?.amount;
             transfer_component_checked(
                 &ctx.accounts.component_token_program.to_account_info(),
                 &ctx.accounts.owner_component_token_account.to_account_info(),
@@ -1936,6 +1944,9 @@ impl<'info> ExecuteLargeBasketMintComponentInKind<'info> {
                 amount,
                 component.decimals,
             )?;
+            let vault_after =
+                load_interface_token_account(&ctx.accounts.component_vault.to_account_info())?.amount;
+            validate_token_account_credit(vault_before, vault_after, amount)?;
             // Skim the in-kind fee on top of the deposit, paid by the owner.
             let (protocol_amount, creator_amount) =
                 in_kind_fee_amounts(&ctx.accounts.intent, amount)?;
@@ -2102,23 +2113,27 @@ impl<'info> ExecuteLargeBasketRedeemComponentInKind<'info> {
 
 // Returns (protocol_amount, creator_amount) of the in-kind fee for a component
 // `amount`. The staking share is folded into the protocol amount because staking
-// rewards must be a single token, not per-component component dust.
+// rewards must be a single token, not per-component component dust. The whole fee is
+// rounded up once and then split: rounding each share up on its own could charge a dust
+// component more than the component itself, failing the redeem and overcharging the mint.
 fn in_kind_fee_amounts(intent: &LargeBasketIntent, amount: u64) -> Result<(u64, u64)> {
-    let split = large_basket_fee_split(
-        amount,
+    validate_total_index_fee_bps(
         intent.protocol_fee_bps,
         intent.creator_fee_bps,
         intent.staking_fee_bps,
     )?;
-    let (protocol_fee, creator_fee) = route_creator_fee(
-        split.protocol_fee,
-        split.creator_fee,
-        &intent.creator_fee_recipient,
+    // Validated above to fit under MAX_TOTAL_INDEX_FEE_BPS.
+    let total_bps = intent.protocol_fee_bps + intent.creator_fee_bps + intent.staking_fee_bps;
+    if total_bps == 0 {
+        return Ok((0, 0));
+    }
+    let total_fee = basis_points_amount(amount, total_bps)?;
+    let creator_fee = mul_div_floor_u64(
+        total_fee,
+        u64::from(intent.creator_fee_bps),
+        u64::from(total_bps),
     )?;
-    let protocol_amount = protocol_fee
-        .checked_add(split.staking_fee)
-        .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
-    Ok((protocol_amount, creator_fee))
+    route_creator_fee(total_fee - creator_fee, creator_fee, &intent.creator_fee_recipient)
 }
 
 fn validate_recipient_component_ata(
@@ -2713,9 +2728,12 @@ fn return_owed_components<'info>(
     );
     let (page_infos, transfer_infos) = account_infos.split_at(page_count);
     // Every call must return something, so an expired but finalizable intent is not flipped
-    // to Refunding by a no-op.
+    // to Refunding by a no-op. The exception is an intent that owes nothing: its only filled
+    // mint components, or unfilled redeem components, are zero amounts no transfer group can
+    // name, so the pages alone settle it. Otherwise one owner could hold it open forever.
     require!(
-        !transfer_infos.is_empty() && transfer_infos.len() % 4 == 0,
+        transfer_infos.len() % 4 == 0
+            && (!transfer_infos.is_empty() || !anything_owed(intent, selection)?),
         BasketError::InvalidRemainingAccounts
     );
     let pages = load_ordered_writable_component_pages(&index, page_infos, intent.component_count)?;
@@ -2771,14 +2789,19 @@ fn return_owed_components<'info>(
         }
     }
 
-    for (component_index, _) in components {
+    Ok(!anything_owed(intent, selection)?)
+}
+
+/// Whether any component the cancelled intent owes its owner is still in the vaults.
+fn anything_owed(intent: &LargeBasketIntent, selection: CancelledComponentSelection) -> Result<bool> {
+    for component_index in 0..intent.component_count {
         if component_owed(intent, selection, component_index)?
             && !bitmap_get(&intent.refunded_bitmap, component_index)?
         {
-            return Ok(false);
+            return Ok(true);
         }
     }
-    Ok(true)
+    Ok(false)
 }
 
 struct CancelledComponentTransfer<'a, 'info> {
@@ -2979,6 +3002,23 @@ fn mark_component_filled(intent: &mut LargeBasketIntent, component_index: u16) -
     Ok(())
 }
 
+// A mint swap may deliver more than the component's share (ExactIn routes). Recording what
+// reached the vault makes finalize book all of it as backing and an expiry refund return all
+// of it, rather than leaving the surplus in the vault outside the reserve ledger.
+fn record_component_received(
+    intent: &mut LargeBasketIntent,
+    component_index: u16,
+    received: u64,
+) -> Result<()> {
+    let slot = intent
+        .component_amounts
+        .get_mut(usize::from(component_index))
+        .ok_or_else(|| error!(BasketError::InvalidLargeBasketIntent))?;
+    require!(received >= *slot, BasketError::InvalidJupiterRoute);
+    *slot = received;
+    Ok(())
+}
+
 fn intent_component_amount(intent: &LargeBasketIntent, component_index: u16) -> Result<u64> {
     intent
         .component_amounts
@@ -3164,8 +3204,8 @@ fn mint_account_candidates<'info>(
     candidates
 }
 
-// Performs the component swap and returns quote_spent. The oracle price-bound is
-// NOT checked here anymore — it is deferred to verify_mint_component_price so the
+// Performs the component swap and returns (quote_spent, component_received). The oracle
+// price-bound is NOT checked here anymore — it is deferred to verify_mint_component_price so the
 // swap tx doesn't also have to carry the (incompressible) oracle quote, which would
 // exceed the 1232-byte transaction limit. quote_spent/component_received are facts
 // fixed by this swap; the deferred check compares them to a fresh oracle later.
@@ -3174,7 +3214,7 @@ fn execute_mint_swap<'info>(
     swap: &LargeBasketSwapPlan,
     _component: &LargeBasketComponent,
     required_amount: u64,
-) -> Result<u64> {
+) -> Result<(u64, u64)> {
     let candidates = mint_account_candidates(ctx);
     execute_mint_swap_inner(
         &ctx.accounts.jupiter_program.to_account_info(),
@@ -3203,7 +3243,7 @@ fn execute_mint_swap_inner<'info>(
     candidates: &[AccountInfo<'info>],
     swap: &LargeBasketSwapPlan,
     required_amount: u64,
-) -> Result<u64> {
+) -> Result<(u64, u64)> {
     // The compact swap plan carries no input/output mint or source/dest pubkeys
     // (they're derivable and were redundant) and packs each route-account reference
     // into 1 byte (see unpack_account_metas) so more swaps fit per batched tx.
@@ -3242,14 +3282,15 @@ fn execute_mint_swap_inner<'info>(
     // Jupiter offers ExactIn only for xStocks (no ExactOut route), so the swap
     // delivers a VARIABLE amount that is >= required (the route sizes the swap so
     // Jupiter's guaranteed min-out >= required). Accept over-delivery: the vault is
-    // backed by at least the pro-rata target; any surplus accrues pro-rata to all
-    // holders, and the minter's spend stays bounded by max_quote_in. Requiring exact
-    // equality is impossible with ExactIn and was the cause of InvalidJupiterRoute.
+    // backed by at least the pro-rata target, the caller records the whole delivery so
+    // the surplus is booked as backing for all holders (or refunded on expiry), and the
+    // minter's spend stays bounded by max_quote_in. Requiring exact equality is
+    // impossible with ExactIn and was the cause of InvalidJupiterRoute.
     require!(
         component_received >= required_amount,
         BasketError::InvalidJupiterRoute
     );
-    Ok(quote_spent)
+    Ok((quote_spent, component_received))
 }
 
 // Redeem swap core (component -> USDC) for the batched redeem. Vault authority signs via
@@ -3400,7 +3441,7 @@ fn transfer_fee_from_owner<'info>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constants::REBALANCE_REQUEST_WINDOW_SECONDS;
+    use crate::constants::{REBALANCE_REQUEST_COOLDOWN_SECONDS, REBALANCE_REQUEST_WINDOW_SECONDS};
 
     fn intent(component_count: u16) -> LargeBasketIntent {
         LargeBasketIntent {
@@ -3466,6 +3507,81 @@ mod tests {
         assert!(!closable(LargeBasketIntentStatus::Cancelled, true, &key));
         assert!(!closable(LargeBasketIntentStatus::Cancelled, true, &unlocked));
         assert!(!closable(LargeBasketIntentStatus::Finalized, false, &key));
+    }
+
+    #[test]
+    fn an_expired_intent_owes_only_its_nonzero_components() {
+        use CancelledComponentSelection::{Filled, Unfilled};
+        // Component 1 is a zero amount, as a zero-weight USDC component or a redeem share
+        // that floors to nothing.
+        let mut intent = intent(3);
+        intent.component_amounts = vec![5, 0, 7];
+
+        // A mint whose only fill is the zero amount deposited nothing: nothing to return.
+        intent.component_fill_bitmap[0] = 0b010;
+        assert!(!anything_owed(&intent, Filled).unwrap());
+        intent.component_fill_bitmap[0] = 0b011;
+        assert!(anything_owed(&intent, Filled).unwrap());
+        intent.refunded_bitmap[0] = 0b001;
+        assert!(!anything_owed(&intent, Filled).unwrap());
+
+        // A redeem that delivered every nonzero share and left only the zero one unfilled.
+        intent.kind = LargeBasketIntentKind::Redeem;
+        intent.refunded_bitmap[0] = 0;
+        intent.component_fill_bitmap[0] = 0b101;
+        assert!(!anything_owed(&intent, Unfilled).unwrap());
+        intent.component_fill_bitmap[0] = 0b001;
+        assert!(anything_owed(&intent, Unfilled).unwrap());
+    }
+
+    #[test]
+    fn in_kind_fee_is_rounded_once_and_never_exceeds_the_component() {
+        let mut intent = intent(1);
+        intent.protocol_fee_bps = 5;
+        intent.creator_fee_bps = 5;
+        intent.staking_fee_bps = 5;
+        intent.creator_fee_recipient = Pubkey::new_unique();
+        for amount in 1..=100u64 {
+            let (protocol, creator) = in_kind_fee_amounts(&intent, amount).unwrap();
+            assert!(protocol + creator <= amount, "fee above a {amount}-atom component");
+        }
+        // A one-atom share pays one atom, not one per fee recipient.
+        assert_eq!(in_kind_fee_amounts(&intent, 1).unwrap(), (1, 0));
+        // At scale the split follows the configured rates, staking folded into protocol.
+        intent.protocol_fee_bps = 40;
+        intent.creator_fee_bps = 20;
+        intent.staking_fee_bps = 10;
+        assert_eq!(in_kind_fee_amounts(&intent, 1_000_000).unwrap(), (5_000, 2_000));
+        intent.creator_fee_recipient = Pubkey::default();
+        assert_eq!(in_kind_fee_amounts(&intent, 1_000_000).unwrap(), (7_000, 0));
+        intent.protocol_fee_bps = 0;
+        intent.creator_fee_bps = 0;
+        intent.staking_fee_bps = 0;
+        assert_eq!(in_kind_fee_amounts(&intent, 1_000_000).unwrap(), (0, 0));
+    }
+
+    #[test]
+    fn a_mint_fill_records_everything_the_vault_received() {
+        let mut intent = intent(2);
+        intent.component_amounts = vec![100, 0];
+        // An ExactIn route delivered more than the share: all of it is the owner's deposit.
+        record_component_received(&mut intent, 0, 103).unwrap();
+        assert_eq!(intent.component_amounts, vec![103, 0]);
+        record_component_received(&mut intent, 1, 0).unwrap();
+        assert!(record_component_received(&mut intent, 0, 99).is_err());
+    }
+
+    #[test]
+    fn an_abandoned_rebalance_spaces_out_the_next_hold() {
+        let mut index = index_with_component_counts(1);
+        index.rebalance_requested = true;
+        index.rebalance_requested_at = 100;
+        index.note_rebalance_abandoned(5_000);
+        assert!(!index.rebalance_request_active(5_000));
+        assert_eq!(
+            index.next_rebalance_hold_at(),
+            5_000 + REBALANCE_REQUEST_WINDOW_SECONDS + REBALANCE_REQUEST_COOLDOWN_SECONDS
+        );
     }
 
     fn index_with_component_counts(large_basket_component_count: u8) -> IndexState {

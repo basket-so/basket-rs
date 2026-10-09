@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import anchor from '@coral-xyz/anchor';
 import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY, Transaction, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
-import { AccountLayout, MintLayout, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { AccountLayout, MintLayout, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAccount, getAssociatedTokenAddressSync, mintTo } from '@solana/spl-token';
 import { encodePriceMessage, priceSignatureInstruction, signPriceMessage } from '../scripts/lib/signed-prices.mjs';
 import { basketLookupAddresses, ensureBasketLookupTable, sendV0 } from '../scripts/rebalance-bot.mjs';
 
@@ -140,8 +140,8 @@ export async function testSignedPrices(program, connection, payer, user, f) {
     return { message, ix: priceSignatureInstruction({ oracle: signer.publicKey, message, signature: signPriceMessage(signer.secretKey, message) }) };
   };
   const send = ixs => program.provider.sendAndConfirm(new Transaction().add(...ixs));
-  const openIx = async (b, n, maxPriceAgeSlots = 50) => program.methods.openRebalanceIntent({ nonce: bn(n), expiresAt: bn((await chainNow()) + 600), maxPriceAgeSlots: bn(maxPriceAgeSlots), navToleranceBps: 50, maxPostRebalanceDriftBps: 100 })
-    .accounts({ initiator: payer.publicKey, index: b.index, indexMint: b.indexMint, vaultAuthority: b.vaultAuthority, quoteMint: usdc, vaultQuoteTokenAccount: b.vaultQuote, intent: intentOf(b, n), priceOracle, instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, quoteTokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId })
+  const openIx = async (b, n, maxPriceAgeSlots = 50, initiator = payer.publicKey) => program.methods.openRebalanceIntent({ nonce: bn(n), expiresAt: bn((await chainNow()) + 600), maxPriceAgeSlots: bn(maxPriceAgeSlots), navToleranceBps: 50, maxPostRebalanceDriftBps: 100 })
+    .accounts({ initiator, index: b.index, indexMint: b.indexMint, vaultAuthority: b.vaultAuthority, quoteMint: usdc, vaultQuoteTokenAccount: b.vaultQuote, intent: intentOf(b, n), priceOracle, instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, quoteTokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId })
     .remainingAccounts([...b.pages.map(p => meta(p)), ...b.components.map(c => meta(c.vault))]).instruction();
   const finalizeIx = (b, intent) => program.methods.finalizeRebalance({ maxPriceAgeSlots: bn(50) })
     .accounts({ keeper: payer.publicKey, index: b.index, intent, vaultAuthority: b.vaultAuthority, quoteMint: usdc, vaultQuoteTokenAccount: b.vaultQuote, priceOracle, instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY, quoteTokenProgram: TOKEN_PROGRAM_ID })
@@ -267,5 +267,38 @@ export async function testSignedPrices(program, connection, payer, user, f) {
   await rejectsWith(send([(await signed({ intent: intentOf(f, rn), entries: prices(1.5, 1) })).ix, await openIx(f, rn)]), 'InvalidPriceSignature', 'the previous key');
   await send([(await signed({ intent: intentOf(f, rn), entries: prices(1.5, 1), signer: rotated })).ix, await openIx(f, rn)]);
   await cancel(f, intentOf(f, rn));
-  console.log('integration ok: price oracle set/rotate, Ed25519 signature required right before the step, wrong key/intent/age/slot/missing or zero price refused, cross-instruction offsets refused, legs from signed prices, keeper lookup tables created/found/extended, on-target rebalances finalized through them up to 45 components and 64 accounts');
+
+  // --- The vaults are public, so tokens can arrive mid-rebalance. Finalize judges what the legs
+  // left, not the live balances: $5 of USDC and 10 A ($15) sent to the $250 basket after open
+  // would otherwise be 2% excess quote and 6% drift, past the 1% bounds. They are booked to
+  // holders once it finalizes ---
+  const dn = nextNonce(f);
+  const gifted = intentOf(f, dn);
+  await send([(await signed({ intent: gifted, entries: prices(1.5, 1), signer: rotated })).ix, await openIx(f, dn)]);
+  await mintTo(connection, payer, usdc, f.vaultQuote, payer, 5_000_000);
+  await mintTo(connection, payer, f.components[0].mint, f.components[0].vault, payer, 10_000_000);
+  await send([(await signed({ intent: gifted, entries: prices(1.5, 1), signer: rotated })).ix, await finalizeIx(f, gifted)]);
+  assert.equal((await program.account.rebalanceIntent.fetch(gifted)).newNavNad.toString(), '250000000000');
+  const booked = (await program.account.largeBasketComponentPage.fetch(f.page)).components;
+  assert.equal(booked[0].accountedReserve.toString(), (SUPPLY + 10_000_000n).toString());
+  assert.equal(booked[2].accountedReserve.toString(), '5000000');
+  assert.equal((await getAccount(connection, f.vaultQuote)).amount, 5_000_000n);
+
+  // --- After an abandoned rebalance the keeper waits out the request spacing before opening
+  // again, so it cannot hold mints and redeems back by reopening each time one is unwound; the
+  // authority, which appoints the keeper, is not held back ---
+  await program.methods.setRebalanceKeeper({ keeper: user.publicKey }).accounts({ authority: payer.publicKey, index: f.index }).rpc();
+  const lastRebalanced = (await program.account.indexState.fetch(f.index)).fixedWeightLastRebalancedAt.toNumber();
+  while (await chainNow() <= lastRebalanced + 1) await new Promise(r => setTimeout(r, 200));
+  const abandoned = nextNonce(f);
+  await send([(await signed({ intent: intentOf(f, abandoned), entries: prices(1.5, 1), signer: rotated })).ix, await openIx(f, abandoned)]);
+  await cancel(f, intentOf(f, abandoned));
+  const kn = nextNonce(f);
+  const keeperOpen = async () => program.provider.sendAndConfirm(new Transaction().add((await signed({ intent: intentOf(f, kn), entries: prices(1.5, 1), signer: rotated })).ix, await openIx(f, kn, 50, user.publicKey)), [user]);
+  await rejectsWith(keeperOpen(), 'RebalanceRequestCooldown', 'the keeper reopening right after a cancel');
+  await rejectsWith(program.methods.requestRebalance().accounts({ operator: user.publicKey, index: f.index }).signers([user]).rpc(), 'RebalanceRequestCooldown', 'the keeper requesting right after a cancel');
+  await send([(await signed({ intent: intentOf(f, kn), entries: prices(1.5, 1), signer: rotated })).ix, await openIx(f, kn)]);
+  await cancel(f, intentOf(f, kn));
+  await program.methods.setRebalanceKeeper({ keeper: PublicKey.default }).accounts({ authority: payer.publicKey, index: f.index }).rpc();
+  console.log('integration ok: price oracle set/rotate, Ed25519 signature required right before the step, wrong key/intent/age/slot/missing or zero price refused, cross-instruction offsets refused, legs from signed prices, keeper lookup tables created/found/extended, on-target rebalances finalized through them up to 45 components and 64 accounts, mid-rebalance gifts neither block finalize nor count toward its bounds, keeper opens spaced after an abandoned rebalance');
 }
