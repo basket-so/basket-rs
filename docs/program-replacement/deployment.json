@@ -334,6 +334,16 @@
       "label": "BUYB: initialize component page and finalize",
       "signature": "5nAcL3XJkzaF4Yexsp3nsGEJyh34Dgek1B4VejPCTvhjiNoA5s7Lhfkdnwd9QssRs8u6HDj8f37pWmkpQFobS77A",
       "status": "confirmed"
+    },
+    {
+      "label": "BUYB: set rebalance keeper CrRJBJsQpWMum7vfRx1XCyiaDSgv3wns8iPJmQzYcB81",
+      "signature": "2LQ6w96GJQQakw91HdoZHn49Voecb7VUgYkQLudbqjz1R3jKSiG9H9UCQojMrRpTeXFZQp5QPUDoxJqPH81HdjWk",
+      "status": "confirmed"
+    },
+    {
+      "label": "BUYB: set fees protocol/creator/staking 4/1/5 bps each way",
+      "signature": "5pfQW6ZQoVqQyyRj57sdzDFmzi6Nk9qZ4H5mNuzxStEPN8bETVxH3bxE2dDtLZh6zCbzRmoKe3sSt1sey3LBgwV5",
+      "status": "confirmed"
     }
   ],
   "baskets": {
