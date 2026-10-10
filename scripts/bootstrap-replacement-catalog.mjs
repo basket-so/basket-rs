@@ -4,8 +4,8 @@ import { fileURLToPath } from 'node:url';
 import anchor from '@coral-xyz/anchor';
 import { AddressLookupTableProgram, Connection, ComputeBudgetProgram, Keypair, PublicKey,
   SystemProgram, SYSVAR_RENT_PUBKEY, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
-import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync,
-  unpackMint, getAccountLenForMint } from '@solana/spl-token';
+import { ASSOCIATED_TOKEN_PROGRAM_ID, ExtensionType, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync,
+  getExtensionTypes, getTransferHook, unpackMint, getAccountLenForMint } from '@solana/spl-token';
 import { USDC, validateCatalog, sizeBasket, fetchJson } from './lib/catalog.mjs';
 import { jupiterApis, oraclePrices } from './lib/price-oracle.mjs';
 
@@ -56,7 +56,7 @@ const metadataProgram = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x
 const assets = {};
 const failures = {};
 const candidates = selected.filter(b => !b.blockers.length);
-const usedSymbols = [...new Set(candidates.flatMap(b => b.components.map(c => c.symbol)))];
+const usedSymbols = [...new Set(candidates.flatMap(b => [...b.components.map(c => c.symbol), ...(b.usdcCashSlot ? ['USDC'] : [])]))];
 const mintAccounts = await connection.getMultipleAccountsInfo(usedSymbols.map(s => new PublicKey(catalog.tokens[s].mint)));
 const slot = await connection.getSlot();
 const prices = await fetchJson(`${priceApi}?ids=${usedSymbols.map(s => catalog.tokens[s].mint).join(',')}`);
@@ -76,7 +76,16 @@ for (const [i, symbol] of usedSymbols.entries()) {
     const info = mintAccounts[i];
     if (!info || info.owner.toBase58() !== token.tokenProgram) throw new Error('Mint owner mismatch');
     const parsed = unpackMint(mint, info, info.owner);
-    if (!info.owner.equals(TOKEN_PROGRAM_ID)) throw new Error('Deployed small-index vaults require classic SPL tokens');
+    if (info.owner.equals(TOKEN_2022_PROGRAM_ID)) {
+      // Only extensions that leave transfers plain: metadata, and a transfer hook with no program
+      // set (PUMP's). A fee, delegate, pause, freeze default or live hook could take from or
+      // block the vault. The program itself refuses the transfer-fee extension too.
+      const allowed = new Set([ExtensionType.MetadataPointer, ExtensionType.TokenMetadata, ExtensionType.TransferHook]);
+      const refused = getExtensionTypes(parsed.tlvData).filter(e => !allowed.has(e));
+      if (refused.length) throw new Error(`Token-2022 extensions not accepted: ${refused.map(e => ExtensionType[e]).join(', ')}`);
+      const hook = getTransferHook(parsed);
+      if (hook && !hook.programId.equals(PublicKey.default)) throw new Error('Token-2022 transfer hook has a program set');
+    } else if (!info.owner.equals(TOKEN_PROGRAM_ID)) throw new Error('Unsupported token program');
     if (!parsed.isInitialized || parsed.decimals !== token.decimals) throw new Error('Mint decimals/initialization mismatch');
     const quote = prices[token.mint];
     // Jupiter's price API only refreshes on trades it sees, so tokens that trade mostly on their
@@ -204,7 +213,8 @@ for (const plan of plans) {
         throw new Error('Oracle price moved >2%; rerun route preflight');
       assets[component.symbol] = { ...assets[component.symbol], price, priceObservedAt: new Date().toISOString() };
     }
-    const refreshed = sizeBasket(plan, assets, catalog.navToleranceUsd);
+    // Size from the catalog entry: the plan's components already include any USDC cash slot.
+    const refreshed = sizeBasket(selected.find(b => b.symbol === plan.symbol), assets, catalog.navToleranceUsd);
     plan.components = refreshed.components.map((c,i) => ({ ...c, vault: plan.components[i].vault }));
     plan.initialNavUsd = refreshed.initialNavUsd;
   }
@@ -213,7 +223,9 @@ for (const plan of plans) {
   const onchain = plan.components.map(component => ({ ...component, oraclePair: PublicKey.default }));
   const accounts = { payer: payer.publicKey, authority: payer.publicKey, index, indexMint, vaultAuthority };
   const create = await program.methods.createLargeBasketIndex({ name: plan.name, symbol: plan.symbol, metadataUri: '', decimals: 6,
-    feeRecipient: config.authority, creatorFeeRecipient: PublicKey.default, maxSupply: new anchor.BN(0), rebalanceDelaySeconds: new anchor.BN(0),
+    feeRecipient: plan.feeRecipient ? new PublicKey(plan.feeRecipient) : config.authority,
+    creatorFeeRecipient: plan.creatorFeeRecipient ? new PublicKey(plan.creatorFeeRecipient) : PublicKey.default,
+    maxSupply: new anchor.BN(0), rebalanceDelaySeconds: new anchor.BN(0),
     kind: { [plan.kind]: {} }, fixedWeightQuoteMint: plan.kind === 'fixedWeights' ? new PublicKey(USDC) : PublicKey.default,
     fixedWeightRebalanceIntervalSeconds: new anchor.BN(plan.rebalanceIntervalSeconds), fixedWeightDriftThresholdBps: plan.driftThresholdBps,
     fixedWeightSpotEmaMaxDeviationBps: plan.kind === 'fixedWeights' ? 500 : 0,
@@ -263,6 +275,8 @@ for (const plan of plans) {
   const state = await fetchCreatedIndex(index);
   const pageState = await program.account.largeBasketComponentPage.fetch(page);
   if (!state.largeBasketConfigured || state.largeBasketComponentCount !== onchain.length || pageState.components.length !== onchain.length ||
+      state.name !== plan.name || !state.feeRecipient.equals(plan.feeRecipient ? new PublicKey(plan.feeRecipient) : config.authority) ||
+      !state.creatorFeeRecipient.equals(plan.creatorFeeRecipient ? new PublicKey(plan.creatorFeeRecipient) : PublicKey.default) ||
       pageState.components.some((c, i) => c.unitsPerIndex.toString() !== onchain[i].unitsPerIndex || !c.mint.equals(new PublicKey(onchain[i].mint)) || c.targetWeightBps !== onchain[i].targetWeightBps))
     throw new Error('Post-deployment verification failed');
   journal.baskets[plan.symbol].status = 'verified'; saveJournal();

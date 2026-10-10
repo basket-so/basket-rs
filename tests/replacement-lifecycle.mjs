@@ -768,7 +768,106 @@ async function main() {
       assert.equal(await usdcOf(feeUsdc),2_000n);
       assert.equal((await getAccount(connection,rewardVault)).amount,2_000n);
     }
-    console.log('integration ok: six-decimal staking, rewards, unstaking; fixed-unit and fixed-weight paged creation, initial/pro-rata mint, cancellation, complete redemption; concurrent intents from several owners, keeper-only spaced rebalance requests, empty-basket eras, incremental expiry refunds and escrow claims; settled intents closed with the rent back to the owner, unsettled ones refused; 40-component cap; zero-amount intents settled once expired; transfer-fee Token-2022 components refused; swap-path mint fee collection; redeem fees charged with proceeds, auto-finalize, closed bypasses');
+
+    // Creator fees go to a wallet other than the authority, which gains no power over the
+    // basket by receiving them. The split is the one planned for BUYB: 10 bps each way, 4 to
+    // the treasury, 1 to the creator and 5 to stakers. Swap-path fees move in USDC and
+    // in-kind fees in the component itself.
+    {
+      const fees = { mintFeeBps: 4, redeemFeeBps: 4, creatorMintFeeBps: 1, creatorRedeemFeeBps: 1, stakingMintFeeBps: 5, stakingRedeemFeeBps: 5 };
+      const treasury = Keypair.generate();
+      const creator = Keypair.generate();
+      const jupiterProgram = new PublicKey('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4');
+      const expiresAt = () => bn(Math.floor(Date.now() / 1000) + 600);
+      const balance = async (account) => (await getAccount(connection, account)).amount;
+      // How much each account's balance moved across one action.
+      const deltas = async (accounts, action) => {
+        const before = await Promise.all(accounts.map(balance));
+        await action();
+        return (await Promise.all(accounts.map(balance))).map((after, i) => after - before[i]);
+      };
+      const createBasket = async (symbol, mint) => {
+        const index = pda('index', payer.publicKey, symbol);
+        const indexMint = pda('index-mint', index);
+        const vaultAuthority = pda('vault-authority', index);
+        const page = pda('large-basket-component-page', index, Buffer.from([0]));
+        const vault = getAssociatedTokenAddressSync(mint, vaultAuthority, true);
+        await program.methods.createLargeBasketIndex({ name: symbol + ' test', symbol, metadataUri: '', decimals: 6, feeRecipient: treasury.publicKey, creatorFeeRecipient: creator.publicKey, maxSupply: bn(10_000_000), rebalanceDelaySeconds: bn(0), kind: { fixedUnits: {} }, fixedWeightQuoteMint: PublicKey.default, fixedWeightRebalanceIntervalSeconds: bn(0), fixedWeightDriftThresholdBps: 0, fixedWeightSpotEmaMaxDeviationBps: 0, componentCount: 1 }).accounts({ payer: payer.publicKey, authority: payer.publicKey, protocolConfig, index, indexMint, vaultAuthority, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc();
+        await program.methods.initializeLargeBasketComponentPage({ pageIndex: 0, startComponentIndex: 0, components: [{ mint, unitsPerIndex: bn(1_000_000), targetWeightBps: 0, oraclePair: PublicKey.default }] }).accounts({ payer: payer.publicKey, authority: payer.publicKey, index, indexMint, vaultAuthority, page, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).remainingAccounts([meta(mint), meta(vault, true), meta(TOKEN_PROGRAM_ID)]).rpc();
+        await program.methods.finalizeLargeBasketConfig().accounts({ authority: payer.publicKey, index }).remainingAccounts([meta(page, true)]).rpc();
+        await program.methods.updateFees(fees).accounts({ authority: payer.publicKey, index }).rpc();
+        const common = { owner: payer.publicKey, index, indexMint, stakingPool, stakingAuthority, quoteMint: usdcMint, vaultAuthority, intentLock: pda('large-basket-intent-lock', index, payer.publicKey), ownerIndexTokenAccount: getAssociatedTokenAddressSync(indexMint, payer.publicKey), ownerQuoteTokenAccount: userUsdc.address, quoteTokenProgram: TOKEN_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID };
+        const intentFor = (nonce) => pda('large-basket-intent', index, payer.publicKey, bn(nonce).toArrayLike(Buffer, 'le', 8));
+        return { index, indexMint, page, vault, common, intentFor };
+      };
+
+      // Swap path, on a basket whose one component is USDC so no liquidity is needed.
+      {
+        const b = await createBasket('CRTR', usdcMint);
+        const state = await program.account.indexState.fetch(b.index);
+        assert.equal(state.authority.toBase58(), payer.publicKey.toBase58());
+        assert.equal(state.creatorFeeRecipient.toBase58(), creator.publicKey.toBase58());
+        // The recipients' USDC accounts, as the app creates them on the first fee-paying mint.
+        const treasuryUsdc = (await getOrCreateAssociatedTokenAccount(connection, payer, usdcMint, treasury.publicKey)).address;
+        const creatorUsdc = (await getOrCreateAssociatedTokenAccount(connection, payer, usdcMint, creator.publicKey)).address;
+        const feeAccounts = { feeRecipientQuoteTokenAccount: treasuryUsdc, creatorFeeRecipientQuoteTokenAccount: creatorUsdc, stakingRewardVault: rewardVault };
+        const misdirected = { ...feeAccounts, creatorFeeRecipientQuoteTokenAccount: treasuryUsdc };
+        const legAccounts = [meta(b.page), meta(usdcMint), meta(b.vault, true), meta(TOKEN_PROGRAM_ID)];
+        const watched = [userUsdc.address, treasuryUsdc, creatorUsdc, rewardVault];
+
+        const mintIntent = b.intentFor(1);
+        await program.methods.openLargeBasketMintIntent({ nonce: bn(1), expiresAt: expiresAt(), inKind: false, indexAmountOut: bn(1_000_000), maxQuoteIn: bn(1_001_000) }).accounts({ ...b.common, intent: mintIntent }).remainingAccounts([meta(b.page)]).rpc();
+        await program.methods.executeLargeBasketMintBatch({ entries: [{ componentIndex: 0, routeAccountCount: 0, swap: null, maxQuoteIn: bn(1_000_000) }] }).accounts({ ...b.common, intent: mintIntent, jupiterProgram }).remainingAccounts(legAccounts).rpc();
+        // Whoever sends the collect step cannot route the creator's share to another account.
+        const collect = (accounts) => program.methods.collectLargeBasketIntentFees().accounts({ ...b.common, intent: mintIntent, ...accounts }).rpc();
+        await assert.rejects(collect(misdirected), /InvalidCreatorFeeRecipientTokenAccount/);
+        // 10 bps of 1 USDC is 1,000 atoms: 400 treasury, 100 creator, 500 stakers.
+        assert.deepEqual(await deltas(watched, () => collect(feeAccounts)), [-1_000n, 400n, 100n, 500n]);
+        await program.methods.finalizeLargeBasketMintIntent().accounts({ ...b.common, intent: mintIntent }).remainingAccounts([meta(b.page, true)]).rpc();
+
+        const redeemIntent = b.intentFor(2);
+        await program.methods.openLargeBasketRedeemIntent({ nonce: bn(2), expiresAt: expiresAt(), inKind: false, indexAmountIn: bn(1_000_000), minQuoteOut: bn(999_000) }).accounts({ ...b.common, intent: redeemIntent }).remainingAccounts([meta(b.page, true)]).rpc();
+        const redeemLeg = (accounts) => program.methods.executeLargeBasketRedeemBatch({ entries: [{ componentIndex: 0, routeAccountCount: 0, swap: null, minQuoteOut: bn(1_000_000) }] }).accounts({ ...b.common, intent: redeemIntent, jupiterProgram, ...accounts }).remainingAccounts(legAccounts).rpc();
+        await assert.rejects(redeemLeg(misdirected), /InvalidCreatorFeeRecipientTokenAccount/);
+        assert.deepEqual(await deltas(watched, () => redeemLeg(feeAccounts)), [999_000n, 400n, 100n, 500n]);
+        assert.ok((await program.account.largeBasketIntent.fetch(redeemIntent)).status.finalized);
+        assert.equal((await getMint(connection, b.indexMint)).supply, 0n);
+
+        // Receiving fees gives the recipient no say over the basket: fees, recipients, pauses
+        // and the authority all stay with the authority.
+        await assert.rejects(program.methods.updateFees({ ...fees, creatorMintFeeBps: 100 }).accounts({ authority: creator.publicKey, index: b.index }).signers([creator]).rpc(), /UnauthorizedAuthority/);
+        await assert.rejects(program.methods.updateConfig({ feeRecipient: creator.publicKey, creatorFeeRecipient: creator.publicKey, maxSupply: bn(0), rebalanceDelaySeconds: bn(0), mintingPaused: true, redeemingPaused: true, rebalancingPaused: true }).accounts({ authority: creator.publicKey, index: b.index }).signers([creator]).rpc(), /UnauthorizedAuthority/);
+        await assert.rejects(program.methods.updateAuthority({ newAuthority: creator.publicKey }).accounts({ authority: creator.publicKey, index: b.index }).signers([creator]).rpc(), /UnauthorizedAuthority/);
+      }
+
+      // In kind, on a basket of a plain token: the fee is taken in that token. Staking rewards
+      // are paid in USDC only, so the stakers' share goes to the treasury on this path.
+      {
+        const token = await createMint(connection, payer, payer.publicKey, null, 6);
+        const b = await createBasket('CRTK', token);
+        const own = (await getOrCreateAssociatedTokenAccount(connection, payer, token, payer.publicKey)).address;
+        await mintTo(connection, payer, token, own, payer, 2_000_000);
+        const treasuryToken = (await getOrCreateAssociatedTokenAccount(connection, payer, token, treasury.publicKey)).address;
+        const creatorToken = (await getOrCreateAssociatedTokenAccount(connection, payer, token, creator.publicKey)).address;
+        const watched = [own, b.vault, treasuryToken, creatorToken, rewardVault];
+        const fill = (kind, intent, creatorAccount) => program.methods[kind === 'mint' ? 'executeLargeBasketMintComponentInKind' : 'executeLargeBasketRedeemComponentInKind']({ componentIndex: 0 }).accounts({ ...b.common, intent, componentPage: b.page, componentMint: token, componentVault: b.vault, componentTokenProgram: TOKEN_PROGRAM_ID, ownerComponentTokenAccount: own, protocolFeeComponentAccount: treasuryToken, creatorFeeComponentAccount: creatorAccount }).rpc();
+
+        const mintIntent = b.intentFor(1);
+        await program.methods.openLargeBasketMintIntent({ nonce: bn(1), expiresAt: expiresAt(), inKind: true, indexAmountOut: bn(1_000_000), maxQuoteIn: bn(0) }).accounts({ ...b.common, intent: mintIntent }).remainingAccounts([meta(b.page)]).rpc();
+        await assert.rejects(fill('mint', mintIntent, own), /InvalidFeeRecipientTokenAccount/);
+        // 10 bps of 1,000,000 atoms is 1,000: 100 to the creator, 900 to the treasury.
+        assert.deepEqual(await deltas(watched, () => fill('mint', mintIntent, creatorToken)), [-1_001_000n, 1_000_000n, 900n, 100n, 0n]);
+        await program.methods.finalizeLargeBasketMintIntent().accounts({ ...b.common, intent: mintIntent }).remainingAccounts([meta(b.page, true)]).rpc();
+
+        const redeemIntent = b.intentFor(2);
+        await program.methods.openLargeBasketRedeemIntent({ nonce: bn(2), expiresAt: expiresAt(), inKind: true, indexAmountIn: bn(1_000_000), minQuoteOut: bn(0) }).accounts({ ...b.common, intent: redeemIntent }).remainingAccounts([meta(b.page, true)]).rpc();
+        await assert.rejects(fill('redeem', redeemIntent, own), /InvalidFeeRecipientTokenAccount/);
+        assert.deepEqual(await deltas(watched, () => fill('redeem', redeemIntent, creatorToken)), [999_000n, -1_000_000n, 900n, 100n, 0n]);
+        await program.methods.finalizeLargeBasketRedeemIntent().accounts({ index: b.index, intent: redeemIntent, intentLock: b.common.intentLock }).rpc();
+        assert.equal((await getMint(connection, b.indexMint)).supply, 0n);
+      }
+    }
+    console.log('integration ok: six-decimal staking, rewards, unstaking; fixed-unit and fixed-weight paged creation, initial/pro-rata mint, cancellation, complete redemption; concurrent intents from several owners, keeper-only spaced rebalance requests, empty-basket eras, incremental expiry refunds and escrow claims; settled intents closed with the rent back to the owner, unsettled ones refused; 40-component cap; zero-amount intents settled once expired; transfer-fee Token-2022 components refused; swap-path mint fee collection; redeem fees charged with proceeds, auto-finalize, closed bypasses; creator fees paid to a separate recipient in USDC and in kind, unredirectable, with no authority');
   } catch (error) {
     if (!/privilege error 1314/i.test(error.message)) {
       console.error(validatorOutput);

@@ -51,6 +51,13 @@ export function validateCatalog(catalog) {
     if (b.navRoundingReserve !== undefined && (b.navRoundingReserve !== 'USDC' ||
         catalog.tokens.USDC?.mint !== USDC || !b.components.some(c => c.symbol === 'USDC')))
       throw new Error(`${b.symbol}: NAV rounding reserve must be native USDC in the basket`);
+    // A fixed-weight basket must hold a USDC slot (finalize refuses one without it); this adds
+    // it at zero weight and zero units, as the cash its rebalances route through.
+    if (b.usdcCashSlot !== undefined && (b.usdcCashSlot !== true || b.kind !== 'fixedWeights' ||
+        catalog.tokens.USDC?.mint !== USDC || b.components.some(c => c.symbol === 'USDC') || b.components.length > 9))
+      throw new Error(`${b.symbol}: USDC cash slot needs a fixed-weight basket without USDC and at most nine other components`);
+    for (const key of ['feeRecipient', 'creatorFeeRecipient'])
+      if (b[key] !== undefined && new PublicKey(b[key]).equals(PublicKey.default)) throw new Error(`${b.symbol}: ${key} must be set or omitted`);
     const mints = new Set();
     for (const component of b.components) {
       const token = catalog.tokens[component.symbol];
@@ -95,6 +102,11 @@ export function sizeBasket(basket, assets, tolerance = 0.00001) {
         adjustment < -500n || adjustment > 500n)
       throw new Error('NAV rounding reserve adjustment exceeds 5 bps or is nonpositive');
     reserve.unitsPerIndex = atoms.toString();
+  }
+  if (basket.usdcCashSlot) {
+    const usdc = assets.USDC;
+    if (!usdc || usdc.mint !== USDC) throw new Error('Missing USDC for the cash slot');
+    components.push({ symbol: 'USDC', weightBps: 0, ...usdc, unitsPerIndex: '0', targetWeightBps: 0 });
   }
   const nav = components.reduce((n, c) => n + Number(c.unitsPerIndex) / 10 ** c.decimals * c.price, 0);
   if (Math.abs(nav - 1) > tolerance) throw new Error(`${basket.symbol}: rounded NAV ${nav} exceeds $1 tolerance`);

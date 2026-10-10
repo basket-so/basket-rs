@@ -1,175 +1,175 @@
 {
-  "checkedAt": "2026-10-08T03:18:19.446Z",
+  "checkedAt": "2026-10-09T23:41:07.557Z",
   "program": "bskthjNMRWQ4ekDLxaAzA1e39ThPmEtUgHY3XHfs7qv",
   "payer": "HF6Qk5JnBTfa4MyL4RX2KJUaD9nRG7maNt7xJH9QUVk2",
-  "walletLamports": 8276653450,
+  "walletLamports": 9963973029,
   "assets": {
-    "META": {
-      "mint": "METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta",
-      "decimals": 6,
+    "HYPE": {
+      "mint": "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+      "decimals": 9,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "source": "https://lite-api.jup.ag/tokens/v2/search?query=METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta",
-      "price": 5.924280253270886,
-      "priceObservedAt": "2026-10-08T03:18:15.527Z",
-      "liquidityUsd": 1590026.468347616,
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+      "price": 84.27768792119682,
+      "priceObservedAt": "2026-10-09T23:41:05.089Z",
+      "liquidityUsd": 3967122.6825802997,
       "vaultSize": 165
     },
-    "CRED": {
-      "mint": "CREDBHvVqREBCAxMihzr8D1nepHMr2gmQoZWpmgGmeta",
+    "PUMP": {
+      "mint": "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn",
+      "price": 0.005475568382277055,
+      "priceObservedAt": "2026-10-09T23:41:05.510Z",
+      "liquidityUsd": 42128935.74904479,
+      "vaultSize": 175
+    },
+    "RAY": {
+      "mint": "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "source": "https://lite-api.jup.ag/tokens/v2/search?query=CREDBHvVqREBCAxMihzr8D1nepHMr2gmQoZWpmgGmeta",
-      "price": 0.8143287982202007,
-      "priceObservedAt": "2026-10-08T03:18:15.971Z",
-      "liquidityUsd": 1304097.2541858281,
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+      "price": 2.2827175342465753,
+      "priceObservedAt": "2026-10-09T23:41:05.869Z",
+      "liquidityUsd": 20118234.50073137,
       "vaultSize": 165
     },
-    "SOLO": {
-      "mint": "SoLo9oxzLDpcq1dpqAgMwgce5WqkRDtNXK7EPnbmeta",
+    "JUP": {
+      "mint": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "source": "https://lite-api.jup.ag/tokens/v2/search?query=SoLo9oxzLDpcq1dpqAgMwgce5WqkRDtNXK7EPnbmeta",
-      "price": 1.0081187184304534,
-      "priceObservedAt": "2026-10-08T03:18:16.364Z",
-      "liquidityUsd": 1971257.4474080196,
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+      "price": 0.37606954779880775,
+      "priceObservedAt": "2026-10-09T23:41:06.176Z",
+      "liquidityUsd": 5598778.511435381,
       "vaultSize": 165
     },
-    "P2P": {
-      "mint": "P2PXup1ZvMpCDkJn3PQxtBYgxeCSfH39SFeurGSmeta",
+    "ORCA": {
+      "mint": "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "source": "https://lite-api.jup.ag/tokens/v2/search?query=P2PXup1ZvMpCDkJn3PQxtBYgxeCSfH39SFeurGSmeta",
-      "price": 0.40745018194784405,
-      "priceObservedAt": "2026-10-08T03:18:16.799Z",
-      "liquidityUsd": 999939.2594911812,
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
+      "price": 2.2472744173669756,
+      "priceObservedAt": "2026-10-09T23:41:06.533Z",
+      "liquidityUsd": 602514.0209761489,
       "vaultSize": 165
     },
-    "UMBRA": {
-      "mint": "PRVT6TB7uss3FrUd2D9xs2zqDBsa3GbMJMwCQsgmeta",
-      "decimals": 6,
+    "JTO": {
+      "mint": "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
+      "decimals": 9,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "source": "https://lite-api.jup.ag/tokens/v2/search?query=PRVT6TB7uss3FrUd2D9xs2zqDBsa3GbMJMwCQsgmeta",
-      "price": 0.27886826846597423,
-      "priceObservedAt": "2026-10-08T03:18:17.295Z",
-      "liquidityUsd": 784506.3441302277,
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
+      "price": 0.516794954497198,
+      "priceObservedAt": "2026-10-09T23:41:06.842Z",
+      "liquidityUsd": 369409.64104113687,
       "vaultSize": 165
     },
-    "AVICI": {
-      "mint": "BANKJmvhT8tiJRsBSS1n2HryMBPvT5Ze4HU95DUAmeta",
+    "DBR": {
+      "mint": "DBRiDgJAMsM95moTzJs7M9LnkGErpbv9v6CUR1DXnUu5",
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "source": "https://lite-api.jup.ag/tokens/v2/search?query=BANKJmvhT8tiJRsBSS1n2HryMBPvT5Ze4HU95DUAmeta",
-      "price": 0.2727466416596438,
-      "priceObservedAt": "2026-10-08T03:18:17.866Z",
-      "liquidityUsd": 624826.0382311866,
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=DBRiDgJAMsM95moTzJs7M9LnkGErpbv9v6CUR1DXnUu5",
+      "price": 0.019205847397547018,
+      "priceObservedAt": "2026-10-09T23:41:07.207Z",
+      "liquidityUsd": 3090488.681699368,
       "vaultSize": 165
     },
-    "OMFG": {
-      "mint": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
-      "decimals": 6,
+    "UNI": {
+      "mint": "uniHfuPhEQSrtpzXpJZDCSq53yaejKKpNhFUiKoHKHV",
+      "decimals": 8,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "source": "https://lite-api.jup.ag/tokens/v2/search?query=omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
-      "price": 0.23301814707066576,
-      "priceObservedAt": "2026-10-08T03:18:18.425Z",
-      "liquidityUsd": 372479.5863318485,
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=uniHfuPhEQSrtpzXpJZDCSq53yaejKKpNhFUiKoHKHV",
+      "price": 7.296271341690176,
+      "priceObservedAt": "2026-10-09T23:41:07.556Z",
+      "liquidityUsd": 240572.64670676857,
       "vaultSize": 165
     },
-    "LASO": {
-      "mint": "LASocYgQAo8GfypSjedNQgLft8y8DVGg1kSqR3smeta",
+    "USDC": {
+      "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "source": "https://lite-api.jup.ag/tokens/v2/search?query=LASocYgQAo8GfypSjedNQgLft8y8DVGg1kSqR3smeta",
-      "price": 0.1244191601735242,
-      "priceObservedAt": "2026-10-08T03:18:18.927Z",
-      "liquidityUsd": 257818.94151499876,
-      "vaultSize": 165
-    },
-    "CARS": {
-      "mint": "CARSsxWPkpQWvfyRBwfGMGvysJBHdHGfE46X5MNgmeta",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "source": "https://lite-api.jup.ag/tokens/v2/search?query=CARSsxWPkpQWvfyRBwfGMGvysJBHdHGfE46X5MNgmeta",
-      "price": 0.14450974845696746,
-      "priceObservedAt": "2026-10-08T03:18:19.446Z",
-      "liquidityUsd": 180311.33163665896,
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "price": 1,
+      "priceObservedAt": "2026-10-09T23:41:07.557Z",
+      "liquidityUsd": 465661922.72614837,
       "vaultSize": 165
     }
   },
   "baskets": [
     {
-      "symbol": "METADAO",
+      "symbol": "BUYB",
       "status": "ready-for-funding",
-      "initialNavUsd": 0.9999985622784398,
-      "index": "HVdP1tVLoyAKMJN68wWaKRA9FGRcjgAudScpVEThFQix",
-      "indexMint": "HABZjDWSLTF8eAc8SHfCK8amLD2nrgqFLUcKYDCmGswQ",
-      "estimatedLamports": 46344080,
+      "initialNavUsd": 1.0000008431905185,
+      "index": "HLeXRccnaHgZyYTztzcqK5ZpdjSzftT6RFxNdxQeWyNW",
+      "indexMint": "8DXdg6nRkQHwyqqxp1zHYeUvbBucPn27tkrszusuUacF",
+      "estimatedLamports": 46394880,
       "components": [
         {
-          "symbol": "META",
-          "mint": "METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta",
-          "unitsPerIndex": "42199",
-          "price": 5.924280253270886,
-          "targetWeightBps": 0
+          "symbol": "HYPE",
+          "mint": "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+          "unitsPerIndex": "3085040",
+          "price": 84.27768792119682,
+          "targetWeightBps": 2600
         },
         {
-          "symbol": "CRED",
-          "mint": "CREDBHvVqREBCAxMihzr8D1nepHMr2gmQoZWpmgGmeta",
-          "unitsPerIndex": "221041",
-          "price": 0.8143287982202007,
-          "targetWeightBps": 0
+          "symbol": "PUMP",
+          "mint": "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn",
+          "unitsPerIndex": "34699594",
+          "price": 0.005475568382277055,
+          "targetWeightBps": 1900
         },
         {
-          "symbol": "SOLO",
-          "mint": "SoLo9oxzLDpcq1dpqAgMwgce5WqkRDtNXK7EPnbmeta",
-          "unitsPerIndex": "158711",
-          "price": 1.0081187184304534,
-          "targetWeightBps": 0
+          "symbol": "RAY",
+          "mint": "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+          "unitsPerIndex": "65711",
+          "price": 2.2827175342465753,
+          "targetWeightBps": 1500
         },
         {
-          "symbol": "P2P",
-          "mint": "P2PXup1ZvMpCDkJn3PQxtBYgxeCSfH39SFeurGSmeta",
-          "unitsPerIndex": "245429",
-          "price": 0.40745018194784405,
-          "targetWeightBps": 0
+          "symbol": "JUP",
+          "mint": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+          "unitsPerIndex": "319090",
+          "price": 0.37606954779880775,
+          "targetWeightBps": 1200
         },
         {
-          "symbol": "UMBRA",
-          "mint": "PRVT6TB7uss3FrUd2D9xs2zqDBsa3GbMJMwCQsgmeta",
-          "unitsPerIndex": "286874",
-          "price": 0.27886826846597423,
-          "targetWeightBps": 0
+          "symbol": "ORCA",
+          "mint": "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
+          "unitsPerIndex": "40049",
+          "price": 2.2472744173669756,
+          "targetWeightBps": 900
         },
         {
-          "symbol": "AVICI",
-          "mint": "BANKJmvhT8tiJRsBSS1n2HryMBPvT5Ze4HU95DUAmeta",
-          "unitsPerIndex": "293313",
-          "price": 0.2727466416596438,
-          "targetWeightBps": 0
+          "symbol": "JTO",
+          "mint": "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
+          "unitsPerIndex": "135450239",
+          "price": 0.516794954497198,
+          "targetWeightBps": 700
         },
         {
-          "symbol": "OMFG",
-          "mint": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
-          "unitsPerIndex": "214576",
-          "price": 0.23301814707066576,
-          "targetWeightBps": 0
+          "symbol": "DBR",
+          "mint": "DBRiDgJAMsM95moTzJs7M9LnkGErpbv9v6CUR1DXnUu5",
+          "unitsPerIndex": "3644723",
+          "price": 0.019205847397547018,
+          "targetWeightBps": 700
         },
         {
-          "symbol": "LASO",
-          "mint": "LASocYgQAo8GfypSjedNQgLft8y8DVGg1kSqR3smeta",
-          "unitsPerIndex": "401867",
-          "price": 0.1244191601735242,
-          "targetWeightBps": 0
+          "symbol": "UNI",
+          "mint": "uniHfuPhEQSrtpzXpJZDCSq53yaejKKpNhFUiKoHKHV",
+          "unitsPerIndex": "685282",
+          "price": 7.296271341690176,
+          "targetWeightBps": 500
         },
         {
-          "symbol": "CARS",
-          "mint": "CARSsxWPkpQWvfyRBwfGMGvysJBHdHGfE46X5MNgmeta",
-          "unitsPerIndex": "345997",
-          "price": 0.14450974845696746,
+          "symbol": "USDC",
+          "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "unitsPerIndex": "0",
+          "price": 1,
           "targetWeightBps": 0
         }
       ]
     }
   ],
-  "estimatedRequiredLamports": 46344080,
+  "estimatedRequiredLamports": 46394880,
   "fundingShortfallLamports": 0
 }

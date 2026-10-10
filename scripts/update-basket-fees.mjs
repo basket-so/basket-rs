@@ -2,6 +2,7 @@
 //
 //   node scripts/update-basket-fees.mjs --protocol-bps 5 --staking-bps 5 --exclude USDX
 //   node scripts/update-basket-fees.mjs --protocol-bps 5 --staking-bps 5 --exclude USDX --execute
+//   node scripts/update-basket-fees.mjs --protocol-bps 4 --creator-bps 1 --staking-bps 5 --only BUYB
 //
 // The same split applies to mint and redeem. Each basket's fees are independent on-chain;
 // rates are snapshotted when an intent opens, so in-flight mints/redeems keep their old fees.
@@ -22,6 +23,8 @@ const creatorBps = bps('--creator-bps');
 const stakingBps = bps('--staking-bps');
 if (protocolBps + creatorBps + stakingBps > 1000) throw new Error('Total fee per direction is capped at 1000 bps (10%)');
 const exclude = new Set((flag('--exclude', '') || '').split(',').filter(Boolean).map(s => s.toUpperCase()));
+// --only SYM,... limits the change to those baskets (a new basket with its own split).
+const only = new Set((flag('--only', '') || '').split(',').filter(Boolean).map(s => s.toUpperCase()));
 const execute = args.includes('--execute');
 
 const idl = JSON.parse(fs.readFileSync('docs/program-upgrade/basket.idl.json', 'utf8'));
@@ -39,7 +42,7 @@ const describe = s => `mint ${s.mintFeeBps}/${s.creatorMintFeeBps}/${s.stakingMi
 console.log(`${execute ? 'EXECUTE' : 'Dry-run'}: protocol/creator/staking = ${protocolBps}/${creatorBps}/${stakingBps} bps each way` + (exclude.size ? `, excluding ${[...exclude].join(', ')}` : ''));
 
 for (const [symbol, { index: address }] of Object.entries(baskets)) {
-  if (exclude.has(symbol)) { console.log(`${symbol.padEnd(5)} skipped (excluded)`); continue; }
+  if (exclude.has(symbol) || (only.size && !only.has(symbol))) { console.log(`${symbol.padEnd(5)} skipped (excluded)`); continue; }
   const index = new PublicKey(address);
   const state = await program.account.indexState.fetch(index);
   if (!state.authority.equals(authority.publicKey)) throw new Error(`${symbol}: signer is not the index authority (${state.authority.toBase58()})`);

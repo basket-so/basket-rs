@@ -273,6 +273,30 @@
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "source": "https://lite-api.jup.ag/tokens/v2/search?query=CARSsxWPkpQWvfyRBwfGMGvysJBHdHGfE46X5MNgmeta"
+    },
+    "HYPE": {
+      "mint": "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g"
+    },
+    "PUMP": {
+      "mint": "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn"
+    },
+    "DBR": {
+      "mint": "DBRiDgJAMsM95moTzJs7M9LnkGErpbv9v6CUR1DXnUu5",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=DBRiDgJAMsM95moTzJs7M9LnkGErpbv9v6CUR1DXnUu5"
+    },
+    "UNI": {
+      "mint": "uniHfuPhEQSrtpzXpJZDCSq53yaejKKpNhFUiKoHKHV",
+      "decimals": 8,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=uniHfuPhEQSrtpzXpJZDCSq53yaejKKpNhFUiKoHKHV"
     }
   },
   "baskets": [
@@ -710,6 +734,54 @@
         },
         {
           "symbol": "CARS",
+          "weightBps": 500
+        }
+      ]
+    },
+    {
+      "symbol": "BUYB",
+      "name": "Protocol Buyback Index",
+      "origin": "community",
+      "kind": "fixedWeights",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 2592000,
+      "driftThresholdBps": 500,
+      "usdcCashSlot": true,
+      "feeRecipient": "ASBU3bH5EhBjC17CLWfMG8txwQSoSgrooz9CFQJzUEAB",
+      "creatorFeeRecipient": "Gp5UdXzexcyvLP38SmRR7kyZ64jePNmicuxwrkjXomBT",
+      "description": "Eight protocols that turn their revenue into buybacks of their own token: Hyperliquid, Pump.fun, Raydium, Jupiter, Orca, Jito, deBridge and Uniswap. Weights are fixed and rebalance monthly, or sooner if one drifts 5 percentage points. The buybacks support each token, not this basket directly, and each protocol can change or end its program. HYPE and UNI are Wormhole-bridged, and UNI trades thinly on Solana.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "HYPE",
+          "weightBps": 2600
+        },
+        {
+          "symbol": "PUMP",
+          "weightBps": 1900
+        },
+        {
+          "symbol": "RAY",
+          "weightBps": 1500
+        },
+        {
+          "symbol": "JUP",
+          "weightBps": 1200
+        },
+        {
+          "symbol": "ORCA",
+          "weightBps": 900
+        },
+        {
+          "symbol": "JTO",
+          "weightBps": 700
+        },
+        {
+          "symbol": "DBR",
+          "weightBps": 700
+        },
+        {
+          "symbol": "UNI",
           "weightBps": 500
         }
       ]

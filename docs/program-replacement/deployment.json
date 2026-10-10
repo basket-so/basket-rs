@@ -309,6 +309,31 @@
       "label": "METADAO: initialize component page and finalize",
       "signature": "Y58tyaNauKcXy3FhXSuyrDfmkJ5PncpmX1qg7SXN9atCRx5TZvg1ZMoQ3fh1vNdiPiENY6eAR9bj7LdwhyFtHXd",
       "status": "confirmed"
+    },
+    {
+      "label": "BUYB: create lookup table",
+      "signature": "5E63sUEWadNG6iVrRuRXj5PLgzn2TiBu8RzAAz736bS7wkFwNnGnqKZqZXLoLWZDTddMWDxUV1WgXzsxmaEuS2wf",
+      "status": "confirmed"
+    },
+    {
+      "label": "BUYB: extend lookup table",
+      "signature": "45pR7sywP162Kg9i7K2T7LYLupxKCyf314iQXPPtbsH4SH82j37eiMVRuCP1ZjdD19hNv1awaBk6i263svS6zuow",
+      "status": "confirmed"
+    },
+    {
+      "label": "BUYB: extend lookup table",
+      "signature": "5YQYWjWLgqv8bGT4dHEvS16f26wZjx8HppTyngshGV5Ep6aNpkrWQnm9zXQnJqEfm8NWr5XchBowf4JAwdpkMvdv",
+      "status": "confirmed"
+    },
+    {
+      "label": "BUYB: create index and metadata",
+      "signature": "2xsvtkEkisHZzTJxH1ksoU995i2yJiGGiBnWCsDLaFFihrQUHCncPyvtw9KFrBdRrwbziHuBtxmZCJXcyPA7RSUh",
+      "status": "confirmed"
+    },
+    {
+      "label": "BUYB: initialize component page and finalize",
+      "signature": "5nAcL3XJkzaF4Yexsp3nsGEJyh34Dgek1B4VejPCTvhjiNoA5s7Lhfkdnwd9QssRs8u6HDj8f37pWmkpQFobS77A",
+      "status": "confirmed"
     }
   ],
   "baskets": {
@@ -1436,6 +1461,160 @@
       ],
       "status": "verified",
       "lookupTable": "HZ1PKBG1qiw3kQk2dDStqXHzyk4haMptq8naehaji1tX"
+    },
+    "BUYB": {
+      "index": "HLeXRccnaHgZyYTztzcqK5ZpdjSzftT6RFxNdxQeWyNW",
+      "indexMint": "8DXdg6nRkQHwyqqxp1zHYeUvbBucPn27tkrszusuUacF",
+      "initialNavUsd": 1.0000008431905185,
+      "page": "No9kKsyAkHLzUTfh8fTzozrrVTLHYUJLoqbqdcBordD",
+      "components": [
+        {
+          "symbol": "HYPE",
+          "weightBps": 2600,
+          "mint": "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+          "decimals": 9,
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "source": "https://lite-api.jup.ag/tokens/v2/search?query=98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+          "price": 84.27768792119682,
+          "priceObservedAt": "2026-10-09T23:41:05.089Z",
+          "liquidityUsd": 3967122.6825802997,
+          "vaultSize": 165,
+          "unitsPerIndex": "3085040",
+          "targetWeightBps": 2600,
+          "vault": "BNM7ohNZQ8RS9K5Zj7Pe7L3bTUG4t8ayBt77cZRPcFV3",
+          "oraclePair": "11111111111111111111111111111111"
+        },
+        {
+          "symbol": "PUMP",
+          "weightBps": 1900,
+          "mint": "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn",
+          "decimals": 6,
+          "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "source": "https://lite-api.jup.ag/tokens/v2/search?query=pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn",
+          "price": 0.005475568382277055,
+          "priceObservedAt": "2026-10-09T23:41:05.510Z",
+          "liquidityUsd": 42128935.74904479,
+          "vaultSize": 175,
+          "unitsPerIndex": "34699594",
+          "targetWeightBps": 1900,
+          "vault": "4mAaPxL4qqWVvPDjdRZXQRNPwCpsbzR4DZfPKjsM7a9D",
+          "oraclePair": "11111111111111111111111111111111"
+        },
+        {
+          "symbol": "RAY",
+          "weightBps": 1500,
+          "mint": "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+          "decimals": 6,
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "source": "https://lite-api.jup.ag/tokens/v2/search?query=4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+          "price": 2.2827175342465753,
+          "priceObservedAt": "2026-10-09T23:41:05.869Z",
+          "liquidityUsd": 20118234.50073137,
+          "vaultSize": 165,
+          "unitsPerIndex": "65711",
+          "targetWeightBps": 1500,
+          "vault": "8wPwPc7LurKhUTMhXD2iosHY2RCsbaV4rUS4cP6ATjNd",
+          "oraclePair": "11111111111111111111111111111111"
+        },
+        {
+          "symbol": "JUP",
+          "weightBps": 1200,
+          "mint": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+          "decimals": 6,
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "source": "https://lite-api.jup.ag/tokens/v2/search?query=JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+          "price": 0.37606954779880775,
+          "priceObservedAt": "2026-10-09T23:41:06.176Z",
+          "liquidityUsd": 5598778.511435381,
+          "vaultSize": 165,
+          "unitsPerIndex": "319090",
+          "targetWeightBps": 1200,
+          "vault": "CGds8bccFCyKfXASHZg3jb3KHgBpeXEwd7B1NznCZdLT",
+          "oraclePair": "11111111111111111111111111111111"
+        },
+        {
+          "symbol": "ORCA",
+          "weightBps": 900,
+          "mint": "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
+          "decimals": 6,
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "source": "https://lite-api.jup.ag/tokens/v2/search?query=orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
+          "price": 2.2472744173669756,
+          "priceObservedAt": "2026-10-09T23:41:06.533Z",
+          "liquidityUsd": 602514.0209761489,
+          "vaultSize": 165,
+          "unitsPerIndex": "40049",
+          "targetWeightBps": 900,
+          "vault": "8d7CPaHDk3KSLyJfEujmPCcWxnFDWjLpf5swPamXyN6S",
+          "oraclePair": "11111111111111111111111111111111"
+        },
+        {
+          "symbol": "JTO",
+          "weightBps": 700,
+          "mint": "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
+          "decimals": 9,
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "source": "https://lite-api.jup.ag/tokens/v2/search?query=jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
+          "price": 0.516794954497198,
+          "priceObservedAt": "2026-10-09T23:41:06.842Z",
+          "liquidityUsd": 369409.64104113687,
+          "vaultSize": 165,
+          "unitsPerIndex": "135450239",
+          "targetWeightBps": 700,
+          "vault": "GKpos6xP3cNZB8URpCthqN697vopShkzrnQxPuZQppw3",
+          "oraclePair": "11111111111111111111111111111111"
+        },
+        {
+          "symbol": "DBR",
+          "weightBps": 700,
+          "mint": "DBRiDgJAMsM95moTzJs7M9LnkGErpbv9v6CUR1DXnUu5",
+          "decimals": 6,
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "source": "https://lite-api.jup.ag/tokens/v2/search?query=DBRiDgJAMsM95moTzJs7M9LnkGErpbv9v6CUR1DXnUu5",
+          "price": 0.019205847397547018,
+          "priceObservedAt": "2026-10-09T23:41:07.207Z",
+          "liquidityUsd": 3090488.681699368,
+          "vaultSize": 165,
+          "unitsPerIndex": "3644723",
+          "targetWeightBps": 700,
+          "vault": "9JSqVvWR88C1SSn1yzQf3YVQhMLJesyADqAXJ2zGkcTR",
+          "oraclePair": "11111111111111111111111111111111"
+        },
+        {
+          "symbol": "UNI",
+          "weightBps": 500,
+          "mint": "uniHfuPhEQSrtpzXpJZDCSq53yaejKKpNhFUiKoHKHV",
+          "decimals": 8,
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "source": "https://lite-api.jup.ag/tokens/v2/search?query=uniHfuPhEQSrtpzXpJZDCSq53yaejKKpNhFUiKoHKHV",
+          "price": 7.296271341690176,
+          "priceObservedAt": "2026-10-09T23:41:07.556Z",
+          "liquidityUsd": 240572.64670676857,
+          "vaultSize": 165,
+          "unitsPerIndex": "685282",
+          "targetWeightBps": 500,
+          "vault": "Bnp1TdbXvgsCw8dFrtWbBpfGKSaoWYdo4XLppy2sJv3g",
+          "oraclePair": "11111111111111111111111111111111"
+        },
+        {
+          "symbol": "USDC",
+          "weightBps": 0,
+          "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "decimals": 6,
+          "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "source": "https://lite-api.jup.ag/tokens/v2/search?query=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "price": 1,
+          "priceObservedAt": "2026-10-09T23:41:07.557Z",
+          "liquidityUsd": 465661922.72614837,
+          "vaultSize": 165,
+          "unitsPerIndex": "0",
+          "targetWeightBps": 0,
+          "vault": "EazyePKN7i6aEU91ZwdSxUc8eLaLKcRt65y3A27AcKK4",
+          "oraclePair": "11111111111111111111111111111111"
+        }
+      ],
+      "status": "verified",
+      "lookupTable": "3r6VVBoCJCZ1AMP1y7RzV4TGaKnugpNxo9aRZJ8VTxvb"
     }
   }
 }
