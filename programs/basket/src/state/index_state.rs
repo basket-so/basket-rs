@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::constants::{REBALANCE_REQUEST_COOLDOWN_SECONDS, REBALANCE_REQUEST_WINDOW_SECONDS};
-use crate::utils::index_base_units;
+use crate::utils::{index_base_units, validate_total_index_fee_bps};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IndexKind {
@@ -31,6 +31,76 @@ pub struct IndexComponentInput {
     pub units_per_index: u64,
     pub target_weight_bps: u16,
     pub oracle_pair: Pubkey,
+}
+
+/// A basket's six fee rates in basis points: the protocol (treasury), creator and staking
+/// shares of the mint fee and of the redeem fee.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct IndexFees {
+    pub mint_fee_bps: u16,
+    pub redeem_fee_bps: u16,
+    pub creator_mint_fee_bps: u16,
+    pub creator_redeem_fee_bps: u16,
+    pub staking_mint_fee_bps: u16,
+    pub staking_redeem_fee_bps: u16,
+}
+
+impl IndexFees {
+    pub const SPACE: usize = 2 * 6;
+
+    /// Each side's three shares together stay within MAX_TOTAL_INDEX_FEE_BPS.
+    pub fn validate(&self) -> Result<()> {
+        validate_total_index_fee_bps(
+            self.mint_fee_bps,
+            self.creator_mint_fee_bps,
+            self.staking_mint_fee_bps,
+        )?;
+        validate_total_index_fee_bps(
+            self.redeem_fee_bps,
+            self.creator_redeem_fee_bps,
+            self.staking_redeem_fee_bps,
+        )
+    }
+
+    /// Whether any rate is higher than in `current`. Increases need notice; decreases don't.
+    pub fn raises_any(&self, current: &IndexFees) -> bool {
+        self.mint_fee_bps > current.mint_fee_bps
+            || self.redeem_fee_bps > current.redeem_fee_bps
+            || self.creator_mint_fee_bps > current.creator_mint_fee_bps
+            || self.creator_redeem_fee_bps > current.creator_redeem_fee_bps
+            || self.staking_mint_fee_bps > current.staking_mint_fee_bps
+            || self.staking_redeem_fee_bps > current.staking_redeem_fee_bps
+    }
+
+    /// Whether each side keeps `current`'s split: shares in the same proportions and a total
+    /// above zero. Whole-number shares in the same proportions are a whole number of the
+    /// split's smallest step, so a community basket's creator can choose how many steps its
+    /// fee is, but not how a step divides between the protocol, the creator and stakers.
+    pub fn same_split_as(&self, current: &IndexFees) -> bool {
+        fn same(new: [u16; 3], current: [u16; 3]) -> bool {
+            let new_total: u32 = new.iter().map(|x| u32::from(*x)).sum();
+            let current_total: u32 = current.iter().map(|x| u32::from(*x)).sum();
+            new_total > 0
+                && current_total > 0
+                && new
+                    .iter()
+                    .zip(current)
+                    .all(|(n, c)| u32::from(*n) * current_total == u32::from(c) * new_total)
+        }
+        same(
+            [self.mint_fee_bps, self.creator_mint_fee_bps, self.staking_mint_fee_bps],
+            [current.mint_fee_bps, current.creator_mint_fee_bps, current.staking_mint_fee_bps],
+        ) && same(
+            [self.redeem_fee_bps, self.creator_redeem_fee_bps, self.staking_redeem_fee_bps],
+            [current.redeem_fee_bps, current.creator_redeem_fee_bps, current.staking_redeem_fee_bps],
+        )
+    }
+
+    pub fn total_redeem_bps(&self) -> u16 {
+        self.redeem_fee_bps
+            .saturating_add(self.creator_redeem_fee_bps)
+            .saturating_add(self.staking_redeem_fee_bps)
+    }
 }
 
 #[account]
@@ -78,12 +148,18 @@ pub struct IndexState {
     pub rebalance_keeper: Pubkey,
     pub fixed_weight_quote_mint: Pubkey,
     pub active_rebalance_intent: Pubkey,
-    pub pending_rebalance_oracle_price_tolerance_bps: u16,
+    // Set when the basket was made with create_community_basket_index. Its protocol and
+    // staking fee shares, fee recipient, keeper, metadata, supply cap and pauses are then the
+    // protocol's, only its keeper runs rebalances, and its creator controls just its own fee
+    // and where it goes. (Reuses the retired pending_rebalance_oracle_price_tolerance_bps slot.)
+    pub community: bool,
+    pub community_reserved: u8,
     pub pending_rebalance_nav_tolerance_bps: u16,
     pub fixed_weight_drift_threshold_bps: u16,
     pub fixed_weight_spot_ema_max_deviation_bps: u16,
     pub minting_paused: bool,
-    pub redeeming_paused: bool,
+    // Retired: redemptions can no longer be paused, by anyone. Kept for the layout; never read.
+    pub retired_redeem_pause: bool,
     pub rebalancing_paused: bool,
     // While set (and within the request window), new mint/redeem intents are refused so
     // open ones can drain before a rebalance. (Retired pending_rebalance_ready slot.)
@@ -121,12 +197,13 @@ impl IndexState {
             + 32 // rebalance_keeper
             + 32 // fixed_weight_quote_mint
             + 32 // active_rebalance_intent
-            + 2 // pending_rebalance_oracle_price_tolerance_bps
+            + 1 // community
+            + 1 // community_reserved
             + 2 // pending_rebalance_nav_tolerance_bps
             + 2 // fixed_weight_drift_threshold_bps
             + 2 // fixed_weight_spot_ema_max_deviation_bps
             + 1 // minting_paused
-            + 1 // redeeming_paused
+            + 1 // retired_redeem_pause
             + 1 // rebalancing_paused
             + 1 // rebalance_requested
             + 1 // composition_rebalance_due
@@ -160,10 +237,50 @@ impl IndexState {
         self.rebalance_requested_at = now;
     }
 
-    /// The authority, or the keeper it designated, may request and open rebalances.
+    pub fn fees(&self) -> IndexFees {
+        IndexFees {
+            mint_fee_bps: self.mint_fee_bps,
+            redeem_fee_bps: self.redeem_fee_bps,
+            creator_mint_fee_bps: self.creator_mint_fee_bps,
+            creator_redeem_fee_bps: self.creator_redeem_fee_bps,
+            staking_mint_fee_bps: self.staking_mint_fee_bps,
+            staking_redeem_fee_bps: self.staking_redeem_fee_bps,
+        }
+    }
+
+    pub fn set_fees(&mut self, fees: &IndexFees) {
+        self.mint_fee_bps = fees.mint_fee_bps;
+        self.redeem_fee_bps = fees.redeem_fee_bps;
+        self.creator_mint_fee_bps = fees.creator_mint_fee_bps;
+        self.creator_redeem_fee_bps = fees.creator_redeem_fee_bps;
+        self.staking_mint_fee_bps = fees.staking_mint_fee_bps;
+        self.staking_redeem_fee_bps = fees.staking_redeem_fee_bps;
+    }
+
+    fn is_keeper(&self, key: &Pubkey) -> bool {
+        self.rebalance_keeper != Pubkey::default() && *key == self.rebalance_keeper
+    }
+
+    /// The authority, or the keeper it designated, may request and open rebalances. A
+    /// community basket's rebalances belong to its keeper alone, so its creator can't hold
+    /// mints and redeems back with requests.
     pub fn is_rebalance_operator(&self, key: &Pubkey) -> bool {
-        *key == self.authority
-            || (self.rebalance_keeper != Pubkey::default() && *key == self.rebalance_keeper)
+        self.is_keeper(key) || (!self.community && *key == self.authority)
+    }
+
+    /// The authority or its keeper may apply a composition change once its notice is up.
+    pub fn can_apply_composition_change(&self, key: &Pubkey) -> bool {
+        *key == self.authority || self.is_keeper(key)
+    }
+
+    /// Who may unwind an open rebalance before it expires (the emergency stop): the
+    /// authority, or for a community basket its keeper.
+    pub fn can_unwind_rebalance_early(&self, key: &Pubkey) -> bool {
+        if self.community {
+            self.is_keeper(key)
+        } else {
+            *key == self.authority
+        }
     }
 
     /// Whether a new mint or redeem intent may open: not during a rebalance or a request.

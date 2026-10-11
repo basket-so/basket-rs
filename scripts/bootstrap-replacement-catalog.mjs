@@ -222,7 +222,7 @@ for (const plan of plans) {
   // Rebalances price components from the oracle's signed prices; oracle pairs are unused.
   const onchain = plan.components.map(component => ({ ...component, oraclePair: PublicKey.default }));
   const accounts = { payer: payer.publicKey, authority: payer.publicKey, index, indexMint, vaultAuthority };
-  const create = await program.methods.createLargeBasketIndex({ name: plan.name, symbol: plan.symbol, metadataUri: '', decimals: 6,
+  const create = await program.methods.createLargeBasketIndex({ name: plan.name, symbol: plan.symbol, symbolClaimKey: plan.symbol.replace(/0/g, 'O').replace(/1/g, 'I'), metadataUri: '', decimals: 6,
     feeRecipient: plan.feeRecipient ? new PublicKey(plan.feeRecipient) : config.authority,
     creatorFeeRecipient: plan.creatorFeeRecipient ? new PublicKey(plan.creatorFeeRecipient) : PublicKey.default,
     maxSupply: new anchor.BN(0), rebalanceDelaySeconds: new anchor.BN(0),

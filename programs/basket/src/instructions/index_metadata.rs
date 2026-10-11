@@ -157,6 +157,12 @@ impl<'info> CreateIndexMetadata<'info> {
 
 impl<'info> UpdateIndexMetadata<'info> {
     pub fn handle(ctx: Context<Self>, args: IndexMetadataArgs) -> Result<()> {
+        // A community basket's metadata (and so its logo) is set once, so a creator can't
+        // later dress it up as another basket.
+        require!(
+            !ctx.accounts.index.community,
+            BasketError::CommunityBasketRestricted
+        );
         require!(
             args.uri.len() <= MAX_METADATA_URI_LEN,
             BasketError::MetadataUriTooLong

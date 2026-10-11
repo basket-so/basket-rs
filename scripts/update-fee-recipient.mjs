@@ -30,7 +30,7 @@ if (!(await connection.getAccountInfo(getAssociatedTokenAddressSync(usdc, recipi
   throw new Error(`${recipient.toBase58()} has no USDC token account; create it before redirecting fees`);
 }
 
-const preserved = ['creatorFeeRecipient', 'maxSupply', 'rebalanceDelaySeconds', 'mintingPaused', 'redeemingPaused', 'rebalancingPaused'];
+const preserved = ['creatorFeeRecipient', 'maxSupply', 'rebalanceDelaySeconds', 'mintingPaused', 'rebalancingPaused'];
 const same = (a, b) => (a?.equals ? a.equals(b) : a?.eq ? a.eq(b) : a === b);
 console.log(`${execute ? 'EXECUTE' : 'Dry-run'}: fee recipient -> ${recipient.toBase58()}` + (exclude.size ? `, excluding ${[...exclude].join(', ')}` : ''));
 
@@ -42,8 +42,8 @@ for (const [symbol, { index: address }] of Object.entries(baskets)) {
   if (state.feeRecipient.equals(recipient)) { console.log(`${symbol.padEnd(5)} already ${recipient.toBase58()}`); continue; }
   const config = {feeRecipient: recipient};
   for (const key of preserved) config[key] = state[key];
-  const pauses = `paused mint/redeem/rebalance ${+state.mintingPaused}/${+state.redeemingPaused}/${+state.rebalancingPaused}`;
-  const builder = program.methods.updateConfig(config).accounts({ authority: authority.publicKey, index });
+  const pauses = `paused mint/rebalance ${+state.mintingPaused}/${+state.rebalancingPaused}`;
+  const builder = program.methods.updateBasketConfig(config).accounts({ authority: authority.publicKey, index });
   if (!execute) {
     await builder.simulate();
     console.log(`${symbol.padEnd(5)} ${state.feeRecipient.toBase58().slice(0, 8)}… -> ${recipient.toBase58().slice(0, 8)}… (${pauses}; simulated OK)`);

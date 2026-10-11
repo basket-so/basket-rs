@@ -46,6 +46,31 @@ pub mod basket {
         CreateLargeBasketIndex::handle(ctx, args)
     }
 
+    pub fn create_community_basket_index<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CreateCommunityBasketIndex<'info>>,
+        args: CreateCommunityBasketIndexArgs,
+    ) -> Result<()> {
+        CreateCommunityBasketIndex::handle(ctx, args)
+    }
+
+    pub fn set_community_config(
+        ctx: Context<SetCommunityConfig>,
+        args: SetCommunityConfigArgs,
+    ) -> Result<()> {
+        SetCommunityConfig::handle(ctx, args)
+    }
+
+    pub fn update_community_basket(
+        ctx: Context<UpdateCommunityBasket>,
+        args: UpdateCommunityBasketArgs,
+    ) -> Result<()> {
+        UpdateCommunityBasket::handle(ctx, args)
+    }
+
+    pub fn claim_index_symbol(ctx: Context<ClaimIndexSymbol>, args: ClaimIndexSymbolArgs) -> Result<()> {
+        ClaimIndexSymbol::handle(ctx, args)
+    }
+
     pub fn initialize_large_basket_component_page<'info>(
         ctx: Context<'_, '_, 'info, 'info, InitializeLargeBasketComponentPage<'info>>,
         args: InitializeLargeBasketComponentPageArgs,
@@ -288,7 +313,21 @@ pub mod basket {
         UpdateFees::handle(ctx, args)
     }
 
-    pub fn update_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Result<()> {
+    pub fn propose_fee_change(ctx: Context<ProposeFeeChange>, args: UpdateFeesArgs) -> Result<()> {
+        ProposeFeeChange::handle(ctx, args)
+    }
+
+    pub fn cancel_fee_change(ctx: Context<CancelFeeChange>) -> Result<()> {
+        CancelFeeChange::handle(ctx)
+    }
+
+    pub fn apply_fee_change(ctx: Context<ApplyFeeChange>) -> Result<()> {
+        ApplyFeeChange::handle(ctx)
+    }
+
+    // Renamed from update_config when the redeem pause was removed, so a client built for the
+    // old arguments fails instead of having its fields read into the wrong flags.
+    pub fn update_basket_config(ctx: Context<UpdateConfig>, args: UpdateConfigArgs) -> Result<()> {
         UpdateConfig::handle(ctx, args)
     }
 

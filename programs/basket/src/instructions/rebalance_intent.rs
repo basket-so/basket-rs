@@ -1305,7 +1305,8 @@ impl<'info> CancelRebalance<'info> {
 impl<'info> UnwindRebalance<'info> {
     /// Abandon an open rebalance regardless of progress: permissionless once the intent
     /// has expired, index-authority-only before that (the emergency stop for an intent
-    /// the authority does not trust). All funds stay in vault-authority custody for the
+    /// the authority does not trust; for a community basket, the keeper's emergency stop).
+    /// All funds stay in vault-authority custody for the
     /// whole rebalance — sells park USDC in the scratch ATA, buys move it into component
     /// vaults — so abandoning is purely an accounting re-sync: rewrite every page's
     /// `units_per_index` / `accounted_reserve` from the live vault balances and release
@@ -1337,7 +1338,7 @@ impl<'info> UnwindRebalance<'info> {
         );
         let expired = Clock::get()?.unix_timestamp > ctx.accounts.intent.expires_at;
         require!(
-            expired || ctx.accounts.caller.key() == ctx.accounts.index.authority,
+            expired || ctx.accounts.index.can_unwind_rebalance_early(&ctx.accounts.caller.key()),
             BasketError::RebalanceIntentNotExpired
         );
 

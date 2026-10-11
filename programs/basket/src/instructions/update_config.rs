@@ -1,11 +1,12 @@
 use anchor_lang::prelude::*;
 
-use super::composition_change::restart_composition_notice;
 use crate::{
     constants::MAX_REBALANCE_DELAY_SECONDS, errors::BasketError, events::IndexConfigUpdated,
-    state::{IndexKind, IndexState},
+    state::IndexState,
 };
 
+// There is no redeem pause: a redeem only takes its own share of the vaults, so stopping
+// redeems protects no other holder and would only trap them.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct UpdateConfigArgs {
     pub fee_recipient: Pubkey,
@@ -13,7 +14,6 @@ pub struct UpdateConfigArgs {
     pub max_supply: u64,
     pub rebalance_delay_seconds: i64,
     pub minting_paused: bool,
-    pub redeeming_paused: bool,
     pub rebalancing_paused: bool,
 }
 
@@ -28,8 +28,6 @@ pub struct UpdateConfig<'info> {
 }
 
 impl<'info> UpdateConfig<'info> {
-    // remaining_accounts: when pausing or unpausing redemptions, the basket's composition
-    // change PDA (see restart_composition_notice).
     pub fn handle(ctx: Context<Self>, args: UpdateConfigArgs) -> Result<()> {
         require!(
             args.fee_recipient != Pubkey::default(),
@@ -40,13 +38,20 @@ impl<'info> UpdateConfig<'info> {
                 && args.rebalance_delay_seconds <= MAX_REBALANCE_DELAY_SECONDS,
             BasketError::InvalidRebalanceDelay
         );
-
-        // Only fixed-weight baskets can have composition changes.
-        if ctx.accounts.index.kind == IndexKind::FixedWeights
-            && args.redeeming_paused != ctx.accounts.index.redeeming_paused
-        {
-            restart_composition_notice(&ctx.accounts.index.key(), ctx.program_id, ctx.remaining_accounts)?;
-        }
+        // A community basket's creator only chooses where its creator fee goes. The protocol
+        // fee recipient, supply cap and pauses are the protocol's (update_community_basket):
+        // a creator who could pause mints or rebalances, or cap supply, could hold everyone
+        // else back.
+        let index = &ctx.accounts.index;
+        require!(
+            !index.community
+                || (args.fee_recipient == index.fee_recipient
+                    && args.max_supply == index.max_supply
+                    && args.rebalance_delay_seconds == index.rebalance_delay_seconds
+                    && args.minting_paused == index.minting_paused
+                    && args.rebalancing_paused == index.rebalancing_paused),
+            BasketError::CommunityBasketRestricted
+        );
 
         let index = &mut ctx.accounts.index;
         index.fee_recipient = args.fee_recipient;
@@ -54,21 +59,21 @@ impl<'info> UpdateConfig<'info> {
         index.max_supply = args.max_supply;
         index.rebalance_delay_seconds = args.rebalance_delay_seconds;
         index.minting_paused = args.minting_paused;
-        index.redeeming_paused = args.redeeming_paused;
         index.rebalancing_paused = args.rebalancing_paused;
-
-        emit!(IndexConfigUpdated {
-            index: index.key(),
-            authority: ctx.accounts.authority.key(),
-            fee_recipient: index.fee_recipient,
-            creator_fee_recipient: index.creator_fee_recipient,
-            max_supply: index.max_supply,
-            rebalance_delay_seconds: index.rebalance_delay_seconds,
-            minting_paused: index.minting_paused,
-            redeeming_paused: index.redeeming_paused,
-            rebalancing_paused: index.rebalancing_paused,
-        });
-
+        emit_config_updated(index, ctx.accounts.authority.key());
         Ok(())
     }
+}
+
+pub fn emit_config_updated(index: &Account<IndexState>, authority: Pubkey) {
+    emit!(IndexConfigUpdated {
+        index: index.key(),
+        authority,
+        fee_recipient: index.fee_recipient,
+        creator_fee_recipient: index.creator_fee_recipient,
+        max_supply: index.max_supply,
+        rebalance_delay_seconds: index.rebalance_delay_seconds,
+        minting_paused: index.minting_paused,
+        rebalancing_paused: index.rebalancing_paused,
+    });
 }

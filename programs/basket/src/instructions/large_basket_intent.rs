@@ -617,10 +617,7 @@ impl<'info> OpenLargeBasketRedeemIntent<'info> {
         ctx: Context<'_, '_, 'info, 'info, Self>,
         args: OpenLargeBasketRedeemIntentArgs,
     ) -> Result<()> {
-        require!(
-            !ctx.accounts.index.redeeming_paused,
-            BasketError::RedeemingPaused
-        );
+        // Redeems can't be paused: a redeem only takes its owner's share.
         require!(args.index_amount_in > 0, BasketError::InvalidIndexAmount);
         require!(
             ctx.accounts.index.large_basket_configured,
@@ -3617,12 +3614,13 @@ mod tests {
             rebalance_keeper: Pubkey::default(),
             fixed_weight_quote_mint: Pubkey::default(),
             active_rebalance_intent: Pubkey::default(),
-            pending_rebalance_oracle_price_tolerance_bps: 0,
+            community: false,
+            community_reserved: 0,
             pending_rebalance_nav_tolerance_bps: 0,
             fixed_weight_drift_threshold_bps: 0,
             fixed_weight_spot_ema_max_deviation_bps: 0,
             minting_paused: false,
-            redeeming_paused: false,
+            retired_redeem_pause: false,
             rebalancing_paused: false,
             rebalance_requested: false,
             composition_rebalance_due: false,
@@ -3635,25 +3633,25 @@ mod tests {
     #[test]
     fn in_kind_fee_folds_staking_into_protocol_and_splits_creator() {
         let mut i = intent(1);
-        i.protocol_fee_bps = 100; // 1.0%
-        i.creator_fee_bps = 50; // 0.5%
-        i.staking_fee_bps = 50; // 0.5%
+        i.protocol_fee_bps = 50; // 0.5%
+        i.creator_fee_bps = 25; // 0.25%
+        i.staking_fee_bps = 25; // 0.25%
         i.creator_fee_recipient = Pubkey::new_unique();
         let (protocol_amount, creator_amount) = in_kind_fee_amounts(&i, 1_000_000).unwrap();
-        // protocol (1.0%) + staking (0.5%) folded together, creator (0.5%) kept apart.
-        assert_eq!(protocol_amount, 15_000);
-        assert_eq!(creator_amount, 5_000);
+        // protocol (0.5%) + staking (0.25%) folded together, creator (0.25%) kept apart.
+        assert_eq!(protocol_amount, 7_500);
+        assert_eq!(creator_amount, 2_500);
     }
 
     #[test]
     fn in_kind_fee_routes_creator_to_protocol_when_recipient_unset() {
         let mut i = intent(1);
-        i.protocol_fee_bps = 100; // 1.0%
-        i.creator_fee_bps = 50; // 0.5%
+        i.protocol_fee_bps = 50; // 0.5%
+        i.creator_fee_bps = 25; // 0.25%
         i.staking_fee_bps = 0;
         i.creator_fee_recipient = Pubkey::default();
         let (protocol_amount, creator_amount) = in_kind_fee_amounts(&i, 1_000_000).unwrap();
-        assert_eq!(protocol_amount, 15_000);
+        assert_eq!(protocol_amount, 7_500);
         assert_eq!(creator_amount, 0);
     }
 
@@ -3680,16 +3678,16 @@ mod tests {
     #[test]
     fn mint_quote_budget_includes_all_fee_buckets() {
         // Design B: fees are derived from the stored bps over the running quote
-        // total, not pre-set atoms. 500+250+250 = 1000 bps = 10% total fee.
-        // Budget 1_100 covers quote 1_000 (+100 fee) exactly; one more atom of
+        // total, not pre-set atoms. 50+25+25 = 100 bps = 1% total fee, the cap.
+        // Budget 10_100 covers quote 10_000 (+100 fee) exactly; one more atom of
         // quote pushes quote+fee over budget.
         let mut intent = intent(1);
-        intent.max_quote_in = 1_100;
-        intent.protocol_fee_bps = 500;
-        intent.creator_fee_bps = 250;
-        intent.staking_fee_bps = 250;
+        intent.max_quote_in = 10_100;
+        intent.protocol_fee_bps = 50;
+        intent.creator_fee_bps = 25;
+        intent.staking_fee_bps = 25;
 
-        assert!(add_mint_quote_spent(&mut intent, 1_000).is_ok());
+        assert!(add_mint_quote_spent(&mut intent, 10_000).is_ok());
         assert!(add_mint_quote_spent(&mut intent, 1).is_err());
     }
 

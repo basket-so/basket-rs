@@ -5,6 +5,10 @@
 //   node scripts/upgrade-program.mjs --dir docs/program-upgrade-2026-10-05 --execute --keep-paused
 //   node scripts/upgrade-program.mjs --dir docs/program-upgrade-2026-10-05 --unpause   # after the app ships
 //
+// Mints and rebalances are paused during the upgrade (redeems can't be paused). Pausing runs
+// against the program still deployed, so when the upgrade changes update_config's arguments,
+// pass that program's IDL with --previous-idl <file>; unpausing uses target/idl/basket.json.
+//
 // The first dry-run records the binary hash in <dir>/preflight.json; --execute refuses any
 // other binary. Without --keep-paused the original pause settings are restored right after
 // the upgrade. Env: SOLANA_RPC_URL. Signs with deployer-keypair.json (upgrade + index authority).
@@ -17,7 +21,8 @@ import { Connection, Keypair, PublicKey, SystemProgram, Transaction, Transaction
 
 const args = process.argv.slice(2);
 const dir = args.includes('--dir') ? args[args.indexOf('--dir') + 1] : null;
-if (!dir) throw new Error('Usage: node scripts/upgrade-program.mjs --dir <record dir> [--execute [--keep-paused] | --unpause]');
+if (!dir) throw new Error('Usage: node scripts/upgrade-program.mjs --dir <record dir> [--previous-idl <file>] [--execute [--keep-paused] | --unpause]');
+const previousIdl = args.includes('--previous-idl') ? args[args.indexOf('--previous-idl') + 1] : null;
 const execute = args.includes('--execute');
 const keepPaused = args.includes('--keep-paused');
 const unpause = args.includes('--unpause');
@@ -27,7 +32,10 @@ const rpc = process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const signerPath = path.resolve('deployer-keypair.json');
 const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(signerPath, 'utf8'))));
 const connection = new Connection(rpc, 'confirmed');
-const program = new anchor.Program(JSON.parse(fs.readFileSync('target/idl/basket.json', 'utf8')), new anchor.AnchorProvider(connection, new anchor.Wallet(payer), { commitment: 'confirmed', preflightCommitment: 'confirmed' }));
+const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(payer), { commitment: 'confirmed', preflightCommitment: 'confirmed' });
+const program = new anchor.Program(JSON.parse(fs.readFileSync('target/idl/basket.json', 'utf8')), provider);
+// The deployed program's client, for pausing before the upgrade.
+const deployed = previousIdl ? new anchor.Program(JSON.parse(fs.readFileSync(previousIdl, 'utf8')), provider) : program;
 const loader = new PublicKey('BPFLoaderUpgradeab1e11111111111111111111111');
 const binary = fs.readFileSync('target/deploy/basket.so');
 const sha = createHash('sha256').update(binary).digest('hex');
@@ -57,20 +65,24 @@ async function readProgramData() {
   }
   return account;
 }
-// update_config rewrites every field, so carry the live values and change only the pause flags.
-// Pausing or unpausing redemptions restarts a pending composition change's notice, which needs
-// the change's PDA (programs that predate composition changes ignore the extra account).
-async function setPauses(index, flags) {
-  const s = await program.account.indexState.fetch(index);
-  const compositionChange = PublicKey.findProgramAddressSync([Buffer.from('composition-change'), index.toBuffer()], program.programId)[0];
-  return program.methods.updateConfig({ feeRecipient: s.feeRecipient, creatorFeeRecipient: s.creatorFeeRecipient, maxSupply: s.maxSupply, rebalanceDelaySeconds: s.rebalanceDelaySeconds, ...flags }).accounts({ authority: payer.publicKey, index })
+// update_config rewrites every field, so carry the live values and change only the mint and
+// rebalance pause flags. A program that still has a redeem pause gets its current value back
+// unchanged, so no composition change's notice restarts (its PDA is passed for programs that
+// would want it; programs that predate composition changes ignore the extra account).
+async function setPauses(client, index, flags) {
+  const s = await client.account.indexState.fetch(index);
+  const compositionChange = PublicKey.findProgramAddressSync([Buffer.from('composition-change'), index.toBuffer()], client.programId)[0];
+  const redeemPause = 'redeemingPaused' in s ? { redeemingPaused: s.redeemingPaused } : {};
+  // update_config was renamed update_basket_config when the redeem pause was removed.
+  const updateConfig = client.methods.updateBasketConfig ?? client.methods.updateConfig;
+  return updateConfig({ feeRecipient: s.feeRecipient, creatorFeeRecipient: s.creatorFeeRecipient, maxSupply: s.maxSupply, rebalanceDelaySeconds: s.rebalanceDelaySeconds, ...redeemPause, ...flags }).accounts({ authority: payer.publicKey, index })
     .remainingAccounts([{ pubkey: compositionChange, isWritable: true, isSigner: false }]);
 }
 async function restorePauses() {
-  for (const x of journal.indexes) await record(`restore pause settings ${x.symbol}`, await setPauses(new PublicKey(x.address), { mintingPaused: x.mintingPaused, redeemingPaused: x.redeemingPaused, rebalancingPaused: x.rebalancingPaused }));
+  for (const x of journal.indexes) await record(`restore pause settings ${x.symbol}`, await setPauses(program, new PublicKey(x.address), { mintingPaused: x.mintingPaused, rebalancingPaused: x.rebalancingPaused }));
   for (const x of journal.indexes) {
     const s = await program.account.indexState.fetch(new PublicKey(x.address));
-    if (s.mintingPaused !== x.mintingPaused || s.redeemingPaused !== x.redeemingPaused || s.rebalancingPaused !== x.rebalancingPaused || s.largeBasketOperationInProgress) throw new Error(`Final state mismatch: ${x.symbol}`);
+    if (s.mintingPaused !== x.mintingPaused || s.rebalancingPaused !== x.rebalancingPaused || s.largeBasketOperationInProgress) throw new Error(`Final state mismatch: ${x.symbol}`);
   }
   journal.status = 'verified';
   journal.finishedAt = new Date().toISOString();
@@ -102,7 +114,7 @@ try {
   const data = await readProgramData();
   const allocated = data.data.length - PROGRAM_DATA_HEADER;
   const alreadyDeployed = data.data.subarray(PROGRAM_DATA_HEADER, PROGRAM_DATA_HEADER + binary.length).equals(binary);
-  const indexes = await program.account.indexState.all();
+  const indexes = await deployed.account.indexState.all();
   for (const { account: s } of indexes) {
     if (s.largeBasketOperationInProgress) throw new Error(`Active operation: ${s.symbol}`);
     if (!s.authority.equals(payer.publicKey)) throw new Error(`Cannot pause ${s.symbol} during the upgrade`);
@@ -121,7 +133,7 @@ try {
   if (!execute) process.exit(0);
 
   if (!journal.indexes.length) {
-    journal.indexes = indexes.map(({ publicKey, account: s }) => ({ address: publicKey.toBase58(), symbol: s.symbol, mintingPaused: s.mintingPaused, redeemingPaused: s.redeemingPaused, rebalancingPaused: s.rebalancingPaused }));
+    journal.indexes = indexes.map(({ publicKey, account: s }) => ({ address: publicKey.toBase58(), symbol: s.symbol, mintingPaused: s.mintingPaused, rebalancingPaused: s.rebalancingPaused }));
     journal.startingWalletLamports = balance;
     journal.startedAt = new Date().toISOString();
     save();
@@ -129,11 +141,14 @@ try {
   fs.mkdirSync(path.join(dir, 'backup'), { recursive: true });
   const backup = path.join(dir, 'backup', 'previous-program.so');
   if (!fs.existsSync(backup)) fs.writeFileSync(backup, data.data.subarray(PROGRAM_DATA_HEADER));
-  for (const x of journal.indexes) {
-    const s = await program.account.indexState.fetch(new PublicKey(x.address));
-    if (!s.mintingPaused || !s.redeemingPaused || !s.rebalancingPaused) await record(`pause ${x.symbol}`, await setPauses(new PublicKey(x.address), { mintingPaused: true, redeemingPaused: true, rebalancingPaused: true }));
+  // Pause through the program still deployed; once it's replaced, the new one is in charge.
+  if (!alreadyDeployed) {
+    for (const x of journal.indexes) {
+      const s = await deployed.account.indexState.fetch(new PublicKey(x.address));
+      if (!s.mintingPaused || !s.rebalancingPaused) await record(`pause ${x.symbol}`, await setPauses(deployed, new PublicKey(x.address), { mintingPaused: true, rebalancingPaused: true }));
+    }
   }
-  // Check again after pausing: an operation may have opened during the first scan.
+  // Check again after pausing: a rebalance may have opened during the first scan.
   for (const x of journal.indexes) if ((await program.account.indexState.fetch(new PublicKey(x.address))).largeBasketOperationInProgress) throw new Error(`Operation raced with pause: ${x.symbol}`);
 
   if (!alreadyDeployed && extendBytes > 0) {

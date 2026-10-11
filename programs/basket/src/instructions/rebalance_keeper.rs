@@ -21,6 +21,11 @@ pub struct SetRebalanceKeeper<'info> {
 
 impl<'info> SetRebalanceKeeper<'info> {
     pub fn handle(ctx: Context<Self>, args: SetRebalanceKeeperArgs) -> Result<()> {
+        // A community basket keeps the protocol's keeper (see update_community_basket).
+        require!(
+            !ctx.accounts.index.community,
+            BasketError::CommunityBasketRestricted
+        );
         let index = &mut ctx.accounts.index;
         index.rebalance_keeper = args.keeper;
         emit!(RebalanceKeeperUpdated {

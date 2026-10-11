@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::state::{ComponentAddition, IndexKind, LargeBasketIntentKind};
+use crate::state::{ComponentAddition, IndexFees, IndexKind, LargeBasketIntentKind};
 
 #[event]
 pub struct IndexCreated {
@@ -86,7 +86,6 @@ pub struct IndexConfigUpdated {
     pub max_supply: u64,
     pub rebalance_delay_seconds: i64,
     pub minting_paused: bool,
-    pub redeeming_paused: bool,
     pub rebalancing_paused: bool,
 }
 
@@ -370,4 +369,56 @@ pub struct CompositionChangeApplied {
 pub struct PriceOracleSet {
     pub previous: Pubkey,
     pub oracle: Pubkey,
+}
+
+#[event]
+pub struct FeeChangeProposed {
+    pub index: Pubkey,
+    pub proposer: Pubkey,
+    pub effective_at: i64,
+    pub fees: IndexFees,
+}
+
+#[event]
+pub struct FeeChangeCancelled {
+    pub index: Pubkey,
+    pub authority: Pubkey,
+}
+
+#[event]
+pub struct FeeChangeApplied {
+    pub index: Pubkey,
+    pub authority: Pubkey,
+    pub fees: IndexFees,
+}
+
+#[event]
+pub struct CommunityConfigUpdated {
+    pub treasury: Pubkey,
+    pub keeper: Pubkey,
+    pub creation_fee_lamports: u64,
+    pub protocol_step_bps: u16,
+    pub creator_step_bps: u16,
+    pub staking_step_bps: u16,
+}
+
+#[event]
+pub struct CommunityBasketCreated {
+    pub index: Pubkey,
+    pub creator: Pubkey,
+    pub creation_fee_lamports: u64,
+    pub fees: IndexFees,
+}
+
+#[event]
+pub struct CommunityBasketUpdated {
+    pub index: Pubkey,
+    pub fee_recipient: Pubkey,
+    pub keeper: Pubkey,
+}
+
+#[event]
+pub struct IndexSymbolClaimed {
+    pub index: Pubkey,
+    pub symbol: String,
 }

@@ -1,4 +1,6 @@
+pub mod community_config;
 pub mod composition_change;
+pub mod fee_change;
 pub mod index_state;
 pub mod large_basket_component_page;
 pub mod large_basket_intent;
@@ -6,8 +8,11 @@ pub mod price_oracle;
 pub mod protocol_config;
 pub mod rebalance_intent;
 pub mod staking;
+pub mod symbol_claim;
 
+pub use community_config::*;
 pub use composition_change::*;
+pub use fee_change::*;
 pub use index_state::*;
 pub use large_basket_component_page::*;
 pub use large_basket_intent::*;
@@ -15,3 +20,4 @@ pub use price_oracle::*;
 pub use protocol_config::*;
 pub use rebalance_intent::*;
 pub use staking::*;
+pub use symbol_claim::*;

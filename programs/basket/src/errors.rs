@@ -60,7 +60,7 @@ pub enum BasketError {
     InvalidRebalanceDelay,
     #[msg("Minting is currently paused for this index.")]
     MintingPaused,
-    #[msg("Redeeming is currently paused for this index.")]
+    #[msg("Retired: redemptions can no longer be paused.")]
     RedeemingPaused,
     #[msg("Rebalancing is currently paused for this index.")]
     RebalancingPaused,
@@ -170,7 +170,7 @@ pub enum BasketError {
     LargeBasketComponentNotVerified,
     #[msg("The rebalance intent has expired.")]
     RebalanceIntentExpired,
-    #[msg("Only the index authority can unwind a rebalance intent before it expires.")]
+    #[msg("Only the index authority, or a community basket's keeper, can unwind a rebalance intent before it expires.")]
     RebalanceIntentNotExpired,
     #[msg("The rebalance intent is still open.")]
     RebalanceIntentStillOpen,
@@ -180,7 +180,7 @@ pub enum BasketError {
     RebalancePending,
     #[msg("Mint and redeem intents are still open; they must settle before a rebalance can open.")]
     IntentsStillOpen,
-    #[msg("Only the index authority or its rebalance keeper can do this.")]
+    #[msg("Only the index authority or its rebalance keeper (for a community basket, only its keeper) can do this.")]
     NotRebalanceOperator,
     #[msg("The basket emptied after this mint opened; cancel it once expired to recover the deposits.")]
     MintBasisChanged,
@@ -194,7 +194,7 @@ pub enum BasketError {
     CompositionChangeStale,
     #[msg("The composition change was not applied in time; cancel it and propose again.")]
     CompositionChangeExpired,
-    #[msg("A composition change only applies while redemptions are open at fees no higher than when it was proposed.")]
+    #[msg("A composition change only applies while the redeem fee is no higher than when it was proposed.")]
     CompositionChangeExitRestricted,
     #[msg("A rebalance step must come right after the price oracle's Ed25519 signature instruction.")]
     MissingPriceSignature,
@@ -210,4 +210,24 @@ pub enum BasketError {
     DuplicateOraclePrice,
     #[msg("Only a settled intent with nothing left to claim, which its owner's lock no longer points at, can be closed.")]
     LargeBasketIntentNotClosable,
+    #[msg("A fee increase needs notice: propose it with propose_fee_change.")]
+    FeeIncreaseNeedsNotice,
+    #[msg("The fee change is invalid; a proposed change must raise at least one fee.")]
+    InvalidFeeChange,
+    #[msg("The fee change's notice period has not passed yet.")]
+    FeeChangeNotReady,
+    #[msg("The fee change was not applied in time; cancel it and propose again.")]
+    FeeChangeExpired,
+    #[msg("A community basket's fee recipient, keeper, supply cap, pauses and metadata are the protocol's.")]
+    CommunityBasketRestricted,
+    #[msg("A basket symbol must be 1 to 10 characters, each A-Z or 0-9.")]
+    InvalidSymbol,
+    #[msg("The community config is invalid.")]
+    InvalidCommunityConfig,
+    #[msg("Community baskets accept only classic SPL tokens and Token-2022 tokens without transfer controls.")]
+    CommunityTokenNotAllowed,
+    #[msg("Only the protocol's index creator can create a curated basket.")]
+    NotCuratedCreator,
+    #[msg("A community basket's fee is a whole number of its fee steps, at least one, split as when it was created.")]
+    CommunityFeeSplit,
 }

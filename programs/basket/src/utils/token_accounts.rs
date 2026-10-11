@@ -16,11 +16,17 @@ pub type SplMint = token::spl_token::state::Mint;
 pub type SplTokenAccount = token::spl_token::state::Account;
 const MINT_DECIMALS_OFFSET: usize = 44;
 const MINT_INITIALIZED_OFFSET: usize = 45;
+const MINT_FREEZE_AUTHORITY_OFFSET: usize = 46;
 // A Token-2022 mint with extensions pads its base to a token account's length, then holds an
 // account-type byte and the extensions as (type u16, length u16, value) entries.
 const TOKEN_2022_ACCOUNT_TYPE_OFFSET: usize = SplTokenAccount::LEN;
 const TOKEN_2022_MINT_ACCOUNT_TYPE: u8 = 1;
 const TRANSFER_FEE_CONFIG_EXTENSION: u16 = 1;
+const TRANSFER_HOOK_EXTENSION: u16 = 14;
+// MetadataPointer, TokenMetadata, GroupPointer, TokenGroup, GroupMemberPointer and
+// TokenGroupMember are numbered 18 to 23. None of them affects transfers.
+const METADATA_POINTER_EXTENSION: u16 = 18;
+const TOKEN_GROUP_MEMBER_EXTENSION: u16 = 23;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InterfaceMintInfo {
@@ -194,10 +200,59 @@ pub fn require_no_transfer_fee(info: &AccountInfo) -> Result<()> {
     Ok(())
 }
 
+/// Refuses any component a community basket can't safely hold: anything whose transfers
+/// someone else can stop or take from. No freeze authority (whoever holds one could freeze a
+/// vault and so every redeem), except USDC's: Circle's, and every fixed-weight basket needs
+/// a USDC slot. A Token-2022 mint passes only with metadata and group extensions, plus a
+/// transfer hook that has neither a program nor an authority that could set one. Everything
+/// else is refused: transfer fees, permanent delegates, default-frozen accounts,
+/// non-transferable tokens, a mint close authority (a closed mint can be re-created with new
+/// extensions), interest and confidential transfers.
+pub fn require_community_component_mint(info: &AccountInfo) -> Result<()> {
+    require!(
+        *info.owner == token::ID || *info.owner == anchor_spl::token_2022::ID,
+        BasketError::CommunityTokenNotAllowed
+    );
+    let data = info.try_borrow_data()?;
+    require!(
+        info.key() == crate::constants::USDC_MINT || !has_freeze_authority(&data)?,
+        BasketError::CommunityTokenNotAllowed
+    );
+    require!(
+        community_extensions_allowed(&data)?,
+        BasketError::CommunityTokenNotAllowed
+    );
+    Ok(())
+}
+
+/// The mint's freeze authority is a COption: a u32 tag (1 = set), then the key.
+fn has_freeze_authority(data: &[u8]) -> Result<bool> {
+    let tag = data
+        .get(MINT_FREEZE_AUTHORITY_OFFSET..MINT_FREEZE_AUTHORITY_OFFSET + 4)
+        .ok_or_else(|| error!(BasketError::InvalidTokenMint))?;
+    Ok(tag != [0, 0, 0, 0])
+}
+
+fn community_extensions_allowed(data: &[u8]) -> Result<bool> {
+    Ok(mint_extensions(data)?.iter().all(|(kind, value)| match *kind {
+        METADATA_POINTER_EXTENSION..=TOKEN_GROUP_MEMBER_EXTENSION => true,
+        // TransferHook { authority, program_id }: both must be unset.
+        TRANSFER_HOOK_EXTENSION => value.len() == 64 && value.iter().all(|byte| *byte == 0),
+        _ => false,
+    }))
+}
+
 fn has_mint_extension(data: &[u8], extension_type: u16) -> Result<bool> {
-    // A mint without extensions is just the base.
+    Ok(mint_extensions(data)?
+        .iter()
+        .any(|(kind, _)| *kind == extension_type))
+}
+
+/// A Token-2022 mint's extensions as (type, value) pairs; none for a mint that is just the base.
+fn mint_extensions(data: &[u8]) -> Result<Vec<(u16, &[u8])>> {
+    let mut extensions = Vec::new();
     if data.len() <= SplMint::LEN {
-        return Ok(false);
+        return Ok(extensions);
     }
     require!(
         data.len() > TOKEN_2022_ACCOUNT_TYPE_OFFSET
@@ -211,13 +266,14 @@ fn has_mint_extension(data: &[u8], extension_type: u16) -> Result<bool> {
         if kind == 0 {
             break;
         }
-        if kind == extension_type {
-            return Ok(true);
-        }
         let len = usize::from(u16::from_le_bytes([data[offset + 2], data[offset + 3]]));
+        let value = data
+            .get(offset + 4..offset + 4 + len)
+            .ok_or_else(|| error!(BasketError::InvalidTokenMint))?;
+        extensions.push((kind, value));
         offset += 4 + len;
     }
-    Ok(false)
+    Ok(extensions)
 }
 
 pub fn load_interface_token_account(info: &AccountInfo) -> Result<InterfaceTokenAccount> {
@@ -365,6 +421,36 @@ mod tests {
         let mut padded = token_2022_mint(&[metadata_pointer]);
         padded.extend_from_slice(&[0u8; 16]);
         assert!(!has_fee(&padded));
+    }
+
+    #[test]
+    fn community_baskets_accept_only_extensions_that_leave_transfers_plain() {
+        let allowed = |extensions: &[(u16, &[u8])]| {
+            community_extensions_allowed(&token_2022_mint(extensions)).unwrap()
+        };
+        let mut hook_with_authority = [0u8; 64];
+        hook_with_authority[0] = 9;
+        let mut hook_with_program = [0u8; 64];
+        hook_with_program[40] = 9;
+
+        assert!(allowed(&[]));
+        assert!(allowed(&[(18, &[7u8; 64]), (19, &[1u8; 90]), (23, &[0u8; 72])]));
+        assert!(allowed(&[(TRANSFER_HOOK_EXTENSION, &[0u8; 64])]));
+        assert!(!allowed(&[(TRANSFER_HOOK_EXTENSION, &hook_with_authority)]));
+        assert!(!allowed(&[(TRANSFER_HOOK_EXTENSION, &hook_with_program)]));
+        for refused in [1u16, 3, 4, 6, 9, 10, 12, 16, 24, 25, 26] {
+            assert!(!allowed(&[(18, &[7u8; 64]), (refused, &[0u8; 8])]), "type {refused}");
+        }
+    }
+
+    #[test]
+    fn reads_whether_a_mint_has_a_freeze_authority() {
+        let mut data = [0u8; SplMint::LEN];
+        assert!(!has_freeze_authority(&data).unwrap());
+        data[MINT_FREEZE_AUTHORITY_OFFSET] = 1;
+        data[MINT_FREEZE_AUTHORITY_OFFSET + 4] = 7;
+        assert!(has_freeze_authority(&data).unwrap());
+        assert!(has_freeze_authority(&data[..40]).is_err());
     }
 
     #[test]

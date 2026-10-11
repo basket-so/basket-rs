@@ -12,7 +12,9 @@ import anchor from "@coral-xyz/anchor";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   createInitializeMintInstruction,
+  createInitializePermanentDelegateInstruction,
   createInitializeTransferFeeConfigInstruction,
+  createInitializeTransferHookInstruction,
   createMint,
   ExtensionType,
   getAccount,
@@ -455,7 +457,7 @@ async function main() {
       const vaults = components.map(m => getAssociatedTokenAddressSync(m, vaultAuthority, true));
       const owners = await Promise.all(components.map(m => getOrCreateAssociatedTokenAccount(connection, payer, m, payer.publicKey)));
       await mintTo(connection, payer, components[0], owners[0].address, payer, 10_000_000);
-      const createIndex = (componentCount) => program.methods.createLargeBasketIndex({ name: symbol + ' test', symbol, metadataUri: '', decimals: 6, feeRecipient: payer.publicKey, creatorFeeRecipient: PublicKey.default, maxSupply: bn(10_000_000), rebalanceDelaySeconds: bn(0), kind: fixedWeights ? { fixedWeights: {} } : { fixedUnits: {} }, fixedWeightQuoteMint: fixedWeights ? usdcMint : PublicKey.default, fixedWeightRebalanceIntervalSeconds: bn(fixedWeights ? 86400 : 0), fixedWeightDriftThresholdBps: fixedWeights ? 500 : 0, fixedWeightSpotEmaMaxDeviationBps: fixedWeights ? 500 : 0, componentCount }).accounts({ payer: payer.publicKey, authority: payer.publicKey, protocolConfig, index, indexMint, vaultAuthority, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc();
+      const createIndex = (componentCount) => program.methods.createLargeBasketIndex({ name: symbol + ' test', symbol, metadataUri: '', decimals: 6, feeRecipient: payer.publicKey, creatorFeeRecipient: PublicKey.default, maxSupply: bn(10_000_000), rebalanceDelaySeconds: bn(0), kind: fixedWeights ? { fixedWeights: {} } : { fixedUnits: {} }, fixedWeightQuoteMint: fixedWeights ? usdcMint : PublicKey.default, fixedWeightRebalanceIntervalSeconds: bn(fixedWeights ? 86400 : 0), fixedWeightDriftThresholdBps: fixedWeights ? 500 : 0, fixedWeightSpotEmaMaxDeviationBps: fixedWeights ? 500 : 0, componentCount, symbolClaimKey: symbol }).accounts({ payer: payer.publicKey, authority: payer.publicKey, protocolConfig, index, indexMint, vaultAuthority, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc();
       // Every basket kind is capped at 40 components.
       await assert.rejects(createIndex(41), /InvalidComponentCount/);
       await createIndex(2);
@@ -684,7 +686,7 @@ async function main() {
       const indexMint = pda('index-mint', index);
       const vaultAuthority = pda('vault-authority', index);
       const page = pda('large-basket-component-page', index, Buffer.from([0]));
-      await program.methods.createLargeBasketIndex({ name: 'TWOK test', symbol: 'TWOK', metadataUri: '', decimals: 6, feeRecipient: payer.publicKey, creatorFeeRecipient: PublicKey.default, maxSupply: bn(10_000_000), rebalanceDelaySeconds: bn(0), kind: { fixedUnits: {} }, fixedWeightQuoteMint: PublicKey.default, fixedWeightRebalanceIntervalSeconds: bn(0), fixedWeightDriftThresholdBps: 0, fixedWeightSpotEmaMaxDeviationBps: 0, componentCount: 1 }).accounts({ payer: payer.publicKey, authority: payer.publicKey, protocolConfig, index, indexMint, vaultAuthority, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc();
+      await program.methods.createLargeBasketIndex({ name: 'TWOK test', symbol: 'TWOK', metadataUri: '', decimals: 6, feeRecipient: payer.publicKey, creatorFeeRecipient: PublicKey.default, maxSupply: bn(10_000_000), rebalanceDelaySeconds: bn(0), kind: { fixedUnits: {} }, fixedWeightQuoteMint: PublicKey.default, fixedWeightRebalanceIntervalSeconds: bn(0), fixedWeightDriftThresholdBps: 0, fixedWeightSpotEmaMaxDeviationBps: 0, componentCount: 1, symbolClaimKey: 'TWOK' }).accounts({ payer: payer.publicKey, authority: payer.publicKey, protocolConfig, index, indexMint, vaultAuthority, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc();
       const token2022Mint = async (transferFee) => {
         const mint = Keypair.generate();
         const space = getMintLen(transferFee ? [ExtensionType.TransferFeeConfig] : []);
@@ -713,7 +715,7 @@ async function main() {
       // A fee wallet distinct from the redeemer, so every fee share has to actually move.
       const feeWallet = Keypair.generate();
       const feeUsdc = (await getOrCreateAssociatedTokenAccount(connection, payer, usdcMint, feeWallet.publicKey)).address;
-      await program.methods.createLargeBasketIndex({ name: 'Cash lifecycle', symbol: 'CASH', metadataUri: '', decimals: 6, feeRecipient: feeWallet.publicKey, creatorFeeRecipient: PublicKey.default, maxSupply: bn(2_000_000), rebalanceDelaySeconds: bn(0), kind: { fixedUnits: {} }, fixedWeightQuoteMint: PublicKey.default, fixedWeightRebalanceIntervalSeconds: bn(0), fixedWeightDriftThresholdBps: 0, fixedWeightSpotEmaMaxDeviationBps: 0, componentCount: 1 }).accounts({ payer: payer.publicKey, authority: payer.publicKey, protocolConfig, index, indexMint, vaultAuthority, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc();
+      await program.methods.createLargeBasketIndex({ name: 'Cash lifecycle', symbol: 'CASH', symbolClaimKey: 'CASH', metadataUri: '', decimals: 6, feeRecipient: feeWallet.publicKey, creatorFeeRecipient: PublicKey.default, maxSupply: bn(2_000_000), rebalanceDelaySeconds: bn(0), kind: { fixedUnits: {} }, fixedWeightQuoteMint: PublicKey.default, fixedWeightRebalanceIntervalSeconds: bn(0), fixedWeightDriftThresholdBps: 0, fixedWeightSpotEmaMaxDeviationBps: 0, componentCount: 1 }).accounts({ payer: payer.publicKey, authority: payer.publicKey, protocolConfig, index, indexMint, vaultAuthority, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc();
       await program.methods.initializeLargeBasketComponentPage({ pageIndex: 0, startComponentIndex: 0, components: [{ mint: usdcMint, unitsPerIndex: bn(1_000_000), targetWeightBps: 0, oraclePair: PublicKey.default }] }).accounts({ payer: payer.publicKey, authority: payer.publicKey, index, indexMint, vaultAuthority, page, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).remainingAccounts([meta(usdcMint),meta(vault,true),meta(TOKEN_PROGRAM_ID)]).rpc();
       await program.methods.finalizeLargeBasketConfig().accounts({ authority: payer.publicKey,index }).remainingAccounts([meta(page,true)]).rpc();
       await program.methods.updateFees({ mintFeeBps: 10, redeemFeeBps: 10, creatorMintFeeBps: 0, creatorRedeemFeeBps: 0, stakingMintFeeBps: 10, stakingRedeemFeeBps: 10 }).accounts({ authority: payer.publicKey,index }).rpc();
@@ -792,7 +794,7 @@ async function main() {
         const vaultAuthority = pda('vault-authority', index);
         const page = pda('large-basket-component-page', index, Buffer.from([0]));
         const vault = getAssociatedTokenAddressSync(mint, vaultAuthority, true);
-        await program.methods.createLargeBasketIndex({ name: symbol + ' test', symbol, metadataUri: '', decimals: 6, feeRecipient: treasury.publicKey, creatorFeeRecipient: creator.publicKey, maxSupply: bn(10_000_000), rebalanceDelaySeconds: bn(0), kind: { fixedUnits: {} }, fixedWeightQuoteMint: PublicKey.default, fixedWeightRebalanceIntervalSeconds: bn(0), fixedWeightDriftThresholdBps: 0, fixedWeightSpotEmaMaxDeviationBps: 0, componentCount: 1 }).accounts({ payer: payer.publicKey, authority: payer.publicKey, protocolConfig, index, indexMint, vaultAuthority, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc();
+        await program.methods.createLargeBasketIndex({ name: symbol + ' test', symbol, symbolClaimKey: symbol, metadataUri: '', decimals: 6, feeRecipient: treasury.publicKey, creatorFeeRecipient: creator.publicKey, maxSupply: bn(10_000_000), rebalanceDelaySeconds: bn(0), kind: { fixedUnits: {} }, fixedWeightQuoteMint: PublicKey.default, fixedWeightRebalanceIntervalSeconds: bn(0), fixedWeightDriftThresholdBps: 0, fixedWeightSpotEmaMaxDeviationBps: 0, componentCount: 1 }).accounts({ payer: payer.publicKey, authority: payer.publicKey, protocolConfig, index, indexMint, vaultAuthority, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc();
         await program.methods.initializeLargeBasketComponentPage({ pageIndex: 0, startComponentIndex: 0, components: [{ mint, unitsPerIndex: bn(1_000_000), targetWeightBps: 0, oraclePair: PublicKey.default }] }).accounts({ payer: payer.publicKey, authority: payer.publicKey, index, indexMint, vaultAuthority, page, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).remainingAccounts([meta(mint), meta(vault, true), meta(TOKEN_PROGRAM_ID)]).rpc();
         await program.methods.finalizeLargeBasketConfig().accounts({ authority: payer.publicKey, index }).remainingAccounts([meta(page, true)]).rpc();
         await program.methods.updateFees(fees).accounts({ authority: payer.publicKey, index }).rpc();
@@ -836,7 +838,7 @@ async function main() {
         // Receiving fees gives the recipient no say over the basket: fees, recipients, pauses
         // and the authority all stay with the authority.
         await assert.rejects(program.methods.updateFees({ ...fees, creatorMintFeeBps: 100 }).accounts({ authority: creator.publicKey, index: b.index }).signers([creator]).rpc(), /UnauthorizedAuthority/);
-        await assert.rejects(program.methods.updateConfig({ feeRecipient: creator.publicKey, creatorFeeRecipient: creator.publicKey, maxSupply: bn(0), rebalanceDelaySeconds: bn(0), mintingPaused: true, redeemingPaused: true, rebalancingPaused: true }).accounts({ authority: creator.publicKey, index: b.index }).signers([creator]).rpc(), /UnauthorizedAuthority/);
+        await assert.rejects(program.methods.updateBasketConfig({ feeRecipient: creator.publicKey, creatorFeeRecipient: creator.publicKey, maxSupply: bn(0), rebalanceDelaySeconds: bn(0), mintingPaused: true, rebalancingPaused: true }).accounts({ authority: creator.publicKey, index: b.index }).signers([creator]).rpc(), /UnauthorizedAuthority/);
         await assert.rejects(program.methods.updateAuthority({ newAuthority: creator.publicKey }).accounts({ authority: creator.publicKey, index: b.index }).signers([creator]).rpc(), /UnauthorizedAuthority/);
       }
 
@@ -859,6 +861,33 @@ async function main() {
         assert.deepEqual(await deltas(watched, () => fill('mint', mintIntent, creatorToken)), [-1_001_000n, 1_000_000n, 900n, 100n, 0n]);
         await program.methods.finalizeLargeBasketMintIntent().accounts({ ...b.common, intent: mintIntent }).remainingAccounts([meta(b.page, true)]).rpc();
 
+        // With holders, a fee can drop at once, but can only rise after three days' notice.
+        const setFees = (f) => program.methods.updateFees(f).accounts({ authority: payer.publicKey, index: b.index }).rpc();
+        const raised = { ...fees, creatorRedeemFeeBps: 2 };
+        await assert.rejects(setFees(raised), /FeeIncreaseNeedsNotice/);
+        // 1% is the most any mint or redeem can be charged: 95 + 1 + 5 is 1.01%.
+        await assert.rejects(setFees({ ...fees, redeemFeeBps: 95 }), /InvalidFeeBps/);
+        const feeChange = pda('fee-change', b.index);
+        const feeChangeAccounts = { authority: payer.publicKey, index: b.index, feeChange, proposer: payer.publicKey };
+        const propose = (f) => program.methods.proposeFeeChange(f).accounts({ authority: payer.publicKey, index: b.index, feeChange, systemProgram: SystemProgram.programId }).rpc();
+        await assert.rejects(propose(fees), /InvalidFeeChange/, 'a proposal has to raise something');
+        await assert.rejects(propose({ ...fees, redeemFeeBps: 95 }), /InvalidFeeBps/);
+        const clock = async () => Number((await connection.getAccountInfo(new PublicKey('SysvarC1ock11111111111111111111111111111111'))).data.readBigInt64LE(32));
+        const proposedAt = await clock();
+        await propose(raised);
+        const pending = await program.account.feeChange.fetch(feeChange);
+        const notice = pending.effectiveAt.toNumber() - proposedAt;
+        assert.ok(notice >= 3 * 86_400 && notice <= 3 * 86_400 + 60, `three days of notice, got ${notice}s`);
+        assert.equal(pending.fees.creatorRedeemFeeBps, 2);
+        await assert.rejects(propose(raised), /already in use/, 'one pending fee change at a time');
+        await assert.rejects(program.methods.applyFeeChange().accounts(feeChangeAccounts).rpc(), /FeeChangeNotReady/);
+        await assert.rejects(program.methods.cancelFeeChange().accounts({ ...feeChangeAccounts, authority: creator.publicKey }).signers([creator]).rpc(), /UnauthorizedAuthority/);
+        // Lowering stays immediate while an increase is pending.
+        await setFees({ ...fees, creatorMintFeeBps: 0 });
+        assert.equal((await program.account.indexState.fetch(b.index)).creatorMintFeeBps, 0);
+        await program.methods.cancelFeeChange().accounts(feeChangeAccounts).rpc();
+        assert.equal(await connection.getAccountInfo(feeChange), null);
+
         const redeemIntent = b.intentFor(2);
         await program.methods.openLargeBasketRedeemIntent({ nonce: bn(2), expiresAt: expiresAt(), inKind: true, indexAmountIn: bn(1_000_000), minQuoteOut: bn(0) }).accounts({ ...b.common, intent: redeemIntent }).remainingAccounts([meta(b.page, true)]).rpc();
         await assert.rejects(fill('redeem', redeemIntent, own), /InvalidFeeRecipientTokenAccount/);
@@ -866,8 +895,133 @@ async function main() {
         await program.methods.finalizeLargeBasketRedeemIntent().accounts({ index: b.index, intent: redeemIntent, intentLock: b.common.intentLock }).rpc();
         assert.equal((await getMint(connection, b.indexMint)).supply, 0n);
       }
+
+      // Community baskets: anyone the protocol allows can create one, for a SOL fee. The
+      // protocol's fee shares, fee recipient, keeper and metadata are fixed; the creator sets
+      // only its own fee, can't hold mints and redeems back, and can hold only tokens whose
+      // transfers nobody else controls.
+      {
+        const communityConfig = pda('community-config');
+        const keeper = Keypair.generate();
+        const maker = Keypair.generate();
+        await transferSol(connection, payer, maker.publicKey, 2);
+        const configArgs = { treasury: treasury.publicKey, keeper: keeper.publicKey, creationFeeLamports: bn(200_000_000), protocolStepBps: 4, creatorStepBps: 1, stakingStepBps: 5 };
+        const setConfig = (args, authority = payer) => program.methods.setCommunityConfig(args).accounts({ payer: payer.publicKey, authority: authority.publicKey, protocolConfig, communityConfig, systemProgram: SystemProgram.programId }).signers(authority === payer ? [] : [authority]).rpc();
+        await assert.rejects(setConfig(configArgs, maker), /UnauthorizedAuthority/);
+        await assert.rejects(setConfig({ ...configArgs, stakingStepBps: 96 }), /InvalidFeeBps/, 'a step has to fit under the 1% cap');
+        await setConfig(configArgs);
+
+        const asMaker = (builder) => builder.signers([maker]).rpc();
+        const communityBasket = (symbol, { weights = false, feeBps = 10, recipient = creator.publicKey, components = 1 } = {}) => {
+          const index = pda('index', maker.publicKey, symbol);
+          const indexMint = pda('index-mint', index);
+          const vaultAuthority = pda('vault-authority', index);
+          const page = pda('large-basket-component-page', index, Buffer.from([0]));
+          const claimKey = symbol.replace(/0/g, 'O').replace(/1/g, 'I');
+          const symbolClaim = pda('symbol', claimKey);
+          const create = () => asMaker(program.methods.createCommunityBasketIndex({ name: symbol + ' community', symbol, metadataUri: '', decimals: 6, creatorFeeRecipient: recipient, mintFeeBps: feeBps, redeemFeeBps: feeBps, maxSupply: bn(0), kind: weights ? { fixedWeights: {} } : { fixedUnits: {} }, fixedWeightRebalanceIntervalSeconds: bn(weights ? 86_400 : 0), fixedWeightDriftThresholdBps: weights ? 500 : 0, componentCount: components, symbolClaimKey: claimKey }).accounts({ payer: maker.publicKey, authority: maker.publicKey, protocolConfig, communityConfig, treasury: treasury.publicKey, index, symbolClaim, indexMint, vaultAuthority, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }));
+          // entries: [mint, token program, units per index, target weight]
+          const initPage = (entries) => asMaker(program.methods.initializeLargeBasketComponentPage({ pageIndex: 0, startComponentIndex: 0, components: entries.map(([mint, , units, weight]) => ({ mint, unitsPerIndex: bn(units), targetWeightBps: weight, oraclePair: PublicKey.default })) }).accounts({ payer: maker.publicKey, authority: maker.publicKey, index, indexMint, vaultAuthority, page, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).remainingAccounts(entries.flatMap(([mint, tokenProgram]) => [meta(mint), meta(getAssociatedTokenAddressSync(mint, vaultAuthority, true, tokenProgram), true), meta(tokenProgram)])));
+          const finalize = () => asMaker(program.methods.finalizeLargeBasketConfig().accounts({ authority: maker.publicKey, index }).remainingAccounts([meta(page, true)]));
+          return { index, indexMint, vaultAuthority, page, symbolClaim, create, initPage, finalize };
+        };
+
+        const comm = communityBasket('COMM');
+        await assert.rejects(comm.create(), /UnauthorizedIndexCreator/, 'the switch is off and the maker is not whitelisted');
+        await program.methods.updateIndexCreatorWhitelist({ creator: maker.publicKey, whitelisted: true }).accounts({ authority: payer.publicKey, protocolConfig }).rpc();
+        // Curated baskets stay the protocol's index creator's alone.
+        const makr = pda('index', maker.publicKey, 'MAKR');
+        await assert.rejects(asMaker(program.methods.createLargeBasketIndex({ name: 'MAKR test', symbol: 'MAKR', symbolClaimKey: 'MAKR', metadataUri: '', decimals: 6, feeRecipient: maker.publicKey, creatorFeeRecipient: PublicKey.default, maxSupply: bn(0), rebalanceDelaySeconds: bn(0), kind: { fixedUnits: {} }, fixedWeightQuoteMint: PublicKey.default, fixedWeightRebalanceIntervalSeconds: bn(0), fixedWeightDriftThresholdBps: 0, fixedWeightSpotEmaMaxDeviationBps: 0, componentCount: 1 }).accounts({ payer: maker.publicKey, authority: maker.publicKey, protocolConfig, index: makr, symbolClaim: pda('symbol', 'MAKR'), indexMint: pda('index-mint', makr), vaultAuthority: pda('vault-authority', makr), tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId })), /NotCuratedCreator/);
+        await assert.rejects(communityBasket('comm').create(), /InvalidSymbol/);
+        await assert.rejects(communityBasket('CRTR').create(), /already in use/, 'CRTR is claimed by the curated basket');
+        await assert.rejects(communityBasket('CRTK').create(), /already in use/);
+        // The creator picks the total, a whole number of 0.10% steps split 40/10/50.
+        await assert.rejects(communityBasket('COMX', { feeBps: 15 }).create(), /CommunityFeeSplit/, 'not a whole number of steps');
+        await assert.rejects(communityBasket('COMX', { feeBps: 0 }).create(), /CommunityFeeSplit/, 'at least one step');
+        await assert.rejects(communityBasket('COMX', { feeBps: 110 }).create(), /InvalidFeeBps/, 'over 1%');
+        await assert.rejects(communityBasket('COMX', { recipient: PublicKey.default }).create(), /InvalidAuthority/, 'a creator fee needs a recipient');
+        const treasuryBefore = await connection.getBalance(treasury.publicKey);
+        await comm.create();
+        assert.equal(await connection.getBalance(treasury.publicKey) - treasuryBefore, 200_000_000, 'the creation fee goes to the treasury');
+        const state = await program.account.indexState.fetch(comm.index);
+        assert.ok(state.community);
+        assert.ok(state.authority.equals(maker.publicKey) && state.creator.equals(maker.publicKey));
+        assert.ok(state.feeRecipient.equals(treasury.publicKey) && state.rebalanceKeeper.equals(keeper.publicKey));
+        assert.deepEqual([state.mintFeeBps, state.redeemFeeBps, state.creatorMintFeeBps, state.creatorRedeemFeeBps, state.stakingMintFeeBps, state.stakingRedeemFeeBps], [4, 4, 1, 1, 5, 5]);
+        assert.ok((await program.account.symbolClaim.fetch(comm.symbolClaim)).index.equals(comm.index));
+        // A symbol that only passes for COMM (zero for O) is taken with it.
+        await assert.rejects(communityBasket('C0MM').create(), /already in use/);
+
+        // Only tokens whose transfers nobody else controls.
+        const token2022 = async (extension, init) => {
+          const mint = Keypair.generate();
+          const space = getMintLen([extension]);
+          const tx = new Transaction().add(SystemProgram.createAccount({ fromPubkey: payer.publicKey, newAccountPubkey: mint.publicKey, space, lamports: await connection.getMinimumBalanceForRentExemption(space), programId: TOKEN_2022_PROGRAM_ID }));
+          tx.add(init(mint.publicKey), createInitializeMintInstruction(mint.publicKey, 6, payer.publicKey, null, TOKEN_2022_PROGRAM_ID));
+          await sendAndConfirmTransaction(connection, tx, [payer, mint]);
+          return mint.publicKey;
+        };
+        const delegated = await token2022(ExtensionType.PermanentDelegate, (m) => createInitializePermanentDelegateInstruction(m, payer.publicKey, TOKEN_2022_PROGRAM_ID));
+        // A hook with no program yet, but an authority that could set one (as PUMP has).
+        const hookable = await token2022(ExtensionType.TransferHook, (m) => createInitializeTransferHookInstruction(m, payer.publicKey, PublicKey.default, TOKEN_2022_PROGRAM_ID));
+        for (const mint of [delegated, hookable]) {
+          await assert.rejects(comm.initPage([[mint, TOKEN_2022_PROGRAM_ID, 1_000_000, 0]]), /CommunityTokenNotAllowed/);
+        }
+        // A freeze authority could freeze a vault, and with it every redeem.
+        const freezable = await createMint(connection, payer, payer.publicKey, payer.publicKey, 6);
+        await assert.rejects(comm.initPage([[freezable, TOKEN_PROGRAM_ID, 1_000_000, 0]]), /CommunityTokenNotAllowed/);
+        const plain = await createMint(connection, payer, payer.publicKey, null, 6);
+        await comm.initPage([[plain, TOKEN_PROGRAM_ID, 1_000_000, 0]]);
+        await comm.finalize();
+
+        // The creator chooses how many steps its fee is, never how a step splits.
+        const commFees = { mintFeeBps: 4, redeemFeeBps: 4, creatorMintFeeBps: 1, creatorRedeemFeeBps: 1, stakingMintFeeBps: 5, stakingRedeemFeeBps: 5 };
+        const makerFees = (f) => asMaker(program.methods.updateFees(f).accounts({ authority: maker.publicKey, index: comm.index }));
+        await assert.rejects(makerFees({ ...commFees, mintFeeBps: 0 }), /CommunityFeeSplit/);
+        await assert.rejects(makerFees({ ...commFees, stakingRedeemFeeBps: 0 }), /CommunityFeeSplit/);
+        await assert.rejects(makerFees({ ...commFees, creatorMintFeeBps: 3 }), /CommunityFeeSplit/, 'the creator alone');
+        await assert.rejects(makerFees({ ...commFees, mintFeeBps: 0, creatorMintFeeBps: 0, stakingMintFeeBps: 0 }), /CommunityFeeSplit/, 'no fee loses the split');
+        await makerFees({ ...commFees, mintFeeBps: 8, creatorMintFeeBps: 2, stakingMintFeeBps: 10 }); // two steps; no supply yet, so no notice
+        const twoSteps = await program.account.indexState.fetch(comm.index);
+        assert.deepEqual([twoSteps.mintFeeBps, twoSteps.creatorMintFeeBps, twoSteps.stakingMintFeeBps, twoSteps.redeemFeeBps], [8, 2, 10, 4]);
+        const makerConfig = (changes) => asMaker(program.methods.updateBasketConfig({ feeRecipient: treasury.publicKey, creatorFeeRecipient: creator.publicKey, maxSupply: bn(0), rebalanceDelaySeconds: bn(0), mintingPaused: false, rebalancingPaused: false, ...changes }).accounts({ authority: maker.publicKey, index: comm.index }));
+        for (const changes of [{ feeRecipient: maker.publicKey }, { mintingPaused: true }, { rebalancingPaused: true }, { maxSupply: bn(1) }]) {
+          await assert.rejects(makerConfig(changes), /CommunityBasketRestricted/, JSON.stringify(changes));
+        }
+        await makerConfig({ creatorFeeRecipient: maker.publicKey });
+        assert.ok((await program.account.indexState.fetch(comm.index)).creatorFeeRecipient.equals(maker.publicKey));
+        await makerConfig({});
+        await assert.rejects(asMaker(program.methods.setRebalanceKeeper({ keeper: maker.publicKey }).accounts({ authority: maker.publicKey, index: comm.index })), /CommunityBasketRestricted/);
+        // The protocol authority keeps the fee recipient and keeper, for community baskets only.
+        const updateCommunity = (index, args, authority = payer) => program.methods.updateCommunityBasket({ maxSupply: bn(0), mintingPaused: false, rebalancingPaused: false, ...args }).accounts({ authority: authority.publicKey, protocolConfig, index }).signers(authority === payer ? [] : [authority]).rpc();
+        await assert.rejects(updateCommunity(comm.index, { feeRecipient: maker.publicKey, keeper: maker.publicKey }, maker), /UnauthorizedAuthority/);
+        await assert.rejects(updateCommunity(pda('index', payer.publicKey, 'CRTR'), { feeRecipient: treasury.publicKey, keeper: keeper.publicKey }), /CommunityBasketRestricted/);
+        const keeper2 = Keypair.generate();
+        await updateCommunity(comm.index, { feeRecipient: treasury.publicKey, keeper: keeper2.publicKey, mintingPaused: true });
+        const updated = await program.account.indexState.fetch(comm.index);
+        assert.ok(updated.rebalanceKeeper.equals(keeper2.publicKey) && updated.mintingPaused, 'the protocol can stop mints in an emergency');
+        await updateCommunity(comm.index, { feeRecipient: treasury.publicKey, keeper: keeper.publicKey });
+        // Metadata is set once, so a creator can't later restyle the basket as another.
+        const metadataProgram = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+        const metadata = PublicKey.findProgramAddressSync([Buffer.from('metadata'), metadataProgram.toBuffer(), comm.indexMint.toBuffer()], metadataProgram)[0];
+        await assert.rejects(asMaker(program.methods.updateIndexMetadata({ uri: 'https://example.com/other.json' }).accounts({ authority: maker.publicKey, index: comm.index, indexMint: comm.indexMint, metadata, vaultAuthority: comm.vaultAuthority, metadataProgram })), /CommunityBasketRestricted/);
+
+        // Rebalances belong to the keeper: the creator can't request one to hold exits back.
+        const comw = communityBasket('COMW', { weights: true, components: 2 });
+        await comw.create();
+        await comw.initPage([[plain, TOKEN_PROGRAM_ID, 500_000, 10_000], [usdcMint, TOKEN_PROGRAM_ID, 0, 0]]);
+        await comw.finalize();
+        const proposeAddition = (mint) => asMaker(program.methods.proposeCompositionChange({ targetWeightsBps: [9000, 0], additions: [{ mint, oraclePair: Keypair.generate().publicKey, targetWeightBps: 1000 }] }).accounts({ authority: maker.publicKey, index: comw.index, compositionChange: pda('composition-change', comw.index), systemProgram: SystemProgram.programId }).remainingAccounts([meta(comw.page), meta(mint)]));
+        await assert.rejects(proposeAddition(freezable), /CommunityTokenNotAllowed/);
+        const request = (operator) => program.methods.requestRebalance().accounts({ operator: operator.publicKey, index: comw.index }).signers([operator]).rpc();
+        await assert.rejects(request(maker), /NotRebalanceOperator/);
+        await request(keeper);
+        assert.ok((await program.account.indexState.fetch(comw.index)).rebalanceRequested);
+        await assert.rejects(program.methods.cancelRebalanceRequest().accounts({ operator: maker.publicKey, index: comw.index }).signers([maker]).rpc(), /NotRebalanceOperator/);
+        await program.methods.cancelRebalanceRequest().accounts({ operator: keeper.publicKey, index: comw.index }).signers([keeper]).rpc();
+      }
     }
-    console.log('integration ok: six-decimal staking, rewards, unstaking; fixed-unit and fixed-weight paged creation, initial/pro-rata mint, cancellation, complete redemption; concurrent intents from several owners, keeper-only spaced rebalance requests, empty-basket eras, incremental expiry refunds and escrow claims; settled intents closed with the rent back to the owner, unsettled ones refused; 40-component cap; zero-amount intents settled once expired; transfer-fee Token-2022 components refused; swap-path mint fee collection; redeem fees charged with proceeds, auto-finalize, closed bypasses; creator fees paid to a separate recipient in USDC and in kind, unredirectable, with no authority');
+    console.log('integration ok: six-decimal staking, rewards, unstaking; fixed-unit and fixed-weight paged creation, initial/pro-rata mint, cancellation, complete redemption; concurrent intents from several owners, keeper-only spaced rebalance requests, empty-basket eras, incremental expiry refunds and escrow claims; settled intents closed with the rent back to the owner, unsettled ones refused; 40-component cap; zero-amount intents settled once expired; transfer-fee Token-2022 components refused; swap-path mint fee collection; redeem fees charged with proceeds, auto-finalize, closed bypasses; 1% fee cap, fee increases only after notice, no redeem pause; community baskets with a creation fee, fixed protocol terms, keeper-only rebalances, screened tokens, locked metadata and unique symbols; creator fees paid to a separate recipient in USDC and in kind, unredirectable, with no authority');
   } catch (error) {
     if (!/privilege error 1314/i.test(error.message)) {
       console.error(validatorOutput);

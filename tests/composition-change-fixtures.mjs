@@ -57,7 +57,7 @@ export async function prepareCompositionFixtures(dir, programId, payer) {
   // A fixed-weight basket with `weights` for its non-USDC components (plus a USDC cash
   // slot unless withCash is false), each holding 1 token per index token, and an optional
   // composition change that is already due.
-  function basket(symbol, weights, { withCash = true, change, overrides = {} } = {}) {
+  function basket(symbol, weights, { withCash = true, change, feeChange, overrides = {} } = {}) {
     const [index, indexBump] = pda('index', payer, Buffer.from(symbol));
     const [indexMint, indexMintBump] = pda('index-mint', index);
     const [vaultAuthority, vaultAuthorityBump] = pda('vault-authority', index);
@@ -81,7 +81,12 @@ export async function prepareCompositionFixtures(dir, programId, payer) {
       additions = change.additions.map(weight => ({ mint: newMint(false), oraclePair: Keypair.generate().publicKey, targetWeightBps: weight }));
       dump(compositionChange, encode('compositionChange', { index, proposer: payer, proposedAt: bn(0), effectiveAt: bn(change.effectiveAt ?? now - 60), bump: changeBump, redeemFeeBps: 0, targetWeightsBps: change.weights, additions }), programId);
     }
-    return { symbol, index, indexMint, vaultAuthority, page, vaultQuote, ownerIndex, components, compositionChange, additions };
+    const [feeChangePda, feeChangeBump] = pda('fee-change', index);
+    if (feeChange) {
+      const fees = { mintFeeBps: 0, redeemFeeBps: 0, creatorMintFeeBps: 0, creatorRedeemFeeBps: 0, stakingMintFeeBps: 0, stakingRedeemFeeBps: 0, ...feeChange.fees };
+      dump(feeChangePda, encode('feeChange', { index, proposer: payer, proposedAt: bn(0), effectiveAt: bn(feeChange.effectiveAt ?? now - 60), bump: feeChangeBump, fees }), programId);
+    }
+    return { symbol, index, indexMint, vaultAuthority, page, vaultQuote, ownerIndex, components, compositionChange, feeChange: feeChangePda, additions };
   }
 
   const token2022Mint = Keypair.generate().publicKey;
@@ -89,18 +94,22 @@ export async function prepareCompositionFixtures(dir, programId, payer) {
 
   const fixtures = {
     // Removes the second component and adds a new one, all within page 0.
-    swap: basket('COMPA', [6000, 4000], { change: { weights: [5000, 0, 0], additions: [5000] } }),
+    // Its retired redeem-pause byte is set, as a paused basket's was before the pause was
+    // removed: redeeming and applying ignore it.
+    swap: basket('COMPA', [6000, 4000], { change: { weights: [5000, 0, 0], additions: [5000] }, overrides: { retiredRedeemPause: true } }),
     // Eight slots (7 + cash): of three additions, two fill page 0 and one opens page 1.
     overflow: basket('COMPB', [4000, ...Array(6).fill(1000)], { change: { weights: [3000, ...Array(6).fill(1000), 0], additions: [400, 300, 300] } }),
     // A USDC cash slot registered after the proposal makes it stale.
     stale: basket('COMPC', [5000, 5000], { withCash: false, change: { weights: [6000, 4000], additions: [] } }),
     // No proposal yet: propose, validation and cancel run live.
-    fresh: basket('COMPD', [5000, 5000]),
+    // Charges fees, so lowering them can restart a proposal's notice.
+    fresh: basket('COMPD', [5000, 5000], { overrides: { mintFeeBps: 25, redeemFeeBps: 50 } }),
     // Due eight days ago: past the seven-day apply window.
-    expired: basket('COMPE', [5000, 5000], { change: { weights: [6000, 4000, 0], additions: [], effectiveAt: now - 8 * DAY } }),
-    // Due, but redemptions are paused / cost more than when proposed.
-    paused: basket('COMPF', [5000, 5000], { change: { weights: [6000, 4000, 0], additions: [] }, overrides: { redeemingPaused: true } }),
-    feeRaised: basket('COMPG', [5000, 5000], { change: { weights: [6000, 4000, 0], additions: [] }, overrides: { redeemFeeBps: 50 } }),
+    // It also has a fee increase past its apply window.
+    expired: basket('COMPE', [5000, 5000], { change: { weights: [6000, 4000, 0], additions: [], effectiveAt: now - 8 * DAY }, feeChange: { fees: { redeemFeeBps: 30 }, effectiveAt: now - 8 * DAY } }),
+    // Due, but redemptions cost more than when proposed.
+    // It also has a fee increase that is due.
+    feeRaised: basket('COMPG', [5000, 5000], { change: { weights: [6000, 4000, 0], additions: [] }, feeChange: { fees: { redeemFeeBps: 60, stakingRedeemFeeBps: 20 } }, overrides: { redeemFeeBps: 50 } }),
     token2022Mint,
   };
   return { validatorArgs, fixtures };
@@ -112,9 +121,9 @@ export async function testCompositionChange(program, connection, payer, user, st
   const applyAccounts = (f, operator = payer.publicKey) => ({ operator, index: f.index, vaultAuthority: f.vaultAuthority, compositionChange: f.compositionChange, proposer: payer.publicKey, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId });
   const additionAccounts = f => f.additions.flatMap(a => [meta(a.mint), meta(getAssociatedTokenAddressSync(a.mint, f.vaultAuthority, true), true), meta(TOKEN_PROGRAM_ID)]);
   const cancel = f => program.methods.cancelCompositionChange().accounts({ authority: payer.publicKey, index: f.index, compositionChange: f.compositionChange, proposer: payer.publicKey });
-  // Pausing/unpausing redemptions or changing the redeem fee restarts a pending change's notice.
+  // Changing the redeem fee restarts a pending change's notice.
   const noticeAccount = f => [meta(f.compositionChange, true)];
-  const config = (f, redeemingPaused, remaining = noticeAccount(f)) => program.methods.updateConfig({ feeRecipient: payer.publicKey, creatorFeeRecipient: PublicKey.default, maxSupply: bn(0), rebalanceDelaySeconds: bn(0), mintingPaused: false, redeemingPaused, rebalancingPaused: false }).accounts({ authority: payer.publicKey, index: f.index }).remainingAccounts(remaining);
+  const config = f => program.methods.updateBasketConfig({ feeRecipient: payer.publicKey, creatorFeeRecipient: PublicKey.default, maxSupply: bn(0), rebalanceDelaySeconds: bn(0), mintingPaused: false, rebalancingPaused: false }).accounts({ authority: payer.publicKey, index: f.index });
   const fees = (f, redeemFeeBps, mintFeeBps = 0, remaining = noticeAccount(f)) => program.methods.updateFees({ mintFeeBps, redeemFeeBps, creatorMintFeeBps: 0, creatorRedeemFeeBps: 0, stakingMintFeeBps: 0, stakingRedeemFeeBps: 0 }).accounts({ authority: payer.publicKey, index: f.index }).remainingAccounts(remaining);
   const effectiveAt = async f => (await program.account.compositionChange.fetch(f.compositionChange)).effectiveAt.toNumber();
   const chainNow = async () => Number((await connection.getAccountInfo(new PublicKey('SysvarC1ock11111111111111111111111111111111'))).data.readBigInt64LE(32));
@@ -144,31 +153,23 @@ export async function testCompositionChange(program, connection, payer, user, st
   assert.ok(proposed.additions[0].mint.equals(newComponent));
   const notice = proposed.effectiveAt.toNumber() - before;
   assert.ok(notice >= 3 * DAY && notice <= 3 * DAY + 60, `three days of notice, got ${notice}s`);
-  assert.equal(proposed.redeemFeeBps, 0);
+  assert.equal(proposed.redeemFeeBps, 50);
   await assert.rejects(propose([4000, 6000, 0], []).rpc(), /already in use/, 'one pending change at a time');
-  // Changing the exit terms restarts the notice, so holders always get three days at the
-  // terms in force when the change applies. The proposal must be passed to do it.
-  await assert.rejects(config(f, true, []).rpc(), errorCode('InvalidRemainingAccounts'), 'pausing redemptions needs the proposal');
-  await assert.rejects(config(f, true, [meta(f.page, true)]).rpc(), errorCode('InvalidRemainingAccounts'), 'only the basket\'s proposal');
-  await new Promise(r => setTimeout(r, 2000));
-  await config(f, true).rpc();
-  const afterPause = await effectiveAt(f);
-  assert.ok(afterPause > proposed.effectiveAt.toNumber() && afterPause - (await chainNow()) > 3 * DAY - 60, 'pausing restarts the notice');
-  await new Promise(r => setTimeout(r, 2000));
-  await config(f, false).rpc();
-  assert.ok((await effectiveAt(f)) > afterPause, 'unpausing restarts it again');
-  await assert.rejects(fees(f, 50, 0, []).rpc(), errorCode('InvalidRemainingAccounts'), 'a redeem fee change needs the proposal');
+  // Changing the redeem fee restarts the notice, so holders always get three days at the
+  // fee in force when the change applies. The proposal must be passed to do it. (With
+  // holders, fees can only be lowered at once; raising them needs notice of its own.)
+  await assert.rejects(fees(f, 40, 25, []).rpc(), errorCode('InvalidRemainingAccounts'), 'a redeem fee change needs the proposal');
+  await assert.rejects(fees(f, 40, 25, [meta(f.page, true)]).rpc(), errorCode('InvalidRemainingAccounts'), "only the basket's proposal");
   const beforeFee = await effectiveAt(f);
   await new Promise(r => setTimeout(r, 2000));
-  await fees(f, 50).rpc();
-  assert.ok((await effectiveAt(f)) > beforeFee, 'a redeem fee change restarts the notice');
-  await fees(f, 0).rpc();
+  await fees(f, 40, 25).rpc();
+  const afterFee = await effectiveAt(f);
+  assert.ok(afterFee > beforeFee && afterFee - (await chainNow()) > 3 * DAY - 60, 'a redeem fee change restarts the notice');
+  await assert.rejects(fees(f, 50, 25).rpc(), errorCode('FeeIncreaseNeedsNotice'), 'raising a fee back needs notice');
   // Mint fees and other settings leave the notice alone and need no extra account.
-  const beforeMintFee = await effectiveAt(f);
-  await fees(f, 0, 25, []).rpc();
-  await config(f, false, []).rpc();
-  assert.equal(await effectiveAt(f), beforeMintFee);
-  await fees(f, 0, 0, []).rpc();
+  await fees(f, 40, 0, []).rpc();
+  await config(f).rpc();
+  assert.equal(await effectiveAt(f), afterFee);
   const freshApply = program.methods.applyCompositionChange().accounts(applyAccounts(f))
     .remainingAccounts([meta(f.page, true), meta(newComponent), meta(getAssociatedTokenAddressSync(newComponent, f.vaultAuthority, true), true), meta(TOKEN_PROGRAM_ID)]);
   await assert.rejects(freshApply.rpc(), errorCode('CompositionChangeNotReady'), 'notice period');
@@ -177,11 +178,34 @@ export async function testCompositionChange(program, connection, payer, user, st
   await cancel(f).rpc();
   assert.equal(await connection.getAccountInfo(f.compositionChange), null);
 
-  // --- Applying needs redemptions open at no higher fees than when proposed ---
-  for (const g of [fixtures.paused, fixtures.feeRaised]) {
-    await assert.rejects(program.methods.applyCompositionChange().accounts(applyAccounts(g)).remainingAccounts([meta(g.page, true)]).rpc(), errorCode('CompositionChangeExitRestricted'), g.symbol);
-    await cancel(g).rpc();
-  }
+  // --- Applying needs a redeem fee no higher than when proposed ---
+  const g = fixtures.feeRaised;
+  await assert.rejects(program.methods.applyCompositionChange().accounts(applyAccounts(g)).remainingAccounts([meta(g.page, true)]).rpc(), errorCode('CompositionChangeExitRestricted'), g.symbol);
+  await cancel(g).rpc();
+
+  // --- A fee increase applies once its notice is up, within the apply window ---
+  const feeAccounts = (h, authority = payer.publicKey) => ({ authority, index: h.index, feeChange: h.feeChange, proposer: payer.publicKey });
+  const h = fixtures.feeRaised;
+  await assert.rejects(program.methods.applyFeeChange().accounts(feeAccounts(h, user.publicKey)).signers([user]).rpc(), errorCode('UnauthorizedAuthority'));
+  // The total redeem fee changes, so a pending composition change's notice restarts: the
+  // basket's proposal PDA has to be passed even when there is none.
+  await assert.rejects(program.methods.applyFeeChange().accounts(feeAccounts(h)).rpc(), errorCode('InvalidRemainingAccounts'));
+  await program.methods.applyFeeChange().accounts(feeAccounts(h)).remainingAccounts(noticeAccount(h)).rpc();
+  const applied = await program.account.indexState.fetch(h.index);
+  assert.deepEqual([applied.mintFeeBps, applied.redeemFeeBps, applied.stakingRedeemFeeBps], [0, 60, 20]);
+  assert.equal(await connection.getAccountInfo(h.feeChange), null, 'applying closes the proposal');
+  const l = fixtures.expired;
+  await assert.rejects(program.methods.applyFeeChange().accounts(feeAccounts(l)).remainingAccounts(noticeAccount(l)).rpc(), errorCode('FeeChangeExpired'));
+  await program.methods.cancelFeeChange().accounts(feeAccounts(l)).rpc();
+  assert.equal(await connection.getAccountInfo(l.feeChange), null);
+
+  // --- Symbols: baskets made before symbols were claimed get theirs registered ---
+  const protocolConfig = pda('protocol-config');
+  const claimSymbol = (b, authority = payer) => program.methods.claimIndexSymbol({ symbolClaimKey: b.symbol }).accounts({ payer: payer.publicKey, authority: authority.publicKey, protocolConfig, index: b.index, symbolClaim: pda('symbol', Buffer.from(b.symbol)), systemProgram: SystemProgram.programId }).signers(authority === payer ? [] : [authority]);
+  await assert.rejects(claimSymbol(fixtures.swap, user).rpc(), errorCode('UnauthorizedAuthority'));
+  await claimSymbol(fixtures.swap).rpc();
+  assert.ok((await program.account.symbolClaim.fetch(pda('symbol', Buffer.from('COMPA')))).index.equals(fixtures.swap.index));
+  await assert.rejects(claimSymbol(fixtures.swap).rpc(), /already in use/);
 
   // --- A due change lapses after the apply window ---
   const e = fixtures.expired;

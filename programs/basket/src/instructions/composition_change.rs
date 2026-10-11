@@ -20,8 +20,8 @@ use crate::{
     utils::{
         associated_token_address_with_token_program,
         create_associated_token_account_idempotent_for_token_program, load_interface_mint,
-        new_page_for_additions, total_redeem_fee_bps, validate_composition_change,
-        ASSOCIATED_TOKEN_ID,
+        new_page_for_additions, require_community_component_mint, total_redeem_fee_bps,
+        validate_composition_change, ASSOCIATED_TOKEN_ID,
     },
 };
 
@@ -29,8 +29,8 @@ use crate::{
 // target weights (zero removes a component) and/or new components; after
 // COMPOSITION_CHANGE_DELAY_SECONDS the authority or keeper applies it, and the next
 // rebalance trades the basket onto the new targets. The notice period lets holders who
-// disagree redeem first, so applying also needs redemptions open at fees no higher than
-// when it was proposed, and a due change lapses if not applied within
+// disagree redeem first (redeems can't be paused), so applying also needs the redeem fee
+// no higher than when it was proposed, and a due change lapses if not applied within
 // COMPOSITION_CHANGE_APPLY_WINDOW_SECONDS. Applying needs no open intents, so the keeper
 // requests a rebalance (holding new intents back), applies, then opens the rebalance.
 //
@@ -141,6 +141,9 @@ impl<'info> ProposeCompositionChange<'info> {
             require_keys_eq!(mint_info.key(), addition.mint, BasketError::InvalidComponentMint);
             require_keys_eq!(*mint_info.owner, token::ID, BasketError::InvalidTokenProgram);
             load_interface_mint(mint_info)?;
+            if index.community {
+                require_community_component_mint(mint_info)?;
+            }
         }
 
         let now = Clock::get()?.unix_timestamp;
@@ -187,7 +190,7 @@ impl<'info> ApplyCompositionChange<'info> {
         let now = Clock::get()?.unix_timestamp;
         let index = &ctx.accounts.index;
         require!(
-            index.is_rebalance_operator(&ctx.accounts.operator.key()),
+            index.can_apply_composition_change(&ctx.accounts.operator.key()),
             BasketError::NotRebalanceOperator
         );
         require!(
@@ -209,7 +212,7 @@ impl<'info> ApplyCompositionChange<'info> {
             .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
         require!(now <= expires_at, BasketError::CompositionChangeExpired);
         require!(
-            !index.redeeming_paused && total_redeem_fee_bps(index) <= change.redeem_fee_bps,
+            total_redeem_fee_bps(index) <= change.redeem_fee_bps,
             BasketError::CompositionChangeExitRestricted
         );
         let component_count = usize::from(index.large_basket_component_count);

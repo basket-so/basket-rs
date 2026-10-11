@@ -120,6 +120,70 @@
       "args": []
     },
     {
+      "name": "apply_fee_change",
+      "discriminator": [
+        231,
+        177,
+        92,
+        117,
+        249,
+        52,
+        195,
+        112
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true,
+          "relations": [
+            "fee_change"
+          ]
+        },
+        {
+          "name": "fee_change",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  101,
+                  101,
+                  45,
+                  99,
+                  104,
+                  97,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proposer",
+          "writable": true,
+          "relations": [
+            "fee_change"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "cancel_composition_change",
       "discriminator": [
         2,
@@ -305,6 +369,69 @@
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_fee_change",
+      "discriminator": [
+        165,
+        43,
+        235,
+        63,
+        31,
+        103,
+        73,
+        132
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index",
+          "relations": [
+            "fee_change"
+          ]
+        },
+        {
+          "name": "fee_change",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  101,
+                  101,
+                  45,
+                  99,
+                  104,
+                  97,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proposer",
+          "writable": true,
+          "relations": [
+            "fee_change"
+          ]
         }
       ],
       "args": []
@@ -635,6 +762,100 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "claim_index_symbol",
+      "discriminator": [
+        46,
+        233,
+        215,
+        154,
+        111,
+        71,
+        165,
+        11
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "protocol_config"
+          ]
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "index"
+        },
+        {
+          "name": "symbol_claim",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  121,
+                  109,
+                  98,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.symbol_claim_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ClaimIndexSymbolArgs"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "claim_large_basket_refund",
@@ -1075,6 +1296,217 @@
       "args": []
     },
     {
+      "name": "create_community_basket_index",
+      "discriminator": [
+        234,
+        128,
+        103,
+        165,
+        176,
+        201,
+        31,
+        153
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Pays for the accounts and the creation fee."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "community_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  109,
+                  109,
+                  117,
+                  110,
+                  105,
+                  116,
+                  121,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "index",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              },
+              {
+                "kind": "arg",
+                "path": "args.symbol"
+              }
+            ]
+          }
+        },
+        {
+          "name": "symbol_claim",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  121,
+                  109,
+                  98,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.symbol_claim_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "index_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  100,
+                  101,
+                  120,
+                  45,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CreateCommunityBasketIndexArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "create_index_metadata",
       "discriminator": [
         193,
@@ -1239,6 +1671,29 @@
               {
                 "kind": "arg",
                 "path": "args.symbol"
+              }
+            ]
+          }
+        },
+        {
+          "name": "symbol_claim",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  121,
+                  109,
+                  98,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "args.symbol_claim_key"
               }
             ]
           }
@@ -3741,6 +4196,73 @@
       ]
     },
     {
+      "name": "propose_fee_change",
+      "discriminator": [
+        154,
+        198,
+        39,
+        207,
+        65,
+        0,
+        64,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "index"
+        },
+        {
+          "name": "fee_change",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  101,
+                  101,
+                  45,
+                  99,
+                  104,
+                  97,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "UpdateFeesArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "register_rebalance_quote",
       "discriminator": [
         240,
@@ -3849,6 +4371,103 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "set_community_config",
+      "discriminator": [
+        88,
+        170,
+        52,
+        122,
+        151,
+        244,
+        145,
+        73
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "protocol_config"
+          ]
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "community_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  109,
+                  109,
+                  117,
+                  110,
+                  105,
+                  116,
+                  121,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "SetCommunityConfigArgs"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "set_large_basket_component_oracle_pair",
@@ -4354,16 +4973,16 @@
       ]
     },
     {
-      "name": "update_config",
+      "name": "update_basket_config",
       "discriminator": [
-        29,
-        158,
-        252,
-        191,
-        10,
-        83,
-        219,
-        99
+        52,
+        122,
+        232,
+        220,
+        16,
+        112,
+        212,
+        164
       ],
       "accounts": [
         {
@@ -4384,6 +5003,69 @@
           "type": {
             "defined": {
               "name": "UpdateConfigArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_community_basket",
+      "discriminator": [
+        63,
+        36,
+        21,
+        19,
+        36,
+        206,
+        24,
+        117
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "protocol_config"
+          ]
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  45,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "index",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "UpdateCommunityBasketArgs"
             }
           }
         }
@@ -4412,6 +5094,12 @@
         {
           "name": "index",
           "writable": true
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
         }
       ],
       "args": [
@@ -4706,6 +5394,19 @@
   ],
   "accounts": [
     {
+      "name": "CommunityConfig",
+      "discriminator": [
+        110,
+        210,
+        240,
+        20,
+        146,
+        183,
+        120,
+        59
+      ]
+    },
+    {
       "name": "CompositionChange",
       "discriminator": [
         157,
@@ -4716,6 +5417,19 @@
         66,
         53,
         199
+      ]
+    },
+    {
+      "name": "FeeChange",
+      "discriminator": [
+        45,
+        184,
+        97,
+        129,
+        156,
+        151,
+        77,
+        243
       ]
     },
     {
@@ -4834,6 +5548,19 @@
         24,
         102
       ]
+    },
+    {
+      "name": "SymbolClaim",
+      "discriminator": [
+        134,
+        76,
+        110,
+        138,
+        66,
+        142,
+        5,
+        172
+      ]
     }
   ],
   "events": [
@@ -4861,6 +5588,45 @@
         5,
         223,
         47
+      ]
+    },
+    {
+      "name": "CommunityBasketCreated",
+      "discriminator": [
+        252,
+        27,
+        171,
+        205,
+        215,
+        148,
+        95,
+        245
+      ]
+    },
+    {
+      "name": "CommunityBasketUpdated",
+      "discriminator": [
+        94,
+        212,
+        151,
+        165,
+        14,
+        97,
+        251,
+        225
+      ]
+    },
+    {
+      "name": "CommunityConfigUpdated",
+      "discriminator": [
+        25,
+        238,
+        80,
+        90,
+        166,
+        206,
+        133,
+        158
       ]
     },
     {
@@ -4913,6 +5679,45 @@
         11,
         105,
         204
+      ]
+    },
+    {
+      "name": "FeeChangeApplied",
+      "discriminator": [
+        29,
+        161,
+        73,
+        128,
+        118,
+        93,
+        106,
+        11
+      ]
+    },
+    {
+      "name": "FeeChangeCancelled",
+      "discriminator": [
+        161,
+        33,
+        166,
+        220,
+        65,
+        151,
+        132,
+        41
+      ]
+    },
+    {
+      "name": "FeeChangeProposed",
+      "discriminator": [
+        227,
+        197,
+        50,
+        240,
+        150,
+        215,
+        223,
+        243
       ]
     },
     {
@@ -5134,6 +5939,19 @@
         192,
         196,
         253
+      ]
+    },
+    {
+      "name": "IndexSymbolClaimed",
+      "discriminator": [
+        12,
+        156,
+        77,
+        23,
+        11,
+        201,
+        242,
+        101
       ]
     },
     {
@@ -5520,7 +6338,7 @@
     {
       "code": 6029,
       "name": "RedeemingPaused",
-      "msg": "Redeeming is currently paused for this index."
+      "msg": "Retired: redemptions can no longer be paused."
     },
     {
       "code": 6030,
@@ -5795,7 +6613,7 @@
     {
       "code": 6084,
       "name": "RebalanceIntentNotExpired",
-      "msg": "Only the index authority can unwind a rebalance intent before it expires."
+      "msg": "Only the index authority, or a community basket's keeper, can unwind a rebalance intent before it expires."
     },
     {
       "code": 6085,
@@ -5820,7 +6638,7 @@
     {
       "code": 6089,
       "name": "NotRebalanceOperator",
-      "msg": "Only the index authority or its rebalance keeper can do this."
+      "msg": "Only the index authority or its rebalance keeper (for a community basket, only its keeper) can do this."
     },
     {
       "code": 6090,
@@ -5855,7 +6673,7 @@
     {
       "code": 6096,
       "name": "CompositionChangeExitRestricted",
-      "msg": "A composition change only applies while redemptions are open at fees no higher than when it was proposed."
+      "msg": "A composition change only applies while the redeem fee is no higher than when it was proposed."
     },
     {
       "code": 6097,
@@ -5891,6 +6709,56 @@
       "code": 6103,
       "name": "LargeBasketIntentNotClosable",
       "msg": "Only a settled intent with nothing left to claim, which its owner's lock no longer points at, can be closed."
+    },
+    {
+      "code": 6104,
+      "name": "FeeIncreaseNeedsNotice",
+      "msg": "A fee increase needs notice: propose it with propose_fee_change."
+    },
+    {
+      "code": 6105,
+      "name": "InvalidFeeChange",
+      "msg": "The fee change is invalid; a proposed change must raise at least one fee."
+    },
+    {
+      "code": 6106,
+      "name": "FeeChangeNotReady",
+      "msg": "The fee change's notice period has not passed yet."
+    },
+    {
+      "code": 6107,
+      "name": "FeeChangeExpired",
+      "msg": "The fee change was not applied in time; cancel it and propose again."
+    },
+    {
+      "code": 6108,
+      "name": "CommunityBasketRestricted",
+      "msg": "A community basket's fee recipient, keeper, supply cap, pauses and metadata are the protocol's."
+    },
+    {
+      "code": 6109,
+      "name": "InvalidSymbol",
+      "msg": "A basket symbol must be 1 to 10 characters, each A-Z or 0-9."
+    },
+    {
+      "code": 6110,
+      "name": "InvalidCommunityConfig",
+      "msg": "The community config is invalid."
+    },
+    {
+      "code": 6111,
+      "name": "CommunityTokenNotAllowed",
+      "msg": "Community baskets accept only classic SPL tokens and Token-2022 tokens without transfer controls."
+    },
+    {
+      "code": 6112,
+      "name": "NotCuratedCreator",
+      "msg": "Only the protocol's index creator can create a curated basket."
+    },
+    {
+      "code": 6113,
+      "name": "CommunityFeeSplit",
+      "msg": "A community basket's fee is a whole number of its fee steps, at least one, split as when it was created."
     }
   ],
   "types": [
@@ -5930,6 +6798,159 @@
           {
             "name": "total_staked",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ClaimIndexSymbolArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "symbol_claim_key",
+            "docs": [
+              "The basket's symbol as its claim is seeded: symbol_claim_key(symbol)."
+            ],
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CommunityBasketCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "creation_fee_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "fees",
+            "type": {
+              "defined": {
+                "name": "IndexFees"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "CommunityBasketUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CommunityConfig",
+      "docs": [
+        "Terms every community basket gets, set by the protocol authority. A basket's fee on each",
+        "side is a whole number of fee steps, chosen by its creator; one step splits into the",
+        "protocol, creator and staking shares below (for example 4 + 1 + 5 = 10 bps, 0.10%, split",
+        "40/10/50). A basket keeps the split it was created with, and changing these terms only",
+        "affects baskets created afterwards."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "docs": [
+              "Receives the creation fee in SOL, and the protocol share of each basket's fees in USDC."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "keeper",
+            "docs": [
+              "The rebalance keeper every community basket is created with."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "creation_fee_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_step_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_step_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_step_bps",
+            "type": "u16"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "CommunityConfigUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "creation_fee_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_step_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_step_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_step_bps",
+            "type": "u16"
           }
         ]
       }
@@ -6142,6 +7163,82 @@
       }
     },
     {
+      "name": "CreateCommunityBasketIndexArgs",
+      "docs": [
+        "A community basket: anyone allowed by the protocol config can create one, for the",
+        "community config's creation fee. The creator picks each side's total fee, a whole number",
+        "of the community config's fee steps; each step splits between the protocol, the creator",
+        "and stakers as the config says. The fee recipient and keeper come from the config too."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string"
+          },
+          {
+            "name": "metadata_uri",
+            "type": "string"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          },
+          {
+            "name": "creator_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint_fee_bps",
+            "docs": [
+              "Total fee on each side, a whole number of fee steps (at least one)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "max_supply",
+            "type": "u64"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "IndexKind"
+              }
+            }
+          },
+          {
+            "name": "fixed_weight_rebalance_interval_seconds",
+            "type": "i64"
+          },
+          {
+            "name": "fixed_weight_drift_threshold_bps",
+            "type": "u16"
+          },
+          {
+            "name": "component_count",
+            "type": "u8"
+          },
+          {
+            "name": "symbol_claim_key",
+            "docs": [
+              "The symbol as its claim is seeded: symbol_claim_key(symbol)."
+            ],
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
       "name": "CreateLargeBasketIndexArgs",
       "type": {
         "kind": "struct",
@@ -6205,6 +7302,13 @@
           {
             "name": "component_count",
             "type": "u8"
+          },
+          {
+            "name": "symbol_claim_key",
+            "docs": [
+              "The symbol as its claim is seeded: symbol_claim_key(symbol)."
+            ],
+            "type": "string"
           }
         ]
       }
@@ -6365,6 +7469,114 @@
           {
             "name": "max_oracle_slippage_bps",
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeChange",
+      "docs": [
+        "An announced fee increase. It can only be applied FEE_CHANGE_DELAY_SECONDS after it was",
+        "proposed, so holders see it coming and can redeem at the old rates first."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposer",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposed_at",
+            "type": "i64"
+          },
+          {
+            "name": "effective_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "fees",
+            "type": {
+              "defined": {
+                "name": "IndexFees"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeChangeApplied",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "fees",
+            "type": {
+              "defined": {
+                "name": "IndexFees"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeChangeCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeChangeProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposer",
+            "type": "pubkey"
+          },
+          {
+            "name": "effective_at",
+            "type": "i64"
+          },
+          {
+            "name": "fees",
+            "type": {
+              "defined": {
+                "name": "IndexFees"
+              }
+            }
           }
         ]
       }
@@ -6543,10 +7755,6 @@
             "type": "bool"
           },
           {
-            "name": "redeeming_paused",
-            "type": "bool"
-          },
-          {
             "name": "rebalancing_paused",
             "type": "bool"
           }
@@ -6601,6 +7809,42 @@
           {
             "name": "whitelisted",
             "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexFees",
+      "docs": [
+        "A basket's six fee rates in basis points: the protocol (treasury), creator and staking",
+        "shares of the mint fee and of the redeem fee."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "creator_redeem_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_mint_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_redeem_fee_bps",
+            "type": "u16"
           }
         ]
       }
@@ -7067,8 +8311,12 @@
             "type": "pubkey"
           },
           {
-            "name": "pending_rebalance_oracle_price_tolerance_bps",
-            "type": "u16"
+            "name": "community",
+            "type": "bool"
+          },
+          {
+            "name": "community_reserved",
+            "type": "u8"
           },
           {
             "name": "pending_rebalance_nav_tolerance_bps",
@@ -7087,7 +8335,7 @@
             "type": "bool"
           },
           {
-            "name": "redeeming_paused",
+            "name": "retired_redeem_pause",
             "type": "bool"
           },
           {
@@ -7112,6 +8360,22 @@
           },
           {
             "name": "metadata_uri",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "IndexSymbolClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "symbol",
             "type": "string"
           }
         ]
@@ -8488,6 +9752,41 @@
       }
     },
     {
+      "name": "SetCommunityConfigArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "creation_fee_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_step_bps",
+            "docs": [
+              "One fee step and its split, e.g. 4 + 1 + 5 = 10 bps split 40/10/50."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "creator_step_bps",
+            "type": "u16"
+          },
+          {
+            "name": "staking_step_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
       "name": "SetLargeBasketComponentOraclePairArgs",
       "type": {
         "kind": "struct",
@@ -8705,6 +10004,26 @@
       }
     },
     {
+      "name": "SymbolClaim",
+      "docs": [
+        "Reserves a basket symbol for one basket, so no two baskets share a symbol. Seeded by",
+        "symbol_claim_key, so symbols that only differ by look-alike characters share one claim."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "UnstakeBasketArgs",
       "type": {
         "kind": "struct",
@@ -8724,6 +10043,38 @@
           {
             "name": "new_authority",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UpdateCommunityBasketArgs",
+      "docs": [
+        "The parts of a community basket the protocol keeps: where its fee share goes, which keeper",
+        "runs rebalances, and the supply cap and pauses (an emergency stop for mints or rebalances)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "keeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "max_supply",
+            "type": "u64"
+          },
+          {
+            "name": "minting_paused",
+            "type": "bool"
+          },
+          {
+            "name": "rebalancing_paused",
+            "type": "bool"
           }
         ]
       }
@@ -8751,10 +10102,6 @@
           },
           {
             "name": "minting_paused",
-            "type": "bool"
-          },
-          {
-            "name": "redeeming_paused",
             "type": "bool"
           },
           {

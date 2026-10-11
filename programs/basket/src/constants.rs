@@ -31,6 +31,10 @@ pub const LARGE_BASKET_INTENT_LOCK_SEED: &[u8] = b"large-basket-intent-lock";
 pub const LARGE_BASKET_COMPONENT_PAGE_SEED: &[u8] = b"large-basket-component-page";
 pub const REBALANCE_INTENT_SEED: &[u8] = b"rebalance-intent";
 pub const COMPOSITION_CHANGE_SEED: &[u8] = b"composition-change";
+pub const FEE_CHANGE_SEED: &[u8] = b"fee-change";
+pub const COMMUNITY_CONFIG_SEED: &[u8] = b"community-config";
+// One claim per basket symbol, so no two baskets share one.
+pub const SYMBOL_CLAIM_SEED: &[u8] = b"symbol";
 pub const PRICE_ORACLE_SEED: &[u8] = b"price-oracle";
 // Oldest signed price (about 20 seconds) a rebalance step accepts. The keeper has prices signed
 // right before each step and sends it at once; a step that misses the window is re-signed.
@@ -40,6 +44,9 @@ pub const COMPOSITION_CHANGE_DELAY_SECONDS: i64 = 3 * 24 * 60 * 60;
 // A due change must be applied within this window; after it the proposal lapses and has to
 // be proposed again (with fresh notice).
 pub const COMPOSITION_CHANGE_APPLY_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
+// Fee increases get the same notice, and lapse the same way, as composition changes.
+pub const FEE_CHANGE_DELAY_SECONDS: i64 = COMPOSITION_CHANGE_DELAY_SECONDS;
+pub const FEE_CHANGE_APPLY_WINDOW_SECONDS: i64 = COMPOSITION_CHANGE_APPLY_WINDOW_SECONDS;
 // One change appends at most one page's worth of components (so at most one new page).
 pub const MAX_COMPOSITION_ADDITIONS: usize = MAX_LARGE_BASKET_COMPONENTS_PER_PAGE;
 // Removed components keep their slot, and rebalances load every slot's vault and price every
@@ -59,8 +66,8 @@ pub const MAX_LARGE_BASKET_INTENT_TTL_SECONDS: i64 = 30 * 60;
 // this a request lapses on its own.
 pub const REBALANCE_REQUEST_WINDOW_SECONDS: i64 = MAX_LARGE_BASKET_INTENT_TTL_SECONDS + 10 * 60;
 // Gap after a request's window before the next request, so a request alone can hold new
-// intents back for at most two thirds of any hour. (The authority can remove a keeper that
-// misuses requests or rebalance opens.)
+// intents back for at most two thirds of any hour. (The authority, or for a community basket
+// the protocol authority, can replace a keeper that misuses requests or rebalance opens.)
 pub const REBALANCE_REQUEST_COOLDOWN_SECONDS: i64 = 20 * 60;
 pub const MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS: u16 = 500;
 pub const MAX_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS: u16 = 500;
@@ -81,7 +88,8 @@ pub const MIN_FIXED_WEIGHT_POST_REBALANCE_DRIFT_BPS: u16 = 25;
 // keeper cannot finalize with a meaningful slice of NAV sitting un-invested; genuine
 // swap dust is far below this.
 pub const MAX_FIXED_WEIGHT_QUOTE_DUST_BPS: u16 = 100;
-pub const MAX_TOTAL_INDEX_FEE_BPS: u16 = 1_000;
+// Most a mint or redeem can be charged in total: protocol, creator and staking shares together.
+pub const MAX_TOTAL_INDEX_FEE_BPS: u16 = 100;
 pub const MAX_ORACLE_PRICE_TOLERANCE_BPS: u16 = BPS_DENOMINATOR;
 pub const MAX_NAV_TOLERANCE_BPS: u16 = BPS_DENOMINATOR;
 pub const MAX_NAME_LEN: usize = 32;
