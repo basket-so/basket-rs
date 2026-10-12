@@ -234,6 +234,8 @@ pub struct LargeBasketIntentFinalized {
     pub index: Pubkey,
     pub owner: Pubkey,
     pub kind: LargeBasketIntentKind,
+    // Mints: the amount minted, which includes the over-delivery credit and so can exceed
+    // the intent's index_amount. Redeems: the amount burned.
     pub index_amount: u64,
     pub quote_atoms_executed: u64,
 }

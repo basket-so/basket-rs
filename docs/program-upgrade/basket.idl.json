@@ -8804,11 +8804,19 @@
             }
           },
           {
+            "name": "overfill_tracked",
+            "type": "bool"
+          },
+          {
+            "name": "min_overfill_ppb",
+            "type": "u32"
+          },
+          {
             "name": "reserved",
             "type": {
               "array": [
                 "u8",
-                6
+                1
               ]
             }
           }

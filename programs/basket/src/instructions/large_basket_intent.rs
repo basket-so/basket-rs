@@ -22,7 +22,7 @@ use crate::{
     state::{
         IndexState, LargeBasketComponent, LargeBasketComponentPage,
         LargeBasketIntent, LargeBasketIntentKind, LargeBasketIntentLock, LargeBasketIntentStatus,
-        StakingPool,
+        StakingPool, OVERFILL_PPB_SCALE, UNSET_OVERFILL_PPB,
     },
     utils::{
         accrue_staking_rewards, associated_token_address,
@@ -888,12 +888,13 @@ impl<'info> ExecuteLargeBasketMintComponent<'info> {
             (0, 0)
         } else if component.mint == ctx.accounts.quote_mint.key() {
             require!(args.swap.is_none(), BasketError::InvalidJupiterRoute);
+            let deposit = quote_component_deposit(&ctx.accounts.intent, amount, args.max_quote_in)?;
             transfer_checked_from_user_quote(
                 &ctx,
                 ctx.accounts.component_vault.to_account_info(),
-                amount,
+                deposit,
             )?;
-            (amount, amount)
+            (deposit, deposit)
         } else {
             let swap = args
                 .swap
@@ -1019,15 +1020,17 @@ impl<'info> ExecuteLargeBasketComponentBatch<'info> {
                 (0, 0)
             } else if component.mint == ctx.accounts.quote_mint.key() {
                 require!(entry.swap.is_none(), BasketError::InvalidJupiterRoute);
+                let deposit =
+                    quote_component_deposit(&ctx.accounts.intent, amount, entry.max_quote_in)?;
                 transfer_user_quote_to(
                     &ctx.accounts.quote_token_program.to_account_info(),
                     &ctx.accounts.owner_quote_token_account.to_account_info(),
                     &ctx.accounts.quote_mint.to_account_info(),
                     &ctx.accounts.owner.to_account_info(),
                     vault_info.clone(),
-                    amount,
+                    deposit,
                 )?;
-                (amount, amount)
+                (deposit, deposit)
             } else {
                 let swap = entry
                     .swap
@@ -1409,7 +1412,13 @@ impl<'info> FinalizeLargeBasketMintIntent<'info> {
             .settle_mint_era(opened_era, opened_empty, index_mint.supply)?;
         // max_supply is enforced when intents open. Rechecking here would let whoever settles
         // first strand other owners' fully paid mints, so concurrent mints may overshoot the
-        // cap by at most what was already in flight.
+        // cap by at most what was already in flight. The over-delivery credit on top of the
+        // requested amount never pushes past the cap.
+        let minted = credited_mint_amount(
+            &ctx.accounts.intent,
+            index_mint.supply,
+            ctx.accounts.index.max_supply,
+        )?;
         account_filled_mint_components(
             &ctx.accounts.index.key(),
             ctx.remaining_accounts,
@@ -1432,7 +1441,7 @@ impl<'info> FinalizeLargeBasketMintIntent<'info> {
                 },
                 &[signer_seeds],
             ),
-            ctx.accounts.intent.index_amount,
+            minted,
         )?;
         ctx.accounts.intent.status = LargeBasketIntentStatus::Finalized;
         ctx.accounts.index.track_closed_intent();
@@ -1443,7 +1452,7 @@ impl<'info> FinalizeLargeBasketMintIntent<'info> {
             index: ctx.accounts.index.key(),
             owner: ctx.accounts.owner.key(),
             kind: ctx.accounts.intent.kind,
-            index_amount: ctx.accounts.intent.index_amount,
+            index_amount: minted,
             quote_atoms_executed: ctx.accounts.intent.quote_atoms_executed,
         });
 
@@ -2354,7 +2363,10 @@ fn initialize_intent(intent: &mut Account<LargeBasketIntent>, init: IntentInit) 
     intent.refunded_bitmap = [0; crate::constants::LARGE_BASKET_COMPONENT_BITMAP_BYTES];
     intent.escrowed_bitmap = [0; crate::constants::LARGE_BASKET_COMPONENT_BITMAP_BYTES];
     intent.bump = init.bump;
-    intent.reserved = [0; 6];
+    // Only swap mints are credited for over-delivery; in-kind deposits are exact.
+    intent.overfill_tracked = init.kind == LargeBasketIntentKind::Mint && !init.in_kind;
+    intent.min_overfill_ppb = UNSET_OVERFILL_PPB;
+    intent.reserved = [0; 1];
 
     emit!(LargeBasketIntentOpened {
         intent: intent.key(),
@@ -3001,7 +3013,8 @@ fn mark_component_filled(intent: &mut LargeBasketIntent, component_index: u16) -
 
 // A mint swap may deliver more than the component's share (ExactIn routes). Recording what
 // reached the vault makes finalize book all of it as backing and an expiry refund return all
-// of it, rather than leaving the surplus in the vault outside the reserve ledger.
+// of it, rather than leaving the surplus in the vault outside the reserve ledger. The
+// smallest over-delivery so far is kept so finalize can credit the minter for it.
 fn record_component_received(
     intent: &mut LargeBasketIntent,
     component_index: u16,
@@ -3011,9 +3024,86 @@ fn record_component_received(
         .component_amounts
         .get_mut(usize::from(component_index))
         .ok_or_else(|| error!(BasketError::InvalidLargeBasketIntent))?;
-    require!(received >= *slot, BasketError::InvalidJupiterRoute);
+    let required = *slot;
+    require!(received >= required, BasketError::InvalidJupiterRoute);
     *slot = received;
+    if intent.overfill_tracked && required > 0 {
+        intent.min_overfill_ppb = intent.min_overfill_ppb.min(overfill_ppb(required, received));
+    }
     Ok(())
+}
+
+/// How much more than `required` reached the vault, in parts per billion of `required`,
+/// rounded down. Saturates below UNSET_OVERFILL_PPB (over 4x the required amount).
+fn overfill_ppb(required: u64, received: u64) -> u32 {
+    let extra = u128::from(received.saturating_sub(required));
+    let ppb = extra * u128::from(OVERFILL_PPB_SCALE) / u128::from(required.max(1));
+    u32::try_from(ppb).unwrap_or(u32::MAX).min(UNSET_OVERFILL_PPB - 1)
+}
+
+/// Whether depositing `quote_in` more keeps the intent within its budget, fees included.
+fn mint_budget_fits(intent: &LargeBasketIntent, quote_in: u64) -> Result<bool> {
+    let Some(spent) = intent.quote_atoms_executed.checked_add(quote_in) else {
+        return Ok(false);
+    };
+    let Some(total) = spent.checked_add(pending_total_fees(intent, spent)?) else {
+        return Ok(false);
+    };
+    Ok(total <= intent.max_quote_in)
+}
+
+/// What a swap mint deposits for its quote-mint (USDC) component. That component is a
+/// transfer, so on its own it would arrive with no over-delivery and cancel the minter's
+/// credit. It is instead scaled up by the smallest over-delivery of the components filled
+/// before it, so the app fills it last. It stays at the required amount when nothing has
+/// filled yet, and is capped by the entry's max_quote_in and by the intent's budget.
+fn quote_component_deposit(
+    intent: &LargeBasketIntent,
+    required: u64,
+    entry_max_quote_in: u64,
+) -> Result<u64> {
+    let min_overfill = intent.min_overfill_ppb;
+    if !intent.overfill_tracked || min_overfill == UNSET_OVERFILL_PPB || min_overfill == 0 {
+        return Ok(required);
+    }
+    let scale = u128::from(OVERFILL_PPB_SCALE);
+    let target = (u128::from(required) * (scale + u128::from(min_overfill))).div_ceil(scale);
+    let deposit = u64::try_from(target)
+        .unwrap_or(u64::MAX)
+        .min(entry_max_quote_in)
+        .max(required);
+    if deposit > required && !mint_budget_fits(intent, deposit)? {
+        return Ok(required);
+    }
+    Ok(deposit)
+}
+
+/// The index amount a finalized mint receives. Swap fills usually deliver a little more of
+/// each component than the requested amount needs, and all of it is booked as backing. The
+/// minter is credited for the smallest over-delivery across components, rounded down, so
+/// every component still backs each token at least as well as before and no holder is
+/// diluted. Under a supply cap the credit only fills the room that is left.
+fn credited_mint_amount(intent: &LargeBasketIntent, supply: u64, max_supply: u64) -> Result<u64> {
+    let requested = intent.index_amount;
+    let min_overfill = intent.min_overfill_ppb;
+    if intent.in_kind
+        || !intent.overfill_tracked
+        || min_overfill == UNSET_OVERFILL_PPB
+        || min_overfill == 0
+    {
+        return Ok(requested);
+    }
+    let bonus = u64::try_from(
+        u128::from(requested) * u128::from(min_overfill) / u128::from(OVERFILL_PPB_SCALE),
+    )
+    .map_err(|_| error!(BasketError::ArithmeticOverflow))?;
+    let mut credited = requested
+        .checked_add(bonus)
+        .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
+    if max_supply > 0 {
+        credited = credited.min(max_supply.saturating_sub(supply).max(requested));
+    }
+    Ok(credited)
 }
 
 fn intent_component_amount(intent: &LargeBasketIntent, component_index: u16) -> Result<u64> {
@@ -3478,7 +3568,134 @@ mod tests {
             refunded_bitmap: [0; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
             escrowed_bitmap: [0; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
             bump: 255,
-            reserved: [0; 6],
+            overfill_tracked: false,
+            min_overfill_ppb: 0,
+            reserved: [0; 1],
+        }
+    }
+
+    // A swap mint opened by this version: tracked, nothing filled yet.
+    fn tracked_mint(component_amounts: Vec<u64>) -> LargeBasketIntent {
+        let mut intent = intent(component_amounts.len() as u16);
+        intent.component_quote_atoms = vec![0; component_amounts.len()];
+        intent.component_amounts = component_amounts;
+        intent.overfill_tracked = true;
+        intent.min_overfill_ppb = UNSET_OVERFILL_PPB;
+        intent
+    }
+
+    #[test]
+    fn a_mint_keeps_the_smallest_over_delivery() {
+        let mut mint = tracked_mint(vec![1_000, 2_000, 0, 500]);
+        record_component_received(&mut mint, 0, 1_012).unwrap(); // +1.2%
+        assert_eq!(mint.min_overfill_ppb, 12_000_000);
+        record_component_received(&mut mint, 1, 2_016).unwrap(); // +0.8%
+        assert_eq!(mint.min_overfill_ppb, 8_000_000);
+        // A zero amount has no over-delivery to measure.
+        record_component_received(&mut mint, 2, 0).unwrap();
+        assert_eq!(mint.min_overfill_ppb, 8_000_000);
+        record_component_received(&mut mint, 3, 509).unwrap(); // +1.8%
+        assert_eq!(mint.min_overfill_ppb, 8_000_000);
+        assert_eq!(mint.component_amounts, vec![1_012, 2_016, 0, 509]);
+
+        // Untracked intents (opened before this version, or in-kind) record nothing.
+        let mut old = intent(1);
+        old.component_amounts = vec![1_000];
+        record_component_received(&mut old, 0, 1_010).unwrap();
+        assert_eq!(old.min_overfill_ppb, 0);
+    }
+
+    #[test]
+    fn over_delivery_is_rounded_down_and_saturates() {
+        assert_eq!(overfill_ppb(3, 3), 0);
+        assert_eq!(overfill_ppb(3, 4), 333_333_333);
+        assert_eq!(overfill_ppb(1, 1_000), UNSET_OVERFILL_PPB - 1);
+        assert_eq!(overfill_ppb(1, u64::MAX), UNSET_OVERFILL_PPB - 1);
+    }
+
+    #[test]
+    fn the_quote_component_follows_the_smallest_over_delivery() {
+        let mut intent = tracked_mint(vec![1_000, 300]);
+        intent.max_quote_in = 1_000_000;
+        // Nothing filled yet: exactly the required amount.
+        assert_eq!(quote_component_deposit(&intent, 300, 1_000).unwrap(), 300);
+        record_component_received(&mut intent, 0, 1_010).unwrap(); // +1%
+        // Rounded up, so it never holds the credit below the swaps' over-delivery.
+        assert_eq!(quote_component_deposit(&intent, 300, 1_000).unwrap(), 303);
+        assert_eq!(quote_component_deposit(&intent, 301, 1_000).unwrap(), 305);
+        // The entry cap limits the top-up but never goes below the requirement.
+        assert_eq!(quote_component_deposit(&intent, 300, 302).unwrap(), 302);
+        assert_eq!(quote_component_deposit(&intent, 300, 100).unwrap(), 300);
+        // No room in the budget for the top-up: pay just the requirement.
+        intent.quote_atoms_executed = 999_000;
+        intent.max_quote_in = 999_302;
+        assert_eq!(quote_component_deposit(&intent, 300, 1_000).unwrap(), 300);
+        intent.max_quote_in = 999_303;
+        assert_eq!(quote_component_deposit(&intent, 300, 1_000).unwrap(), 303);
+        // Fees count against the budget too.
+        intent.protocol_fee_bps = 10;
+        assert_eq!(quote_component_deposit(&intent, 300, 1_000).unwrap(), 300);
+        // Untracked intents never top up.
+        intent.overfill_tracked = false;
+        intent.max_quote_in = u64::MAX;
+        assert_eq!(quote_component_deposit(&intent, 300, 1_000).unwrap(), 300);
+    }
+
+    #[test]
+    fn a_mint_is_credited_for_its_smallest_over_delivery() {
+        let mut intent = tracked_mint(vec![1_000, 300]);
+        intent.index_amount = 1_000_000;
+        // Nothing measured: the requested amount.
+        assert_eq!(credited_mint_amount(&intent, 50, 0).unwrap(), 1_000_000);
+        intent.min_overfill_ppb = 7_654_321; // +0.7654321%
+        assert_eq!(credited_mint_amount(&intent, 50, 0).unwrap(), 1_007_654);
+        // A supply cap takes only the room left, never less than what was requested.
+        assert_eq!(credited_mint_amount(&intent, 50, 1_005_050).unwrap(), 1_005_000);
+        assert_eq!(credited_mint_amount(&intent, 50, 900_000).unwrap(), 1_000_000);
+        assert_eq!(credited_mint_amount(&intent, 50, 2_000_000).unwrap(), 1_007_654);
+        // No credit for in-kind or untracked intents, or when any component came in exact.
+        intent.in_kind = true;
+        assert_eq!(credited_mint_amount(&intent, 50, 0).unwrap(), 1_000_000);
+        intent.in_kind = false;
+        intent.overfill_tracked = false;
+        assert_eq!(credited_mint_amount(&intent, 50, 0).unwrap(), 1_000_000);
+        intent.overfill_tracked = true;
+        intent.min_overfill_ppb = 0;
+        assert_eq!(credited_mint_amount(&intent, 50, 0).unwrap(), 1_000_000);
+    }
+
+    // The credit must never dilute holders: after the mint, every component backs each token
+    // at least as well as before. Fills here are the pro-rata mint shares (rounded up, as
+    // pro_rata_mint_amount does) plus assorted over-deliveries, the quote component last.
+    #[test]
+    fn the_credit_never_dilutes_existing_holders() {
+        let reserves = [7_000_000_123u64, 35_339_000, 8_119_300_000, 25_920];
+        let supply = 10_992_624u64;
+        let overfills_bps = [[100u64, 80, 135], [1, 0, 50], [400, 410, 399], [7, 9, 11]];
+        for requested in [1u64, 999, 718_780, 628_765_398, 10_000_000_000] {
+            for overfill in overfills_bps {
+                let required: Vec<u64> = reserves
+                    .iter()
+                    .map(|reserve| pro_rata_mint_amount(requested, *reserve, supply).unwrap())
+                    .collect();
+                let mut intent = tracked_mint(required.clone());
+                intent.index_amount = requested;
+                intent.max_quote_in = u64::MAX;
+                for (i, bps) in overfill.iter().enumerate() {
+                    let received = required[i] + required[i] * bps / 10_000;
+                    record_component_received(&mut intent, i as u16, received).unwrap();
+                }
+                let deposit = quote_component_deposit(&intent, required[3], u64::MAX).unwrap();
+                record_component_received(&mut intent, 3, deposit).unwrap();
+                let minted = credited_mint_amount(&intent, supply, 0).unwrap();
+                assert!(minted >= requested);
+                for (i, reserve) in reserves.iter().enumerate() {
+                    let before = u128::from(*reserve) * u128::from(supply + minted);
+                    let after = (u128::from(*reserve) + u128::from(intent.component_amounts[i]))
+                        * u128::from(supply);
+                    assert!(after >= before, "component {i} diluted: {requested} {overfill:?}");
+                }
+            }
         }
     }
 

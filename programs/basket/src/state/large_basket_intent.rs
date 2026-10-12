@@ -81,8 +81,18 @@ pub struct LargeBasketIntent {
     // Components sitting in the refund escrow until the owner claims them
     // (claim_large_basket_refund).
     pub escrowed_bitmap: [u8; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
-    pub reserved: [u8; 6],
+    // Swap mints opened since mints are credited for over-delivery (older intents read
+    // false here and mint exactly index_amount). Each fill records how much more than its
+    // required amount reached the vault, and min_overfill_ppb keeps the smallest of those
+    // over-deliveries, in parts per billion of the required amount (UNSET_OVERFILL_PPB until
+    // a nonzero component fills). Finalize scales the minted amount up by it.
+    pub overfill_tracked: bool,
+    pub min_overfill_ppb: u32,
+    pub reserved: [u8; 1],
 }
+
+pub const UNSET_OVERFILL_PPB: u32 = u32::MAX;
+pub const OVERFILL_PPB_SCALE: u64 = 1_000_000_000;
 
 impl LargeBasketIntent {
     pub const SPACE: usize = 32
@@ -129,7 +139,11 @@ impl LargeBasketIntent {
         + LARGE_BASKET_COMPONENT_BITMAP_BYTES
         // escrowed_bitmap
         + LARGE_BASKET_COMPONENT_BITMAP_BYTES
-        + 6;
+        // overfill_tracked, min_overfill_ppb, reserved (these 6 bytes were all reserved
+        // before, so intents opened by earlier versions read untracked)
+        + 1
+        + 4
+        + 1;
 }
 
 #[account]
