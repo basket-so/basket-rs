@@ -15,6 +15,7 @@
 // Prices are signed for one rebalance intent by the oracle key (a key separate from the
 // keeper's; scripts/lib/signed-prices.mjs), and each rebalance step checks that signature.
 
+import { PublicKey } from "@solana/web3.js";
 import { quantizePrice } from "./signed-prices.mjs";
 
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -102,6 +103,57 @@ export class OraclePriceError extends Error {
 }
 
 const bps = (a, b) => Math.abs(a / b - 1) * 10_000;
+
+// Token-2022's scaled UI amount extension (xStocks use it to pay dividends and apply splits):
+// wallets and Jupiter's price API count such a token as raw amount × multiplier, while balances,
+// the program, the round trip and DexScreener all count raw units. So a raw unit is worth
+// Jupiter's price × the multiplier.
+const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+// A Token-2022 mint pads its base to a token account's 165 bytes, then holds an account-type byte
+// (1 = mint) and its extensions as (type u16, length u16, value) entries.
+const MINT_ACCOUNT_TYPE_OFFSET = 165;
+const SCALED_UI_AMOUNT_EXTENSION = 25;
+const MULTIPLIER_BATCH = 100;
+
+/**
+ * The multiplier a Token-2022 mint's scaled UI amount extension applies at `nowSeconds`, or 1 for
+ * a mint without one. The extension holds an authority (32 bytes), the multiplier (f64), when a new
+ * multiplier takes effect (i64 unix seconds) and that new multiplier (f64); the stored multiplier
+ * is not rewritten when the new one takes effect, so the timestamp decides which applies.
+ */
+export function scaledUiMultiplier(data, nowSeconds = Date.now() / 1000) {
+  const bytes = Buffer.from(data);
+  if (bytes.length <= MINT_ACCOUNT_TYPE_OFFSET + 1 || bytes[MINT_ACCOUNT_TYPE_OFFSET] !== 1) return 1;
+  for (let offset = MINT_ACCOUNT_TYPE_OFFSET + 1; offset + 4 <= bytes.length;) {
+    const kind = bytes.readUInt16LE(offset);
+    const length = bytes.readUInt16LE(offset + 2);
+    if (kind === 0) break;
+    if (kind === SCALED_UI_AMOUNT_EXTENSION) {
+      if (length < 56 || offset + 4 + length > bytes.length) throw new Error("malformed scaled UI amount extension");
+      const value = bytes.subarray(offset + 4, offset + 4 + length);
+      const takesEffect = Number(value.readBigInt64LE(40));
+      const multiplier = nowSeconds >= takesEffect ? value.readDoubleLE(48) : value.readDoubleLE(32);
+      if (!(Number.isFinite(multiplier) && multiplier > 0)) throw new Error(`invalid scaled UI multiplier ${multiplier}`);
+      return multiplier;
+    }
+    offset += 4 + length;
+  }
+  return 1;
+}
+
+/** Each mint's scaled UI multiplier (1 for classic SPL mints and Token-2022 mints without one). */
+export async function readUiMultipliers(connection, mints) {
+  const multipliers = new Map();
+  for (let i = 0; i < mints.length; i += MULTIPLIER_BATCH) {
+    const batch = mints.slice(i, i + MULTIPLIER_BATCH);
+    const infos = await connection.getMultipleAccountsInfo(batch.map((m) => new PublicKey(m)), "confirmed");
+    infos.forEach((info, j) => {
+      if (!info) throw new Error(`mint ${batch[j]} not found`);
+      multipliers.set(batch[j], info.owner.toBase58() === TOKEN_2022_PROGRAM_ID ? scaledUiMultiplier(info.data) : 1);
+    });
+  }
+  return multipliers;
+}
 const toNumber = (scaled) => Number(scaled) / Number(PRICE_SCALE);
 
 // Jupiter quote: amount in atoms, ExactIn. Throws if there is no route.
@@ -170,22 +222,26 @@ async function dexscreenerReferences(env, mints) {
  * Throws OraclePriceError naming every token it could not price.
  *
  * env: { swapApi, priceApi, fetchJson(url, init), probeUsd?, maxSpreadBps?, maxDeviationBps?,
- *   signal? (an AbortSignal that stops pricing) }
+ *   signal? (an AbortSignal that stops pricing),
+ *   uiMultipliers? (mints -> Map(mint -> scaled UI multiplier), e.g. readUiMultipliers with a
+ *   connection; without it every token counts as unscaled) }
  */
 export async function oraclePrices(tokens, env) {
   const cfg = { ...DEFAULT_ORACLE_CONFIG, ...env };
   const mints = tokens.map((t) => t.mint);
   // References are only vetoes; an unavailable one just can't confirm. They load while the round
-  // trips run, and the round trips run several tokens at a time.
+  // trips run, and the round trips run several tokens at a time. Without the multipliers Jupiter's
+  // price can't be put in raw units, so it then can't confirm either.
   const references = Promise.all([
     jupiterReferences(cfg, mints).catch(() => new Map()),
     dexscreenerReferences(cfg, mints).catch(() => new Map()),
+    cfg.uiMultipliers ? cfg.uiMultipliers(mints).catch(() => null) : Promise.resolve(new Map()),
   ]);
   const trips = await mapConcurrently(tokens, PRICE_CONCURRENCY, (token) =>
     token.mint === USDC_MINT
       ? { error: new Error("USDC is priced at $1 on chain") }
       : roundTrip(cfg, token).then((trip) => ({ trip }), (error) => ({ error })));
-  const [jupiter, dexscreener] = await references;
+  const [jupiter, dexscreener, multipliers] = await references;
   const prices = new Map();
   const failures = [];
   for (const [i, token] of tokens.entries()) {
@@ -202,8 +258,9 @@ export async function oraclePrices(tokens, env) {
       const usd = toNumber(trip.scaled);
       const references = [];
       const jup = jupiter.get(token.mint);
-      if (jup && !(trip.slot && jup.slot && trip.slot - jup.slot > MAX_REFERENCE_AGE_SLOTS)) {
-        references.push({ source: "jupiter-price", usd: jup.usd });
+      const multiplier = multipliers ? multipliers.get(token.mint) ?? 1 : null;
+      if (jup && multiplier && !(trip.slot && jup.slot && trip.slot - jup.slot > MAX_REFERENCE_AGE_SLOTS)) {
+        references.push({ source: "jupiter-price", usd: jup.usd * multiplier });
       }
       const dex = dexscreener.get(token.mint);
       if (dex) references.push({ source: "dexscreener", usd: dex.usd });

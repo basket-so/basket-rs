@@ -7,7 +7,7 @@ import { AddressLookupTableProgram, Connection, ComputeBudgetProgram, Keypair, P
 import { ASSOCIATED_TOKEN_PROGRAM_ID, ExtensionType, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync,
   getExtensionTypes, getTransferHook, unpackMint, getAccountLenForMint } from '@solana/spl-token';
 import { USDC, validateCatalog, sizeBasket, fetchJson } from './lib/catalog.mjs';
-import { jupiterApis, oraclePrices } from './lib/price-oracle.mjs';
+import { jupiterApis, oraclePrices, readUiMultipliers } from './lib/price-oracle.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
@@ -67,7 +67,7 @@ const prices = await fetchJson(`${priceApi}?ids=${usedSymbols.map(s => catalog.t
 // component must be priceable by it; it also sizes every basket's starting units.
 const oraclePrice = async (symbol, token) =>
   (await oraclePrices([{ mint: token.mint, decimals: token.decimals, label: symbol }],
-    { swapApi, priceApi, fetchJson: url => fetchJson(url) })).get(token.mint);
+    { swapApi, priceApi, fetchJson: url => fetchJson(url), uiMultipliers: mints => readUiMultipliers(connection, mints) })).get(token.mint);
 
 for (const [i, symbol] of usedSymbols.entries()) {
   try {

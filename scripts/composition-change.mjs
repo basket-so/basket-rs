@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import anchor from '@coral-xyz/anchor';
 import { Connection, Keypair, PublicKey, SystemProgram } from '@solana/web3.js';
 import { USDC, fetchJson } from './lib/catalog.mjs';
-import { OraclePriceError, jupiterApis, oraclePrices } from './lib/price-oracle.mjs';
+import { OraclePriceError, jupiterApis, oraclePrices, readUiMultipliers } from './lib/price-oracle.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = file => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
@@ -115,7 +115,9 @@ if (flag('--cancel')) {
     tokens.push({ mint: c.mint.toBase58(), decimals: c.decimals, label: label(c.mint), existing: true });
   });
   try {
-    const prices = await oraclePrices(tokens, { swapApi, priceApi, fetchJson: url => fetchJson(url) });
+    const prices = await oraclePrices(tokens, {
+      swapApi, priceApi, fetchJson: url => fetchJson(url), uiMultipliers: mints => readUiMultipliers(connection, mints),
+    });
     for (const t of tokens) console.log(`  ${t.existing ? ' ' : '+'} ${t.label}${t.existing ? '' : ` ${pct(t.bps)}`}: oracle prices it at $${prices.get(t.mint).usd.toPrecision(6)}`);
   } catch (error) {
     if (!(error instanceof OraclePriceError)) throw error;

@@ -48,7 +48,7 @@
 // NOTE: build the program (anchor build, regenerates target/idl/basket.json) and deploy it
 // before the --execute path works against a real basket.
 
-import { OraclePriceError, PRICE_SCALE, fetchJson, jupiterApiKey, jupiterApis, oraclePrices } from "./lib/price-oracle.mjs";
+import { OraclePriceError, PRICE_SCALE, fetchJson, jupiterApiKey, jupiterApis, oraclePrices, readUiMultipliers } from "./lib/price-oracle.mjs";
 import {
   MAX_PRICE_AGE_SLOTS,
   decodePriceMessage,
@@ -354,16 +354,21 @@ async function loadComponents(program, index, pageCount) {
   return { components, pagePdas: ordered.map((o) => o.pda) };
 }
 
-async function fetchPrices(mints) {
+// USD per raw whole token. Jupiter's price API prices a scaled-UI-amount token (an xStock) per UI
+// token, and a raw unit is worth that times the mint's multiplier.
+async function fetchPrices(connection, mints) {
   if (!mints.length) return new Map();
-  const ids = mints.map((m) => m.toBase58()).join(",");
-  const payload = await fetchJson(`${JUPITER_PRICE_API}?ids=${encodeURIComponent(ids)}`, {
-    headers: { accept: "application/json" },
-  });
+  const ids = mints.map((m) => m.toBase58());
+  const [payload, multipliers] = await Promise.all([
+    fetchJson(`${JUPITER_PRICE_API}?ids=${encodeURIComponent(ids.join(","))}`, {
+      headers: { accept: "application/json" },
+    }),
+    readUiMultipliers(connection, ids),
+  ]);
   const prices = new Map();
-  for (const m of mints) {
-    const usd = Number(payload?.[m.toBase58()]?.usdPrice);
-    if (Number.isFinite(usd) && usd > 0) prices.set(m.toBase58(), usd);
+  for (const mint of ids) {
+    const usd = Number(payload?.[mint]?.usdPrice) * multipliers.get(mint);
+    if (Number.isFinite(usd) && usd > 0) prices.set(mint, usd);
   }
   return prices;
 }
@@ -432,8 +437,14 @@ function pricedTokens(components) {
   return [...seen.values()];
 }
 
-function computeOraclePrices(tokens) {
-  return oraclePrices(tokens, { ...ORACLE_CONFIG, swapApi: JUPITER_SWAP_API, priceApi: JUPITER_PRICE_API, fetchJson });
+function computeOraclePrices(connection, tokens) {
+  return oraclePrices(tokens, {
+    ...ORACLE_CONFIG,
+    swapApi: JUPITER_SWAP_API,
+    priceApi: JUPITER_PRICE_API,
+    fetchJson,
+    uiMultipliers: (mints) => readUiMultipliers(connection, mints),
+  });
 }
 
 // Price sources blip and rate-limit; mid-rebalance, giving up leaves the intent to expire and
@@ -575,7 +586,7 @@ async function signPrices(env, ctx, components, label) {
   // limit bounds how old the prices are. Each try re-reads it.
   const { slot, prices } = await patiently(label, async () => {
     const slot = await env.connection.getSlot("confirmed");
-    return { slot, prices: await (env.priceTokens ?? computeOraclePrices)(tokens) };
+    return { slot, prices: await (env.priceTokens ?? ((t) => computeOraclePrices(env.connection, t)))(tokens) };
   });
   const message = encodePriceMessage({
     intent: ctx.intent,
@@ -1669,7 +1680,7 @@ async function processIndex(env, indexPk) {
   if (indexState.rebalancingPaused) return void log("  skip: rebalancing is paused for this index");
 
   const nonQuote = components.filter((c) => !c.isQuote && !c.retired).map((c) => c.mint);
-  const prices = await fetchPrices(nonQuote);
+  const prices = await fetchPrices(connection, nonQuote);
   const vaultInfos = await connection.getMultipleAccountsInfo(
     [...components.map((c) => c.vault), ctx.vaultQuote],
     "confirmed",

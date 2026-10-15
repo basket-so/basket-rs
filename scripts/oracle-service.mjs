@@ -46,7 +46,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { OraclePriceError, USDC_MINT, fetchJson, jupiterApiKey, jupiterApis, oraclePrices } from "./lib/price-oracle.mjs";
+import { OraclePriceError, USDC_MINT, fetchJson, jupiterApiKey, jupiterApis, oraclePrices, readUiMultipliers } from "./lib/price-oracle.mjs";
 import {
   MAX_PRICE_AGE_SLOTS,
   encodePriceMessage,
@@ -441,6 +441,7 @@ function chainDeps({ connection, program, oracle, config }) {
       swapApi: JUPITER_SWAP_API,
       priceApi: JUPITER_PRICE_API,
       fetchJson,
+      uiMultipliers: (mints) => readUiMultipliers(connection, mints),
       signal,
     });
   }

@@ -21,7 +21,7 @@ import {
   ensureBasketLookupTable, pricedStepFootprint, fitsOneTransaction, buyQuote, closeIntent, closeSettledRebalanceIntents,
   noLegExecuted, fetchWritten, keeperOpenHeldUntil,
 } from "../scripts/rebalance-bot.mjs";
-import { OraclePriceError, PRICE_SCALE, USDC_MINT, fetchJson, jupiterApis, oraclePrices } from "../scripts/lib/price-oracle.mjs";
+import { OraclePriceError, PRICE_SCALE, USDC_MINT, fetchJson, jupiterApis, oraclePrices, scaledUiMultiplier } from "../scripts/lib/price-oracle.mjs";
 import {
   MAX_PRICE_AGE_SLOTS,
   quantizePrice,
@@ -544,6 +544,50 @@ test("a stale price API reading cannot confirm, but a fresh DexScreener one can"
   await assert.rejects(oraclePrices([{ mint: TOKEN, decimals: 6 }], fakeMarket({ ...stale, dexscreener: 0 }).env), /no reference price/);
   const prices = await oraclePrices([{ mint: TOKEN, decimals: 6 }], fakeMarket({ ...stale, dexscreener: 2.01 }).env);
   assert.deepEqual(prices.get(TOKEN).confirmedBy, ["dexscreener"]);
+});
+
+// A Token-2022 mint: the base padded to 165 bytes, account type 1, then the given extensions.
+function token2022Mint(extensions) {
+  const parts = [Buffer.alloc(165), Buffer.from([1])];
+  for (const [kind, value] of extensions) {
+    const header = Buffer.alloc(4);
+    header.writeUInt16LE(kind, 0);
+    header.writeUInt16LE(value.length, 2);
+    parts.push(header, value);
+  }
+  return Buffer.concat(parts);
+}
+function scaledUiAmount({ multiplier, takesEffect, next }) {
+  const value = Buffer.alloc(56);
+  value.writeDoubleLE(multiplier, 32);
+  value.writeBigInt64LE(BigInt(takesEffect), 40);
+  value.writeDoubleLE(next, 48);
+  return value;
+}
+
+test("the scaled UI multiplier switches to the new one when it takes effect", () => {
+  const ext = scaledUiAmount({ multiplier: 1.0039, takesEffect: 1_000, next: 2.0078 });
+  // A metadata pointer before it is skipped over.
+  const mint = token2022Mint([[18, Buffer.alloc(64)], [25, ext]]);
+  assert.equal(scaledUiMultiplier(mint, 999), 1.0039);
+  assert.equal(scaledUiMultiplier(mint, 1_000), 2.0078);
+  // A classic SPL mint, and a Token-2022 mint without the extension, are unscaled.
+  assert.equal(scaledUiMultiplier(Buffer.alloc(82)), 1);
+  assert.equal(scaledUiMultiplier(token2022Mint([[18, Buffer.alloc(64)]])), 1);
+  assert.throws(() => scaledUiMultiplier(token2022Mint([[25, Buffer.alloc(56)]]), 0), /invalid scaled UI multiplier/);
+});
+
+test("Jupiter's per-UI-token price is scaled to raw units before it confirms", async () => {
+  // A raw unit trades at $1.998 while Jupiter prices the UI token (a raw unit × 2) at half that.
+  const uiMultipliers = async () => new Map([[TOKEN, 2]]);
+  const scaled = await oraclePrices([{ mint: TOKEN, decimals: 6 }], { ...fakeMarket({ jupiter: 0.999, dexscreener: 0 }).env, uiMultipliers });
+  assert.deepEqual(scaled.get(TOKEN).references, [{ source: "jupiter-price", usd: 1.998 }]);
+  // Unscaled, Jupiter would dispute the price.
+  await assert.rejects(oraclePrices([{ mint: TOKEN, decimals: 6 }], fakeMarket({ jupiter: 0.999, dexscreener: 0 }).env), /disagrees/);
+  // Without the multipliers Jupiter can't confirm; DexScreener, in raw units, still can.
+  const failing = async () => { throw new Error("rpc down"); };
+  const fallback = await oraclePrices([{ mint: TOKEN, decimals: 6 }], { ...fakeMarket({ jupiter: 0.999, dexscreener: 2 }).env, uiMultipliers: failing });
+  assert.deepEqual(fallback.get(TOKEN).confirmedBy, ["dexscreener"]);
 });
 
 test("oracle prices several tokens at once, each at its own round trip", async () => {
