@@ -815,7 +815,7 @@
       "usdcCashSlot": true,
       "navRoundingComponent": "ORE",
       "feeRecipient": "ASBU3bH5EhBjC17CLWfMG8txwQSoSgrooz9CFQJzUEAB",
-      "description": "Four stores of value in one token: ORE, Zcash, gold and bitcoin. ZEC is bridged to Solana, gold is held as Tether's XAUt0 (one token per troy ounce) and bitcoin as Coinbase's cbBTC.",
+      "description": "Four assets built around scarcity: ORE, Zcash, gold and bitcoin. Bitcoin and Zcash are capped at 21 million coins, ORE is mined on Solana under its own hard cap, and gold's supply grows only as fast as it can be mined, so none of them can be printed at will. ZEC is bridged to Solana, and gold and bitcoin are held as Tether's XAUt0 and Coinbase's cbBTC, which rely on their issuers holding the metal and coins behind them.",
       "blockers": [],
       "components": [
         {
