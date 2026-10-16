@@ -297,6 +297,24 @@
       "decimals": 8,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "source": "https://lite-api.jup.ag/tokens/v2/search?query=uniHfuPhEQSrtpzXpJZDCSq53yaejKKpNhFUiKoHKHV"
+    },
+    "ORE": {
+      "mint": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+      "decimals": 11,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp"
+    },
+    "ZEC": {
+      "mint": "A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS",
+      "decimals": 8,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS"
+    },
+    "XAUt0": {
+      "mint": "AymATz4TCL9sWNEEV9Kvyz45CHVhDZ6kUgjTJPzLpU9P",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "source": "https://lite-api.jup.ag/tokens/v2/search?query=AymATz4TCL9sWNEEV9Kvyz45CHVhDZ6kUgjTJPzLpU9P"
     }
   },
   "baskets": [
@@ -783,6 +801,38 @@
         {
           "symbol": "UNI",
           "weightBps": 500
+        }
+      ]
+    },
+    {
+      "symbol": "SOV",
+      "name": "Store of Value Index",
+      "origin": "research",
+      "kind": "fixedWeights",
+      "startingNavUsd": 1,
+      "rebalanceIntervalSeconds": 2592000,
+      "driftThresholdBps": 500,
+      "usdcCashSlot": true,
+      "navRoundingComponent": "ORE",
+      "feeRecipient": "ASBU3bH5EhBjC17CLWfMG8txwQSoSgrooz9CFQJzUEAB",
+      "description": "Four stores of value in one token: ORE, Zcash, gold and bitcoin. ZEC is bridged to Solana, gold is held as Tether's XAUt0 (one token per troy ounce) and bitcoin as Coinbase's cbBTC.",
+      "blockers": [],
+      "components": [
+        {
+          "symbol": "ORE",
+          "weightBps": 5000
+        },
+        {
+          "symbol": "ZEC",
+          "weightBps": 1500
+        },
+        {
+          "symbol": "XAUt0",
+          "weightBps": 1500
+        },
+        {
+          "symbol": "cbBTC",
+          "weightBps": 2000
         }
       ]
     }

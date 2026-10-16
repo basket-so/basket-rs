@@ -51,6 +51,9 @@ export function validateCatalog(catalog) {
     if (b.navRoundingReserve !== undefined && (b.navRoundingReserve !== 'USDC' ||
         catalog.tokens.USDC?.mint !== USDC || !b.components.some(c => c.symbol === 'USDC')))
       throw new Error(`${b.symbol}: NAV rounding reserve must be native USDC in the basket`);
+    if (b.navRoundingComponent !== undefined && (b.navRoundingReserve !== undefined ||
+        b.navRoundingComponent === 'USDC' || !b.components.some(c => c.symbol === b.navRoundingComponent)))
+      throw new Error(`${b.symbol}: NAV rounding component must be a non-USDC component, used instead of a reserve`);
     // A fixed-weight basket must hold a USDC slot (finalize refuses one without it); this adds
     // it at zero weight and zero units, as the cash its rebalances route through.
     if (b.usdcCashSlot !== undefined && (b.usdcCashSlot !== true || b.kind !== 'fixedWeights' ||
@@ -102,6 +105,19 @@ export function sizeBasket(basket, assets, tolerance = 0.00001) {
         adjustment < -500n || adjustment > 500n)
       throw new Error('NAV rounding reserve adjustment exceeds 5 bps or is nonpositive');
     reserve.unitsPerIndex = atoms.toString();
+  }
+  // Without USDC in the basket, a finely divisible component can absorb the dust instead (a gold
+  // atom can also be worth more than the tolerance): it takes whatever the other components'
+  // rounding leaves of $1, which may move it at most 10 bps of NAV off its weight.
+  if (basket.navRoundingComponent !== undefined) {
+    const absorber = components.find(c => c.symbol === basket.navRoundingComponent);
+    if (!absorber || absorber.mint === USDC) throw new Error('NAV rounding component must be a non-USDC component');
+    const others = components.filter(c => c !== absorber)
+      .reduce((n, c) => n + Number(c.unitsPerIndex) / 10 ** c.decimals * c.price, 0);
+    const atoms = BigInt(Math.round((1 - others) / absorber.price * 10 ** absorber.decimals));
+    const shiftBps = Math.abs(Number(atoms - BigInt(absorber.unitsPerIndex)) / 10 ** absorber.decimals * absorber.price) * 10_000;
+    if (atoms <= 0n || shiftBps > 10) throw new Error('NAV rounding component adjustment exceeds 10 bps or is nonpositive');
+    absorber.unitsPerIndex = atoms.toString();
   }
   if (basket.usdcCashSlot) {
     const usdc = assets.USDC;

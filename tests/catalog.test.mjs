@@ -74,3 +74,24 @@ test('rounding reserve rejects excessive correction, wrong asset and invalid val
   clone.baskets.find(b => b.symbol === 'MAJR').navRoundingReserve = 'SOL';
   assert.throws(() => validateCatalog(clone), /native USDC/);
 });
+
+test('a finely divisible component absorbs a coarse gold atom so SOV starts at $1', () => {
+  const replacement = JSON.parse(fs.readFileSync(new URL('../docs/program-replacement/catalog.json', import.meta.url)));
+  validateCatalog(replacement);
+  const b = replacement.baskets.find(b => b.symbol === 'SOV');
+  const prices = { ORE: 121.49383374210072, ZEC: 1226.722354723262, XAUt0: 4151.506726457399, cbBTC: 82285.5424264367, USDC: 1 };
+  const assets = Object.fromEntries(Object.entries(prices).map(([symbol, price]) => [symbol, { ...replacement.tokens[symbol], price }]));
+  // Without the absorber, XAUt0's $0.004 atom leaves the NAV about 6 bps short.
+  assert.throws(() => sizeBasket({ ...b, navRoundingComponent: undefined }, assets), /tolerance/);
+  const result = sizeBasket(b, assets);
+  assert.ok(Math.abs(result.initialNavUsd - 1) <= 0.000001);
+  const ore = result.components.find(c => c.symbol === 'ORE');
+  const oreValue = Number(ore.unitsPerIndex) / 10 ** ore.decimals * prices.ORE;
+  assert.ok(Math.abs(oreValue - 0.5) <= 0.001, `ORE moved ${oreValue}`);
+  assert.deepEqual(result.components.map(c => c.targetWeightBps), [5000, 1500, 1500, 2000, 0]);
+  const clone = structuredClone(replacement);
+  clone.baskets.find(b => b.symbol === 'SOV').navRoundingComponent = 'USDC';
+  assert.throws(() => validateCatalog(clone), /non-USDC component/);
+  clone.baskets.find(b => b.symbol === 'SOV').navRoundingComponent = 'SOL';
+  assert.throws(() => validateCatalog(clone), /non-USDC component/);
+});
