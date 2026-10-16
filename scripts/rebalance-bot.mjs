@@ -1597,7 +1597,7 @@ async function showPrices(env, ctx, components, jupiterPrices) {
       prices = answer.prices;
       for (const blocker of answer.blockers) log(`    [price] the oracle service would not sign: ${blocker}`);
     } else {
-      prices = await computeOraclePrices(tokens);
+      prices = await computeOraclePrices(env.connection, tokens);
     }
     for (const [mint, p] of prices) {
       const jup = jupiterPrices.get(mint);
@@ -1770,7 +1770,7 @@ async function processIndex(env, indexPk) {
   const oracleProblem = await oracleProblems(env);
   if (oracleProblem) return void log(`  skip: ${oracleProblem}`);
   try {
-    await computeOraclePrices([...pricedTokens(components), ...(changeDue ? await additionTokens(connection, change) : [])]);
+    await computeOraclePrices(connection, [...pricedTokens(components), ...(changeDue ? await additionTokens(connection, change) : [])]);
   } catch (error) {
     rebalanceRetryAt.set(key, Date.now() + FAILURE_COOLDOWN_S * 1000);
     await releaseRequest("its tokens cannot be priced");
