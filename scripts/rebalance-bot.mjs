@@ -1728,6 +1728,11 @@ async function processIndex(env, indexPk) {
     const due = lastRebalancedAt + intervalS;
     log(`  time trigger: ${timeTriggered ? "DUE" : `next at ${new Date(due * 1000).toISOString()}`}`);
   }
+  // A new basket nobody has minted holds nothing: every weight reads 0% against its target, but
+  // there is nothing to trade until the first mint.
+  if (scratchAtoms === 0n && components.every((c) => (vaultAmounts.get(c.vault.toBase58()) ?? 0n) === 0n)) {
+    return void log("  -> empty basket, nothing to rebalance");
+  }
 
   const requestLive = indexState.rebalanceRequested && now < Number(indexState.rebalanceRequestedAt) + REQUEST_WINDOW_S;
   // Never hold users back without a rebalance to run.
