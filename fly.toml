@@ -24,7 +24,11 @@ kill_timeout = "300s"
 [processes]
   # --execute sends transactions (spends keeper SOL, moves basket assets). Drop it to
   # go back to a dry-run that only logs what it would do.
-  app = "node scripts/rebalance-bot.mjs --watch --interval 60 --priority-fee 50000 --execute"
+  # A basket with no USDC to spare pays its buys from its sells' guaranteed proceeds, which
+  # each leg's slippage allowance shrinks; at 1% slippage and 0.5% NAV tolerance the buys
+  # never fit ("Buy budget exceeds guaranteed USDC proceeds"). 0.3% slippage with the
+  # program's widest tolerance, 1%, lets them.
+  app = "node scripts/rebalance-bot.mjs --watch --interval 60 --priority-fee 50000 --slippage-bps 30 --nav-tolerance-bps 100 --execute"
 
 [[restart]]
   policy = "always"
