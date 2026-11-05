@@ -34,6 +34,13 @@
 //   node scripts/rebalance-bot.mjs --execute       # actually rebalance triggered baskets
 //   node scripts/rebalance-bot.mjs --watch         # loop forever (poll every --interval s)
 //
+// Baskets are processed --concurrency at a time (default 3; KEEPER_CONCURRENCY), each basket's
+// steps in order, and every log line names its basket. All Jupiter calls share
+// --jupiter-concurrency requests in flight (default 8; KEEPER_JUPITER_CONCURRENCY), however many
+// baskets are busy. A basket whose tokens can't be priced, including a market too thin for what
+// it holds (the liquidity floor, --price-depth-fraction-bps / --price-depth-cap-usd, as in the
+// oracle service), is skipped for --failure-cooldown seconds; the others carry on.
+//
 // Env: SOLANA_RPC_URL (default mainnet-beta; discovery needs a getProgramAccounts-capable RPC),
 //      KEEPER_KEYPAIR (secret key JSON array; takes precedence over ANCHOR_WALLET),
 //      ANCHOR_WALLET (default deployer-keypair.json),
@@ -42,13 +49,25 @@
 //      ORACLE_WALLET (default oracle-keypair.json), JUPITER_API_KEY (optional: Jupiter's keyed
 //      API, api.jup.ag, instead of the keyless one), JUPITER_SWAP_API, JUPITER_PRICE_API.
 //
-// In --watch mode SIGTERM/SIGINT stop the loop after the index being processed, so a
+// In --watch mode SIGTERM/SIGINT stop the loop after the baskets being processed, so a
 // restart doesn't abandon a rebalance mid-flight (see fly.toml kill_timeout).
 //
 // NOTE: build the program (anchor build, regenerates target/idl/basket.json) and deploy it
 // before the --execute path works against a real basket.
 
-import { OraclePriceError, PRICE_SCALE, fetchJson, jupiterApiKey, jupiterApis, oraclePrices, readUiMultipliers } from "./lib/price-oracle.mjs";
+import { AsyncLocalStorage } from "node:async_hooks";
+import {
+  DepthVerdicts,
+  OraclePriceError,
+  PRICE_SCALE,
+  createLimiter,
+  fetchJson as fetchJsonUnlimited,
+  jupiterApiKey,
+  jupiterApis,
+  mapConcurrently,
+  oraclePrices,
+  readUiMultipliers,
+} from "./lib/price-oracle.mjs";
 import {
   MAX_PRICE_AGE_SLOTS,
   decodePriceMessage,
@@ -161,11 +180,21 @@ const SLIPPAGE_BPS = Number(flagValue("--slippage-bps", "100"));
 const VERIFY_ORACLE_BUFFER_BPS = Number(flagValue("--verify-buffer-bps", "300"));
 // Oracle pricing (scripts/lib/price-oracle.mjs): USDC size of the round trip that prices a
 // token, the widest round-trip spread priced, and how close a reference must be to confirm.
+// The liquidity floor matches the oracle service's (same flags and env), so a basket the service
+// would refuse is skipped before anything is held back or opened.
 const ORACLE_CONFIG = {
   probeUsd: Number(flagValue("--price-probe-usd", "50")),
   maxSpreadBps: Number(flagValue("--price-max-spread-bps", "400")),
   maxDeviationBps: Number(flagValue("--price-max-deviation-bps", "300")),
+  depthFractionBps: Number(flagValue("--price-depth-fraction-bps", process.env.ORACLE_DEPTH_FRACTION_BPS || "1000")),
+  depthCapUsd: Number(flagValue("--price-depth-cap-usd", process.env.ORACLE_DEPTH_CAP_USD || "5000")),
 };
+// Baskets processed at once, and Jupiter requests in flight across all of them. Three baskets
+// keep a slow one (a rebalance waiting on its legs) from holding up the rest without pressing
+// the RPC; eight requests is what one basket's pricing used alone.
+const positiveInt = (value, fallback) => Math.max(1, Math.floor(Number(value)) || fallback);
+const KEEPER_CONCURRENCY = positiveInt(flagValue("--concurrency", process.env.KEEPER_CONCURRENCY || "3"), 3);
+const JUPITER_CONCURRENCY = positiveInt(flagValue("--jupiter-concurrency", process.env.KEEPER_JUPITER_CONCURRENCY || "8"), 8);
 const PRIORITY_FEE_MICROLAMPORTS = Number(flagValue("--priority-fee", "5000"));
 const NAV_TOLERANCE_BPS = Math.max(
   MIN_KEEPER_NAV_TOLERANCE_BPS,
@@ -209,9 +238,35 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
+// Each basket's lines carry its symbol, so baskets processed at once stay readable.
+const logScope = new AsyncLocalStorage();
+
 function log(...args) {
-  console.log(...args);
+  const tag = logScope.getStore()?.tag;
+  if (!tag) return console.log(...args);
+  const [first, ...rest] = args;
+  if (typeof first !== "string") return console.log(`[${tag}]`, ...args);
+  const lead = first.match(/^\n*/)[0];
+  console.log(`${lead}[${tag}] ${first.slice(lead.length)}`, ...rest);
 }
+
+// Runs `fn` with every log line it makes tagged `tag`; `fn` gets the scope, whose tag it can
+// change (to the basket's symbol once it is read).
+function withLogTag(tag, fn) {
+  const scope = { tag };
+  return logScope.run(scope, () => fn(scope));
+}
+
+// A symbol is the basket creator's to choose; keep only what reads safely in a log line.
+function logTag(symbol, fallback) {
+  return String(symbol ?? "").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 16) || fallback;
+}
+
+// Every Jupiter (and DexScreener) call the keeper makes goes through this, so however many
+// baskets are busy, at most JUPITER_CONCURRENCY requests are in flight. A rate-limited request
+// keeps its place while it backs off, which slows the others too.
+const jupiterGate = createLimiter(JUPITER_CONCURRENCY);
+const fetchJson = (url, init, attempts) => jupiterGate(() => fetchJsonUnlimited(url, init, attempts));
 
 function bpsPct(bps) {
   return `${(Number(bps) / 100).toFixed(2)}%`;
@@ -224,6 +279,51 @@ function parseTokenAmount(accountInfo) {
   if (!accountInfo || accountInfo.data.length < 72) return 0n;
   return accountInfo.data.readBigUInt64LE(64);
 }
+// A component its issuer has stopped: a frozen vault, a paused mint, or a transfer-hook program
+// set (the program's transfers don't carry a hook's accounts). The program leaves such a
+// component out of a rebalance (no price, no leg, the other weights scaled up to share the rest),
+// so the keeper does the same, and shows a paused or hooked mint by passing it at open.
+function vaultFrozen(accountInfo) {
+  return Boolean(accountInfo && accountInfo.data.length > 108 && accountInfo.data[108] === 2);
+}
+
+function mintBlock(accountInfo) {
+  if (!accountInfo || !accountInfo.owner.equals(TOKEN_2022_PROGRAM_ID) || accountInfo.data.length <= 166) return null;
+  const data = accountInfo.data;
+  for (let offset = 166; offset + 4 <= data.length;) {
+    const kind = data.readUInt16LE(offset);
+    const length = data.readUInt16LE(offset + 2);
+    if (kind === 0) break;
+    const value = data.subarray(offset + 4, offset + 4 + length);
+    if (kind === 26 && value[32]) return "MintPaused";
+    if (kind === 14 && value.length >= 64 && value.subarray(32, 64).some((b) => b !== 0)) return "TransferHookSet";
+    offset += 4 + length;
+  }
+  return null;
+}
+
+// A component's weight while `excludedWeightBps` of the basket is left out (as the program
+// scales it in active_weight_bps).
+function activeWeightBps(weightBps, excludedWeightBps) {
+  if (!excludedWeightBps) return weightBps;
+  const active = BPS - excludedWeightBps;
+  return active > 0 ? Math.floor((weightBps * BPS) / active) : 0;
+}
+
+// Marks each component stuck or not from its vault and mint: `stuck` (the reason), `excluded`
+// (left out of a rebalance), `proofMint` (its mint must be shown at open), `activeWeightBps`.
+function markStuck(components, vaultInfos, mintInfos) {
+  let excludedWeightBps = 0;
+  components.forEach((c, i) => {
+    c.stuck = vaultFrozen(vaultInfos[i]) ? "VaultFrozen" : c.isQuote ? null : mintBlock(mintInfos[i]);
+    c.excluded = Boolean(c.stuck) && !c.isQuote;
+    c.proofMint = c.stuck === "MintPaused" || c.stuck === "TransferHookSet";
+    if (c.excluded) excludedWeightBps += c.targetWeightBps;
+  });
+  for (const c of components) c.activeWeightBps = c.excluded ? 0 : activeWeightBps(c.targetWeightBps, excludedWeightBps);
+  return components;
+}
+
 function parseTokenOwner(accountInfo) {
   if (!accountInfo || accountInfo.data.length < 64) return null;
   return new PublicKey(accountInfo.data.subarray(32, 64));
@@ -348,9 +448,15 @@ async function loadComponents(program, index, pageCount) {
         // Removed by a composition change and already sold. The program neither prices nor
         // trades it (judged by its accounting, so dust sent to the vault is ignored).
         retired: !isQuote && c.targetWeightBps === 0 && c.accountedReserve.isZero(),
+        accountedReserve: BigInt(c.accountedReserve.toString()),
       });
     }
   }
+  const infos = await program.provider.connection.getMultipleAccountsInfo(
+    [...components.map((c) => c.vault), ...components.map((c) => c.mint)],
+    "confirmed",
+  );
+  markStuck(components, infos.slice(0, components.length), infos.slice(components.length));
   return { components, pagePdas: ordered.map((o) => o.pda) };
 }
 
@@ -381,7 +487,8 @@ async function fetchPrices(connection, mints) {
 // (driftKnown=false) rather than aborting — the program prices from the signed prices anyway.
 function assessBasket(components, vaultAmounts, scratchAtoms, prices) {
   const hasQuoteComponent = components.some((c) => c.isQuote);
-  const missing = components.filter((c) => !c.isQuote && !c.retired && !prices.get(c.mint.toBase58()));
+  const missing = components.filter((c) => !c.isQuote && !c.retired && !c.excluded && !prices.get(c.mint.toBase58()));
+  const weightOf = (c) => c.activeWeightBps ?? c.targetWeightBps;
   const driftKnown = missing.length === 0;
 
   // NAV in micro-USD (integer) using available prices; missing components contribute 0.
@@ -390,7 +497,7 @@ function assessBasket(components, vaultAmounts, scratchAtoms, prices) {
   let navMicro = 0n;
   const priced = components.map((c) => {
     const amount = vaultAmounts.get(c.vault.toBase58()) ?? 0n;
-    const usd = c.isQuote ? 1 : c.retired ? undefined : prices.get(c.mint.toBase58());
+    const usd = c.isQuote ? 1 : c.retired || c.excluded ? undefined : prices.get(c.mint.toBase58());
     const valueMicro = usd ? microUsd(amount, c.decimals, usd) : 0n;
     navMicro += valueMicro;
     return { c, amount, usd, valueMicro };
@@ -401,13 +508,13 @@ function assessBasket(components, vaultAmounts, scratchAtoms, prices) {
   let maxDriftBps = 0;
   const rows = priced.map(({ c, amount, usd, valueMicro }) => {
     const weightBps = navMicro > 0n ? Number((valueMicro * BigInt(BPS)) / navMicro) : 0;
-    const driftBps = c.isQuote || !usd ? 0 : Math.abs(weightBps - c.targetWeightBps);
+    const driftBps = c.isQuote || !usd ? 0 : Math.abs(weightBps - weightOf(c));
     if (!c.isQuote && usd && driftBps > maxDriftBps) maxDriftBps = driftBps;
     let leg = 0n;
     let side = "none";
     if (!c.isQuote && usd) {
       // target backing atoms = nav * targetWeight / price, in component units (BigInt).
-      const targetMicro = (navMicro * BigInt(c.targetWeightBps)) / BigInt(BPS);
+      const targetMicro = (navMicro * BigInt(weightOf(c))) / BigInt(BPS);
       const targetAtoms =
         (targetMicro * pow10Big(c.decimals)) / BigInt(Math.round(usd * 1e6));
       const diff = amount > targetAtoms ? amount - targetAtoms : targetAtoms - amount;
@@ -427,15 +534,40 @@ function assessBasket(components, vaultAmounts, scratchAtoms, prices) {
 
 // --- oracle prices -------------------------------------------------------------
 
-// The tokens a step prices: non-USDC components the program has not retired, once each.
+// The tokens a step prices: non-USDC components the program has not retired, once each, with
+// what the basket's books hold of them for the liquidity floor.
 function pricedTokens(components) {
   const seen = new Map();
   for (const c of components) {
-    if (c.isQuote || c.retired || seen.has(c.mint.toBase58())) continue;
-    seen.set(c.mint.toBase58(), { mint: c.mint.toBase58(), decimals: c.decimals, label: c.mint.toBase58().slice(0, 6) });
+    if (c.isQuote || c.retired || c.excluded || seen.has(c.mint.toBase58())) continue;
+    seen.set(c.mint.toBase58(), {
+      mint: c.mint.toBase58(),
+      decimals: c.decimals,
+      label: c.mint.toBase58().slice(0, 6),
+      ...(c.accountedReserve ? { holdingAtoms: c.accountedReserve } : {}),
+    });
   }
   return [...seen.values()];
 }
+
+// What the check before a rebalance prices: every token it would price, each floored at the
+// larger of what the basket holds and what it will hold once rebalanced (its target share of
+// `navUsd`, under a due composition change's new weights), and the tokens that change adds at
+// their target share. So a market too thin for the buys is caught before anything starts.
+function precheckTokens(components, navUsd, change = null, additions = []) {
+  const targetUsd = (weightBps) => (navUsd > 0 && weightBps > 0 ? (navUsd * weightBps) / BPS : 0);
+  const tokens = pricedTokens(components).map((t) => {
+    const c = components.find((x) => x.mint.toBase58() === t.mint);
+    const weight = Math.max(c.activeWeightBps ?? c.targetWeightBps, change?.targetWeightsBps?.[c.globalIndex] ?? 0);
+    return { ...t, holdingUsd: targetUsd(weight) };
+  });
+  const weightOf = new Map((change?.additions ?? []).map((x) => [x.mint.toBase58(), x.targetWeightBps]));
+  for (const t of additions) tokens.push({ ...t, holdingUsd: targetUsd(weightOf.get(t.mint) ?? 0) });
+  return tokens;
+}
+
+// Depth passes this process saw, shared by the check before a rebalance and local signing.
+const depthVerdicts = new DepthVerdicts();
 
 function computeOraclePrices(connection, tokens) {
   return oraclePrices(tokens, {
@@ -444,6 +576,7 @@ function computeOraclePrices(connection, tokens) {
     priceApi: JUPITER_PRICE_API,
     fetchJson,
     uiMultipliers: (mints) => readUiMultipliers(connection, mints),
+    depthVerdicts,
   });
 }
 
@@ -583,11 +716,15 @@ async function signPrices(env, ctx, components, label) {
     return { prices, slot: signed.slot, ix: priceSignatureInstruction(signed) };
   }
   // Stamped with the slot read before pricing, as the oracle service does, so the program's age
-  // limit bounds how old the prices are. Each try re-reads it.
+  // limit bounds how old the prices are. Each try re-reads it. As in the service, the liquidity
+  // floor is checked at the intent's first signature and holds for the rest of it.
+  const intentKey = ctx.intent.toBase58();
+  const local = ctx.depthCheckedFor === intentKey ? tokens.map(({ holdingAtoms, ...t }) => t) : tokens;
   const { slot, prices } = await patiently(label, async () => {
     const slot = await env.connection.getSlot("confirmed");
-    return { slot, prices: await (env.priceTokens ?? ((t) => computeOraclePrices(env.connection, t)))(tokens) };
+    return { slot, prices: await (env.priceTokens ?? ((t) => computeOraclePrices(env.connection, t)))(local) };
   });
+  ctx.depthCheckedFor = intentKey;
   const message = encodePriceMessage({
     intent: ctx.intent,
     slot,
@@ -1079,8 +1216,26 @@ function openIx(program, ctx, components, pagePdas, { expiresAt, maxPostRebalanc
     .remainingAccounts([
       ...pagePdas.map((p) => ({ pubkey: p, isSigner: false, isWritable: false })),
       ...components.map((c) => ({ pubkey: c.vault, isSigner: false, isWritable: false })),
+      // Proof for components left out because their mint is paused or hooked.
+      ...components.filter((c) => c.proofMint).map((c) => ({ pubkey: c.mint, isSigner: false, isWritable: false })),
     ])
     .instruction();
+}
+
+// Lowers the books of any component whose vault holds less (taken by an issuer's delegate, say),
+// so redeems split what is really left. Permissionless and only ever lowers them.
+async function syncReserves(env, ctx, components, pagePdas) {
+  const ix = await env.program.methods.syncLargeBasketReserves()
+    .accounts({ index: ctx.index, indexMint: ctx.indexMint })
+    .remainingAccounts([
+      ...pagePdas.map((p) => ({ pubkey: p, isSigner: false, isWritable: true })),
+      ...components.map((c) => ({ pubkey: c.vault, isSigner: false, isWritable: false })),
+    ])
+    .instruction();
+  const wanted = basketLookupAddresses(ctx, components, pagePdas);
+  const table = await findBasketLookupTable(env, ctx, wanted).catch(() => null);
+  const tables = table && !missingFrom(table, wanted).length ? [table] : [];
+  await sendV0(env.connection, env.payer, [ix], `sync ${ctx.index.toBase58().slice(0, 6)}.. reserves`, tables);
 }
 
 function finalizeIx(program, ctx, components, pagePdas) {
@@ -1311,6 +1466,17 @@ async function findBasketLookupTable(env, ctx, wanted) {
   return pickBasketTable(await lookupTablesOf(connection, payer.publicKey), ctx.index, wanted);
 }
 
+const tableCreations = createLimiter(1);
+let lastTableSlot = -1;
+async function laterFinalizedSlot(connection, attempts = 40) {
+  for (let attempt = 1; ; attempt += 1) {
+    const slot = await connection.getSlot("finalized");
+    if (slot > lastTableSlot) return (lastTableSlot = slot);
+    if (attempt >= attempts) throw new Error(`the finalized slot stayed at ${slot}; can't pick a fresh one for a lookup table`);
+    await new Promise((r) => setTimeout(r, 400));
+  }
+}
+
 async function ensureBasketLookupTable(env, ctx, components, pagePdas, { execute = EXECUTE } = {}) {
   const { connection, payer } = env;
   const wanted = basketLookupAddresses(ctx, components, pagePdas);
@@ -1341,10 +1507,14 @@ async function ensureBasketLookupTable(env, ctx, components, pagePdas, { execute
     AddressLookupTableProgram.extendLookupTable({ lookupTable, authority: payer.publicKey, payer: payer.publicKey, addresses });
   let address = table?.key;
   if (!address) {
-    const recentSlot = await connection.getSlot("finalized");
-    const [createIx, created] = AddressLookupTableProgram.createLookupTable({ authority: payer.publicKey, payer: payer.publicKey, recentSlot });
-    address = created;
-    await sendV0(connection, payer, [...budgetIxs(LOOKUP_TABLE_CU_LIMIT), createIx, extendIx(address, chunks.shift())], "create lookup table");
+    // A table's address comes from its authority and a recent slot, so two baskets creating one
+    // at once could pick the same; creations take turns, each at a later slot than the last.
+    address = await tableCreations(async () => {
+      const recentSlot = await laterFinalizedSlot(connection);
+      const [createIx, created] = AddressLookupTableProgram.createLookupTable({ authority: payer.publicKey, payer: payer.publicKey, recentSlot });
+      await sendV0(connection, payer, [...budgetIxs(LOOKUP_TABLE_CU_LIMIT), createIx, extendIx(created, chunks.shift())], "create lookup table");
+      return created;
+    });
   }
   for (const chunk of chunks) {
     await sendV0(connection, payer, [...budgetIxs(LOOKUP_TABLE_CU_LIMIT), extendIx(address, chunk)], "extend lookup table");
@@ -1614,9 +1784,20 @@ async function showPrices(env, ctx, components, jupiterPrices) {
 // index pubkey -> epoch ms before which a failed rebalance is not retried.
 const rebalanceRetryAt = new Map();
 
-async function processIndex(env, indexPk) {
+// Asks the program to stop holding mints and redeems back for a rebalance, if it still is.
+async function releaseRebalanceRequest(env, indexPk, indexState, now, why) {
+  const live = indexState.rebalanceRequested && now < Number(indexState.rebalanceRequestedAt) + REQUEST_WINDOW_S;
+  if (!EXECUTE || !live) return;
+  log(`  releasing the rebalance request (${why})`);
+  await setRebalanceRequest(env, indexPk, false).catch((e) => log(`  [warn] could not cancel the request: ${e.message ?? e}`));
+}
+
+// `pass` is shared by the baskets of one run, for what only needs checking once per run.
+async function processIndex(env, indexPk, pass = {}) {
   const { connection, program, payer } = env;
   const indexState = await program.account.indexState.fetch(indexPk);
+  const scope = logScope.getStore();
+  if (scope) scope.tag = logTag(indexState.symbol, scope.tag);
 
   if (enumKey(indexState.kind) !== "fixedWeights") {
     log(`  skip ${indexPk.toBase58()}: not a FixedWeights index`);
@@ -1679,8 +1860,12 @@ async function processIndex(env, indexPk) {
   }
   if (indexState.rebalancingPaused) return void log("  skip: rebalancing is paused for this index");
 
-  const nonQuote = components.filter((c) => !c.isQuote && !c.retired).map((c) => c.mint);
-  const prices = await fetchPrices(connection, nonQuote);
+  for (const c of components.filter((x) => x.stuck)) {
+    log(`  ${c.mint.toBase58().slice(0, 6)}.. can't move (${c.stuck})${c.isQuote ? "" : ": left out of rebalances"}`);
+  }
+  if (components.some((c) => c.isQuote && c.stuck)) {
+    return void log("  skip: the USDC vault can't move, so the basket can't rebalance");
+  }
   const vaultInfos = await connection.getMultipleAccountsInfo(
     [...components.map((c) => c.vault), ctx.vaultQuote],
     "confirmed",
@@ -1688,7 +1873,35 @@ async function processIndex(env, indexPk) {
   const vaultAmounts = new Map();
   components.forEach((c, i) => vaultAmounts.set(c.vault.toBase58(), parseTokenAmount(vaultInfos[i])));
   const scratchAtoms = parseTokenAmount(vaultInfos[components.length]);
+  // Writing the books down to what the vaults hold helps every holder, so it's done for any
+  // basket, before the checks below that leave others' baskets alone.
+  const drained = components.filter((c) => (vaultAmounts.get(c.vault.toBase58()) ?? 0n) < c.accountedReserve);
+  if (drained.length) {
+    log(`  ${drained.map((c) => c.mint.toBase58().slice(0, 6)).join(", ")}.. hold less than the basket's books`);
+    if (EXECUTE) {
+      await syncReserves(env, ctx, components, pagePdas);
+      ({ components, pagePdas } = await loadComponents(program, indexPk, pageCount));
+      log("  books written down to what the vaults hold");
+    }
+  }
 
+  // Cheap skips before any pricing, quoting or lookup-table work: a basket this keeper can't
+  // rebalance, or one that failed recently.
+  const key = indexPk.toBase58();
+  if (EXECUTE) {
+    const isOperator = indexState.authority.equals(payer.publicKey) || indexState.rebalanceKeeper.equals(payer.publicKey);
+    if (!isOperator) {
+      return void log(`  skip: ${payer.publicKey.toBase58()} is not this basket's authority or rebalance keeper (set_rebalance_keeper)`);
+    }
+    const retryAt = rebalanceRetryAt.get(key) ?? 0;
+    if (Date.now() < retryAt) {
+      await releaseRebalanceRequest(env, indexPk, indexState, now, "in failure cooldown");
+      return void log(`  skip: last attempt failed; next try after ${new Date(retryAt).toISOString()}`);
+    }
+  }
+
+  const nonQuote = components.filter((c) => !c.isQuote && !c.retired && !c.excluded).map((c) => c.mint);
+  const prices = await fetchPrices(connection, nonQuote);
   const a = assessBasket(components, vaultAmounts, scratchAtoms, prices);
   const changePk = compositionChangePda(indexPk);
   const change = await program.account.compositionChange.fetchNullable(changePk);
@@ -1736,11 +1949,7 @@ async function processIndex(env, indexPk) {
 
   const requestLive = indexState.rebalanceRequested && now < Number(indexState.rebalanceRequestedAt) + REQUEST_WINDOW_S;
   // Never hold users back without a rebalance to run.
-  const releaseRequest = async (why) => {
-    if (!EXECUTE || !requestLive) return;
-    log(`  releasing the rebalance request (${why})`);
-    await setRebalanceRequest(env, indexPk, false).catch((e) => log(`  [warn] could not cancel the request: ${e.message ?? e}`));
-  };
+  const releaseRequest = (why) => releaseRebalanceRequest(env, indexPk, indexState, now, why);
   if (SHOW_PRICES && !EXECUTE) await showPrices(env, ctx, components, prices);
   if (!driftTriggered && !timeTriggered && !compositionTriggered) {
     await releaseRequest("no rebalance needed");
@@ -1761,25 +1970,20 @@ async function processIndex(env, indexPk) {
     return;
   }
 
-  const key = indexPk.toBase58();
-  const retryAt = rebalanceRetryAt.get(key) ?? 0;
-  if (Date.now() < retryAt) {
-    await releaseRequest("in failure cooldown");
-    return void log(`  skip: last attempt failed; next try after ${new Date(retryAt).toISOString()}`);
-  }
-  const isOperator = indexState.authority.equals(payer.publicKey) || indexState.rebalanceKeeper.equals(payer.publicKey);
-  if (!isOperator) {
-    return void log(`  skip: ${payer.publicKey.toBase58()} is not this basket's authority or rebalance keeper (set_rebalance_keeper)`);
-  }
-  // Every rebalance step needs signed prices; don't hold users back without them.
-  const oracleProblem = await oracleProblems(env);
+  // Every rebalance step needs signed prices; don't hold users back without them. The oracle's
+  // health is checked once per run, not once per basket.
+  pass.oracleProblem ??= oracleProblems(env);
+  const oracleProblem = await pass.oracleProblem;
   if (oracleProblem) return void log(`  skip: ${oracleProblem}`);
+  // A token that can't be priced now, or whose market is too thin for what the basket holds or
+  // will hold, means: not this basket, not now. It waits out the cooldown; the others carry on.
   try {
-    await computeOraclePrices(connection, [...pricedTokens(components), ...(changeDue ? await additionTokens(connection, change) : [])]);
+    const additions = changeDue ? await additionTokens(connection, change) : [];
+    await computeOraclePrices(connection, precheckTokens(components, a.nav, changeDue ? change : null, additions));
   } catch (error) {
     rebalanceRetryAt.set(key, Date.now() + FAILURE_COOLDOWN_S * 1000);
     await releaseRequest("its tokens cannot be priced");
-    return void log(`  skip: ${error.message ?? error}`);
+    return void log(`  skip until ${new Date(Date.now() + FAILURE_COOLDOWN_S * 1000).toISOString()}: ${error.message ?? error}`);
   }
 
   // Mints and redeems run concurrently and a rebalance needs them all settled: hold new ones
@@ -1997,21 +2201,31 @@ async function runOnce(env) {
   if (EXECUTE) {
     await closeSettledRebalanceIntents(env).catch((error) => log(`  [warn] could not sweep settled rebalance intents: ${error.message ?? error}`));
   }
-  for (const indexPk of indexes) {
-    if (stopRequested) return;
-    try {
-      await processIndex(env, indexPk);
-    } catch (error) {
-      const msg = error.message ?? String(error);
-      log(`  ERROR processing ${indexPk.toBase58()}: ${msg}`);
-      if (/Invalid bool|Invalid option|buffer|discriminator/i.test(msg)) {
-        log(
-          "  (a decode error usually means the on-chain account layout doesn't match " +
-            "target/idl/basket.json — rebuild with `anchor build` and deploy the matching program)",
-        );
+  const pass = {};
+  await forEachBasket(indexes, KEEPER_CONCURRENCY, (indexPk) => processIndex(env, indexPk, pass));
+}
+
+// Runs `processBasket` for each index, `limit` at a time, each in its own log scope (tagged with
+// the index until the basket names its symbol). A basket's failure is logged and never stops the
+// others; once a stop is requested no new basket starts.
+async function forEachBasket(indexes, limit, processBasket, stopped = () => stopRequested) {
+  await mapConcurrently(indexes, limit, (indexPk) => {
+    if (stopped()) return;
+    return withLogTag(indexPk.toBase58().slice(0, 8), async () => {
+      try {
+        await processBasket(indexPk);
+      } catch (error) {
+        const msg = error.message ?? String(error);
+        log(`  ERROR processing ${indexPk.toBase58()}: ${msg}`);
+        if (/Invalid bool|Invalid option|buffer|discriminator/i.test(msg)) {
+          log(
+            "  (a decode error usually means the on-chain account layout doesn't match " +
+              "target/idl/basket.json — rebuild with `anchor build` and deploy the matching program)",
+          );
+        }
       }
-    }
-  }
+    });
+  });
 }
 
 async function main() {
@@ -2039,6 +2253,8 @@ async function main() {
         keeper: payer.publicKey.toBase58(),
         watch: WATCH,
         batchSize: BATCH_SIZE,
+        concurrency: KEEPER_CONCURRENCY,
+        jupiterConcurrency: JUPITER_CONCURRENCY,
         slippageBps: SLIPPAGE_BPS,
         navToleranceBps: NAV_TOLERANCE_BPS,
         verifyOracleBps: Math.min(MAX_FIXED_WEIGHT_EXECUTION_SLIPPAGE_BPS, SLIPPAGE_BPS + VERIFY_ORACLE_BUFFER_BPS),
@@ -2063,7 +2279,7 @@ async function main() {
   if (WATCH) {
     let wake = () => {};
     const stop = (signal) => {
-      log(`${signal} received; stopping after the current index`);
+      log(`${signal} received; stopping after the baskets being processed`);
       stopRequested = true;
       wake();
     };
@@ -2091,6 +2307,8 @@ export {
   affordableBuys, buyAmount, settleExpiredIntents, requestSignedPrices, oracleProblems, loadComponents, buildContext,
   buildLegEntry, intentPda, basketLookupAddresses, ensureBasketLookupTable, basketTableForSizing,
   buyQuote, closeIntent, closeSettledRebalanceIntents, noLegExecuted, fetchWritten, keeperOpenHeldUntil,
+  markStuck, activeWeightBps, assessBasket, pricedTokens, syncReserves,
+  precheckTokens, processIndex, forEachBasket, withLogTag, log,
 };
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   await main();

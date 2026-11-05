@@ -19,9 +19,12 @@ import {
   compiledSize, PROGRAM_ID, PRICE_ORACLE, sendV0, executeBatchIx, openIx, finalizeIx, packBatches, sendWithFreshPrices,
   waitForSlot, isStalePriceError, assertLegsWithinOracle, affordableBuys, buyAmount, intentPda, basketLookupAddresses,
   ensureBasketLookupTable, pricedStepFootprint, fitsOneTransaction, buyQuote, closeIntent, closeSettledRebalanceIntents,
-  noLegExecuted, fetchWritten, keeperOpenHeldUntil,
+  noLegExecuted, fetchWritten, keeperOpenHeldUntil, markStuck, activeWeightBps, assessBasket, pricedTokens,
+  precheckTokens, forEachBasket, withLogTag, log,
 } from "../scripts/rebalance-bot.mjs";
-import { OraclePriceError, PRICE_SCALE, USDC_MINT, fetchJson, jupiterApis, oraclePrices, scaledUiMultiplier } from "../scripts/lib/price-oracle.mjs";
+import {
+  DepthVerdicts, OraclePriceError, PRICE_SCALE, USDC_MINT, createLimiter, depthProbeUsd, fetchJson, jupiterApis, oraclePrices, scaledUiMultiplier,
+} from "../scripts/lib/price-oracle.mjs";
 import {
   MAX_PRICE_AGE_SLOTS,
   quantizePrice,
@@ -757,4 +760,364 @@ test("the keeper opens inside its own request or after the spacing since the las
   assert.equal(keeperOpenHeldUntil(state(false, 10_000), 10_001), 10_000 + spacing);
   assert.equal(keeperOpenHeldUntil(state(true, 10_000), 10_000 + window), 10_000 + spacing);
   assert.equal(keeperOpenHeldUntil(state(false, 10_000), 10_000 + spacing), null);
+});
+
+test("stuck components are left out of the keeper's pricing and plan, as the program leaves them out", () => {
+  const TOKEN_2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+  const vault = (amount, state = 1) => {
+    const data = Buffer.alloc(165);
+    data.writeBigUInt64LE(amount, 64);
+    data[108] = state;
+    return { owner: TOKEN_PROGRAM_ID, data };
+  };
+  const mint2022 = (extensions) => {
+    const tlv = Buffer.concat(extensions.map(([kind, value]) => {
+      const header = Buffer.alloc(4); header.writeUInt16LE(kind, 0); header.writeUInt16LE(value.length, 2);
+      return Buffer.concat([header, Buffer.from(value)]);
+    }));
+    const data = Buffer.concat([Buffer.alloc(165), Buffer.from([1]), tlv]);
+    return { owner: TOKEN_2022, data };
+  };
+  const classic = { owner: TOKEN_PROGRAM_ID, data: Buffer.alloc(82) };
+  const component = (weight, extra = {}) => ({ mint: Keypair.generate().publicKey, vault: Keypair.generate().publicKey, targetWeightBps: weight, decimals: 6, isQuote: false, retired: false, ...extra });
+  // ORE 40, a frozen token 20, a paused xStock 20, USDC 20.
+  const ore = component(4000), frozen = component(2000), paused = component(2000), usdc = component(2000, { isQuote: true });
+  const components = [ore, frozen, paused, usdc];
+  markStuck(components,
+    [vault(100n), vault(100n, 2), vault(100n), vault(100n)],
+    [classic, classic, mint2022([[26, [...new Array(32).fill(6), 1]]]), classic]);
+  assert.deepEqual(components.map((c) => c.stuck), [null, "VaultFrozen", "MintPaused", null]);
+  assert.deepEqual(components.map((c) => c.proofMint), [false, false, true, false], "only a mint-level block needs the mint as proof");
+  assert.deepEqual(components.map((c) => c.activeWeightBps), [6666, 0, 0, 3333], "the rest share the basket in proportion");
+  assert.equal(activeWeightBps(4000, 0), 4000);
+  assert.deepEqual(pricedTokens(components).map((t) => t.mint), [ore.mint.toBase58()], "the oracle prices only what can move");
+
+  // $60 of ORE and $40 of USDC (6 decimals, $1 each) against 66.66/33.33: ORE is under its
+  // scaled target, so it buys about $6.66 with the USDC above its own.
+  const amounts = new Map([[ore.vault.toBase58(), 60_000_000n], [frozen.vault.toBase58(), 50_000_000n], [paused.vault.toBase58(), 50_000_000n], [usdc.vault.toBase58(), 40_000_000n]]);
+  const a = assessBasket(components, amounts, 0n, new Map([[ore.mint.toBase58(), 1]]));
+  assert.equal(a.nav, 100, "stuck holdings are not counted");
+  assert.ok(a.driftKnown, "stuck components need no price");
+  const row = a.rows.find((r) => r.component === ore);
+  assert.equal(row.side, "buy");
+  assert.equal(row.leg, 6_660_000n);
+  assert.deepEqual(a.rows.filter((r) => r.component.excluded).map((r) => r.leg), [0n, 0n]);
+});
+
+// --- liquidity floor -------------------------------------------------------------------------
+
+// A market where TOKEN trades at $2 (6 decimals) and a round trip of $X costs `cost(X)` bps;
+// buying more than `routeUpTo` dollars finds no route. Counts quotes by size.
+function depthMarket({ cost = () => 0, routeUpTo = Infinity } = {}) {
+  const quotes = [];
+  const fetchJson = async (url) => {
+    if (url.includes("/quote?")) {
+      const u = new URL(url);
+      const amount = BigInt(u.searchParams.get("amount"));
+      if (u.searchParams.get("inputMint") === USDC_MINT) {
+        const usd = Number(amount) / 1e6;
+        quotes.push(usd);
+        if (usd > routeUpTo) throw new Error(`${url} -> 400: {"error":"Could not find any route"}`);
+        return { outAmount: String(amount / 2n), contextSlot: 1_100 };
+      }
+      const usd = (Number(amount) * 2) / 1e6;
+      return { outAmount: String(Math.round(usd * 1e6 * (1 - cost(usd) / 10_000))), contextSlot: 1_100 };
+    }
+    if (url.startsWith("https://price.test")) return { [TOKEN]: { usdPrice: 2, blockId: 1_000 } };
+    return [{ baseToken: { address: TOKEN }, priceUsd: "2", liquidity: { usd: 1e6 } }];
+  };
+  return { quotes, env: { swapApi: "https://swap.test", priceApi: "https://price.test", fetchJson } };
+}
+const held = (tokens) => ({ mint: TOKEN, decimals: 6, label: "TOK", holdingAtoms: BigInt(tokens) * 1_000_000n });
+
+test("the liquidity floor round-trips a tenth of the holding, at least $50 and at most $5,000", () => {
+  assert.equal(depthProbeUsd(0), 0);
+  assert.equal(depthProbeUsd(300), 50, "a small holding is covered by the price probe");
+  assert.equal(depthProbeUsd(20_000), 2_000);
+  assert.equal(depthProbeUsd(1_000_000), 5_000);
+  assert.equal(depthProbeUsd(20_000, { depthFractionBps: 2_500, depthCapUsd: 1_000 }), 1_000);
+});
+
+test("a token is priced only if its market can take a share of what the basket holds", async () => {
+  // 10,000 tokens at $2: the floor round-trips $2,000, which costs 3% here: priced, at the
+  // $50 trip's price.
+  const deep = depthMarket({ cost: (usd) => (usd > 100 ? 300 : 0) });
+  const prices = await oraclePrices([held(10_000)], deep.env);
+  assert.deepEqual(deep.quotes, [50, 2_000]);
+  assert.equal(prices.get(TOKEN).spreadBps, 0);
+  assert.deepEqual(prices.get(TOKEN).depth, { usd: 2_000, spreadBps: 300 });
+  // The same market costing 5% at that size is too thin for the holding.
+  const thin = depthMarket({ cost: (usd) => (usd > 100 ? 500 : 0) });
+  await assert.rejects(oraclePrices([held(10_000)], thin.env), (e) => e instanceof OraclePriceError
+    && /TOK: round trip of \$2,000 \(10\.0% of the basket's \$20,000 holding\) costs 5\.00%, over the 4\.00% cap: the market is too thin/.test(e.message));
+  // No route for the deeper trip is a refusal too.
+  await assert.rejects(oraclePrices([held(10_000)], depthMarket({ routeUpTo: 1_000 }).env), /\$2,000 .* found no route .* too thin/);
+  // Any other failure of the deeper trip (a rate limit, a timeout) is a failure, not a verdict.
+  const limited = depthMarket();
+  const limitedFetch = limited.env.fetchJson;
+  limited.env.fetchJson = async (url, init) => {
+    if (url.includes("amount=2000000000")) throw new Error(`${url} -> 429: slow down`);
+    return limitedFetch(url, init);
+  };
+  await assert.rejects(oraclePrices([held(10_000)], limited.env), (e) => /-> 429: slow down/.test(e.message) && !/too thin/.test(e.message));
+  // A holding of $300 needs nothing past the price probe; neither does a token held by nothing.
+  for (const token of [held(150), { mint: TOKEN, decimals: 6 }]) {
+    const small = depthMarket({ cost: () => 0 });
+    assert.equal((await oraclePrices([token], small.env)).get(TOKEN).depth, null);
+    assert.deepEqual(small.quotes, [50]);
+  }
+  // A USD holding (what the basket will hold after buying) counts like one in raw units, and
+  // the cap holds: $100,000 is probed at $5,000.
+  const big = depthMarket({ cost: () => 0 });
+  await oraclePrices([{ mint: TOKEN, decimals: 6, holdingUsd: 100_000 }], big.env);
+  assert.deepEqual(big.quotes, [50, 5_000]);
+  // A token whose price trip already fails is not probed deeper.
+  const wide = depthMarket({ cost: () => 600 });
+  await assert.rejects(oraclePrices([held(10_000)], wide.env), /spread 6\.00% is too wide/);
+  assert.deepEqual(wide.quotes, [50]);
+});
+
+test("a depth pass is remembered for ten minutes and covers smaller sizes only", async () => {
+  let now = 0;
+  const verdicts = new DepthVerdicts(undefined, () => now);
+  const market = depthMarket({ cost: (usd) => (usd > 100 ? 100 : 0) });
+  const env = { ...market.env, depthVerdicts: verdicts };
+  await oraclePrices([held(10_000)], env);
+  await oraclePrices([held(8_000)], env);
+  assert.deepEqual(market.quotes, [50, 2_000, 50], "a smaller holding rides on the pass");
+  await oraclePrices([held(15_000)], env);
+  assert.deepEqual(market.quotes.slice(3), [50, 3_000], "a larger one is probed again");
+  now = 10 * 60_000 + 1;
+  await oraclePrices([held(10_000)], env);
+  assert.deepEqual(market.quotes.slice(5), [50, 2_000], "and so is any after ten minutes");
+  // A refusal is never remembered as a pass.
+  const thin = depthMarket({ cost: (usd) => (usd > 100 ? 500 : 0) });
+  const fresh = new DepthVerdicts();
+  await assert.rejects(oraclePrices([held(10_000)], { ...thin.env, depthVerdicts: fresh }));
+  assert.equal(fresh.covers(TOKEN, 2_000), false);
+});
+
+test("the keeper's check before a rebalance floors each token at what it holds or will hold", () => {
+  const component = (globalIndex, weight, extra = {}) => ({ globalIndex, mint: pk(), decimals: 6, targetWeightBps: weight, activeWeightBps: weight, isQuote: false, retired: false, accountedReserve: 5_000_000n, ...extra });
+  const a = component(0, 4_000), b = component(1, 1_000), usdc = component(2, 5_000, { isQuote: true });
+  const added = pk();
+  const change = { targetWeightsBps: [2_000, 3_000, 4_000], additions: [{ mint: added, targetWeightBps: 1_000 }] };
+  const tokens = precheckTokens([a, b, usdc], 10_000, change, [{ mint: added.toBase58(), decimals: 9, label: "ADD" }]);
+  assert.deepEqual(tokens.map((t) => [t.mint, t.holdingAtoms, t.holdingUsd]), [
+    [a.mint.toBase58(), 5_000_000n, 4_000], // its current 40% beats the new 20%
+    [b.mint.toBase58(), 5_000_000n, 3_000], // the change raises it to 30%
+    [added.toBase58(), undefined, 1_000], // an addition at its 10%
+  ]);
+  assert.deepEqual(precheckTokens([a], 0).map((t) => t.holdingUsd), [0], "an unknown NAV leaves the books' holding");
+});
+
+// --- keeper scheduling -------------------------------------------------------------------------
+
+function captureLogs() {
+  const lines = [];
+  const real = console.log;
+  console.log = (...args) => lines.push(args.join(" "));
+  return { lines, restore: () => (console.log = real) };
+}
+
+test("baskets are processed a few at a time, each tagged in the logs, and one failing stops none", async () => {
+  const indexes = Array.from({ length: 7 }, pk);
+  const failing = indexes[2].toBase58();
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const done = [];
+  const logs = captureLogs();
+  try {
+    await forEachBasket(indexes, 3, async (index) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      try {
+        log(`\nindex ${index.toBase58()}`);
+        await new Promise((r) => setTimeout(r, 15));
+        if (index.toBase58() === failing) throw new Error("boom");
+        log("  done");
+        done.push(index.toBase58());
+      } finally {
+        inFlight -= 1;
+      }
+    }, () => false);
+  } finally {
+    logs.restore();
+  }
+  assert.equal(maxInFlight, 3);
+  assert.equal(done.length, 6);
+  for (const index of indexes.map(String)) {
+    const tag = `[${index.slice(0, 8)}]`;
+    assert.ok(logs.lines.includes(`\n${tag} index ${index}`), "the blank line stays before the tag");
+    assert.ok(logs.lines.includes(index === failing ? `${tag}   ERROR processing ${index}: boom` : `${tag}   done`), index);
+  }
+  // Once a stop is asked for, no new basket starts.
+  const started = [];
+  let stop = false;
+  await forEachBasket(indexes, 2, async (index) => {
+    started.push(index);
+    await new Promise((r) => setTimeout(r, 5));
+    stop = true;
+  }, () => stop);
+  assert.equal(started.length, 2, "the two already running finish; nothing new starts");
+  // Outside a basket nothing is tagged.
+  const plain = captureLogs();
+  try {
+    log("discovering");
+    withLogTag("SOV", () => log({ a: 1 }));
+  } finally {
+    plain.restore();
+  }
+  assert.deepEqual(plain.lines, ["discovering", "[SOV] [object Object]"]);
+});
+
+test("a limiter lets a fixed number of calls run at once and frees its place on failure", async () => {
+  const gate = createLimiter(2);
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const results = await Promise.allSettled(Array.from({ length: 6 }, (_, i) => gate(async () => {
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((r) => setTimeout(r, 5));
+    inFlight -= 1;
+    if (i === 1) throw new Error("failed");
+    return i;
+  })));
+  assert.equal(maxInFlight, 2);
+  assert.deepEqual(results.map((r) => r.status), ["fulfilled", "rejected", "fulfilled", "fulfilled", "fulfilled", "fulfilled"]);
+  assert.equal(await gate(async () => "after"), "after", "no place was lost");
+});
+
+// A keeper module loaded with --execute, and a chain holding one basket: 10,000 tokens at $2 in
+// a 50/50 basket with USDC that is due by time. Jupiter is faked through globalThis.fetch, where
+// a $2,000 round trip costs 5%.
+async function executingKeeper() {
+  const saved = process.argv;
+  process.argv = [...saved, "--execute"];
+  try {
+    return await import(`../scripts/rebalance-bot.mjs?execute=${Date.now()}`);
+  } finally {
+    process.argv = saved;
+  }
+}
+
+function thinBasketChain({ operator }) {
+  const usdcMint = new PublicKey(USDC_MINT);
+  const index = pk();
+  const token = pk();
+  const tokenVault = pk();
+  const usdcVault = pk();
+  const accounts = new Map();
+  const tokenAccount = (amount) => {
+    const data = Buffer.alloc(165);
+    data.writeBigUInt64LE(amount, 64);
+    data[108] = 1;
+    return { owner: TOKEN_PROGRAM_ID, data, lamports: 1, executable: false };
+  };
+  accounts.set(tokenVault.toBase58(), tokenAccount(10_000_000_000n));
+  accounts.set(usdcVault.toBase58(), tokenAccount(0n));
+  const mintInfo = { owner: TOKEN_PROGRAM_ID, data: Buffer.alloc(82), lamports: 1, executable: false };
+  const clock = Buffer.alloc(40);
+  clock.writeBigInt64LE(1_700_000_000n, 32);
+  const connection = {
+    getAccountInfo: async () => ({ owner: SystemProgram.programId, data: clock, lamports: 1, executable: false }),
+    getMultipleAccountsInfo: async (keys) => keys.map((k) => accounts.get(k.toBase58()) ?? mintInfo),
+  };
+  const oracle = Keypair.generate();
+  const other = pk();
+  const state = {
+    kind: { fixedWeights: {} },
+    symbol: "THIN",
+    largeBasketConfigured: true,
+    fixedWeightQuoteMint: usdcMint,
+    largeBasketPageCount: 1,
+    largeBasketOperationInProgress: false,
+    rebalancingPaused: false,
+    authority: other,
+    rebalanceKeeper: operator ? keeper.publicKey : other,
+    indexMint: pk(),
+    fixedWeightDriftThresholdBps: 500,
+    fixedWeightRebalanceIntervalSeconds: 3_600,
+    fixedWeightLastRebalancedAt: 0,
+    compositionRebalanceDue: false,
+    rebalanceRequested: false,
+    rebalanceRequestedAt: 0,
+    openIntentCount: 0,
+  };
+  const reserve = (amount) => new anchor.BN(amount);
+  const page = {
+    startComponentIndex: 0,
+    pageIndex: 0,
+    components: [
+      { mint: token, unitsPerIndex: reserve(1), targetWeightBps: 5_000, tokenProgram: TOKEN_PROGRAM_ID, vault: tokenVault, decimals: 6, accountedReserve: reserve("10000000000") },
+      { mint: usdcMint, unitsPerIndex: reserve(1), targetWeightBps: 5_000, tokenProgram: TOKEN_PROGRAM_ID, vault: usdcVault, decimals: 6, accountedReserve: reserve(0) },
+    ],
+  };
+  const program = {
+    provider: { connection },
+    account: {
+      indexState: { fetch: async () => state },
+      largeBasketComponentPage: { fetch: async () => page },
+      compositionChange: { fetchNullable: async () => null },
+      priceOracle: { fetchNullable: async () => ({ oracle: oracle.publicKey }) },
+    },
+  };
+  return { index, token: token.toBase58(), env: { connection, program, payer: keeper, oracle } };
+}
+
+function jupiterFor(token) {
+  const urls = [];
+  const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  const fetch = async (url) => {
+    const u = new URL(String(url));
+    urls.push(u.pathname);
+    if (u.pathname.endsWith("/quote")) {
+      const amount = BigInt(u.searchParams.get("amount"));
+      if (u.searchParams.get("inputMint") === USDC_MINT) return json({ outAmount: String(amount / 2n), contextSlot: 1_100 });
+      const usd = (Number(amount) * 2) / 1e6;
+      return json({ outAmount: String(Math.round(usd * 1e6 * (1 - (usd > 100 ? 500 : 0) / 10_000))), contextSlot: 1_100 });
+    }
+    if (u.hostname.includes("dexscreener")) return json([{ baseToken: { address: token }, priceUsd: "2", liquidity: { usd: 1e6 } }]);
+    return json({ [token]: { usdPrice: 2, blockId: 0 } });
+  };
+  return { urls, fetch };
+}
+
+test("a basket whose market is too thin is skipped and cooled down before anything is held back", async () => {
+  const bot = await executingKeeper();
+  const { index, token, env } = thinBasketChain({ operator: true });
+  const jupiter = jupiterFor(token);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = jupiter.fetch;
+  const logs = captureLogs();
+  try {
+    await bot.withLogTag("idx", () => bot.processIndex(env, index));
+    assert.ok(jupiter.urls.filter((p) => p.endsWith("/quote")).length >= 4, "priced, then probed at $2,000");
+    assert.ok(logs.lines.some((l) => /^\[THIN\]   skip until .*: could not price .*: round trip of \$2,000 .* costs 5\.00%, over the 4\.00% cap/.test(l)), logs.lines.join("\n"));
+    // The next pass leaves it alone before pricing anything.
+    jupiter.urls.length = 0;
+    await bot.withLogTag("idx", () => bot.processIndex(env, index));
+    assert.deepEqual(jupiter.urls, []);
+    assert.ok(logs.lines.some((l) => /^\[THIN\]   skip: last attempt failed; next try after/.test(l)));
+  } finally {
+    logs.restore();
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("a basket this keeper doesn't operate is skipped before any pricing", async () => {
+  const bot = await executingKeeper();
+  const { index, token, env } = thinBasketChain({ operator: false });
+  const jupiter = jupiterFor(token);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = jupiter.fetch;
+  const logs = captureLogs();
+  try {
+    await bot.withLogTag("idx", () => bot.processIndex(env, index));
+  } finally {
+    logs.restore();
+    globalThis.fetch = realFetch;
+  }
+  assert.deepEqual(jupiter.urls, []);
+  assert.ok(logs.lines.some((l) => l.startsWith("[THIN]   skip:") && l.includes("is not this basket's authority or rebalance keeper")), logs.lines.join("\n"));
 });

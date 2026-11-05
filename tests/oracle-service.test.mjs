@@ -294,3 +294,73 @@ test("the keeper checks the program accepts the service's key and it is not the 
   assert.match(await oracleProblems(localEnv(ORACLE)), /not this oracle key/);
   assert.match(await oracleProblems({ payer: { publicKey: keeper }, program: programAccepting(ORACLE) }), /no oracle key/);
 });
+
+test("each basket has its own hourly budget inside the overall one", async () => {
+  let now = 0;
+  const budget = new SignatureBudget(5, () => now, 2);
+  budget.spend("A");
+  budget.spend("A");
+  assert.equal(budget.remaining("A"), 0);
+  assert.equal(budget.remaining("B"), 2, "a busy basket leaves the others theirs");
+  assert.equal(budget.remaining(), 3);
+  budget.spend("B");
+  budget.spend("C");
+  budget.spend("C");
+  assert.equal(budget.remaining("D"), 0, "the overall budget still binds");
+  assert.equal(budget.basketRemaining("D"), 2);
+  now = 3_600_001;
+  assert.equal(budget.remaining("A"), 2);
+  assert.equal(new SignatureBudget(3).remaining("any"), 3, "without a basket budget only the overall one counts");
+
+  // Through the service: two baskets, one signature each an hour.
+  const other = Keypair.generate().publicKey;
+  const { deps, signed } = fakeService({ budget: new SignatureBudget(10, undefined, 1) });
+  const basket = deps.basket;
+  deps.basket = (index) => basket(index.equals(other) ? INDEX : index);
+  await serve(deps, async (url) => {
+    await ask(url, { nonce: 1n });
+    await assert.rejects(ask(url, { nonce: 2n }), (e) => e.status === 429 && new RegExp(`basket ${INDEX.toBase58()} has used its 1 signatures this hour`).test(e.message));
+    await ask(url, { index: other, nonce: 3n });
+  });
+  assert.equal(signed.length, 2);
+  const spent = fakeService({ budget: new SignatureBudget(1, undefined, 1) });
+  spent.deps.budget.spend("elsewhere");
+  await serve(spent.deps, async (url) => {
+    await assert.rejects(ask(url, {}), (e) => e.status === 429 && /the budget of 1 signatures an hour is spent/.test(e.message));
+  });
+});
+
+test("holdings go to pricing at an intent's first signature for a mint, not for the rest of it", async () => {
+  const seen = [];
+  const { deps } = fakeService({ budget: new SignatureBudget(10) });
+  const basket = deps.basket;
+  deps.basket = async (index) => ({
+    components: (await basket(index)).components.map((c) => ({ ...c, holdingAtoms: BigInt(c.index + 1) * 1_000_000_000n })),
+  });
+  const price = deps.price;
+  deps.price = async (tokens, options) => {
+    seen.push(tokens.map((t) => [t.mint, t.holdingAtoms ?? null]));
+    return price(tokens, options);
+  };
+  await serve(deps, async (url) => {
+    await ask(url, { nonce: 1n, mints: [mintA] });
+    await ask(url, { nonce: 1n, mints: [mintA, mintB] });
+    await ask(url, { nonce: 2n, mints: [mintA] });
+    await ask(url, { nonce: 2n, mints: [mintA], dryRun: true });
+  });
+  assert.deepEqual(seen, [
+    [[mintA, 1_000_000_000n]],
+    [[mintA, null], [mintB, 3_000_000_000n]], // mintB is new to intent 1
+    [[mintA, 1_000_000_000n]], // a new intent checks again
+    [[mintA, null]],
+  ]);
+  // A token the floor refuses is a pricing failure: retryable, with the reason.
+  const thin = fakeService({
+    price: async () => {
+      throw new OraclePriceError([{ mint: mintA, label: "mintA", reason: "round trip of $2,000 (10.0% of the basket's $20,000 holding) costs 5.00%, over the 4.00% cap: the market is too thin for what the basket holds" }]);
+    },
+  });
+  await serve(thin.deps, async (url) => {
+    await assert.rejects(ask(url, {}), (e) => e.status === 503 && /too thin for what the basket holds/.test(e.message));
+  });
+});

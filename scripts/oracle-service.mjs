@@ -12,7 +12,12 @@
 //
 // Whatever the caller asks, the service:
 //   - signs only for a FixedWeights basket, and only mints that basket holds;
-//   - signs at most --max-signatures-per-hour messages;
+//   - prices a token only if its market can take a share of what the basket holds of it (the
+//     liquidity floor in scripts/lib/price-oracle.mjs), probed at the first signature for an
+//     intent so a rebalance isn't refused halfway;
+//   - signs at most --max-signatures-per-hour messages in all, and at most
+//     --max-signatures-per-basket-per-hour for any one basket, so one busy or failing basket
+//     can't use up what the others need;
 //   - refuses a price more than --max-move-bps from the first price it signed for the same
 //     intent (which pins a rebalance to its opening prices), or otherwise from the last price it
 //     signed for that mint within --move-window-s, so a rebalance can't be walked along a
@@ -29,9 +34,14 @@
 //   POST /sign {"index", "nonce", "mints": [...], "dryRun"}  Authorization: Bearer $ORACLE_API_TOKEN
 //     -> { slot, intent, message, signature (both base64), oracle, prices }
 //
-//   node scripts/oracle-service.mjs [--port 8080] [--max-signatures-per-hour 120]
-//     [--max-move-bps 1500] [--move-window-s 900] [--self-check-interval-s 3600]
-//     [--price-probe-usd 50] [--price-max-spread-bps 400] [--price-max-deviation-bps 300]
+//   node scripts/oracle-service.mjs [--port 8080] [--max-signatures-per-hour 600]
+//     [--max-signatures-per-basket-per-hour 60] [--max-move-bps 1500] [--move-window-s 900]
+//     [--self-check-interval-s 3600] [--price-probe-usd 50] [--price-max-spread-bps 400]
+//     [--price-max-deviation-bps 300] [--price-depth-fraction-bps 1000] [--price-depth-cap-usd 5000]
+//
+// The budgets and the liquidity floor can also be set by env (a flag wins):
+// ORACLE_MAX_SIGNATURES_PER_HOUR, ORACLE_MAX_SIGNATURES_PER_BASKET_PER_HOUR,
+// ORACLE_DEPTH_FRACTION_BPS, ORACLE_DEPTH_CAP_USD.
 //
 // Env: ORACLE_KEYPAIR (secret key JSON array) or ORACLE_WALLET (path to one), ORACLE_API_TOKEN
 //      (32+ characters, shared with the keeper), SOLANA_RPC_URL (the keeper's provider, so the
@@ -46,7 +56,16 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { OraclePriceError, USDC_MINT, fetchJson, jupiterApiKey, jupiterApis, oraclePrices, readUiMultipliers } from "./lib/price-oracle.mjs";
+import {
+  DepthVerdicts,
+  OraclePriceError,
+  USDC_MINT,
+  fetchJson,
+  jupiterApiKey,
+  jupiterApis,
+  oraclePrices,
+  readUiMultipliers,
+} from "./lib/price-oracle.mjs";
 import {
   MAX_PRICE_AGE_SLOTS,
   encodePriceMessage,
@@ -81,9 +100,16 @@ function flagValue(name, fallback) {
   return idx >= 0 && idx + 1 < argv.length ? argv[idx + 1] : fallback;
 }
 
+// A flag, else the env variable, else the default.
+const setting = (flag, envName, fallback) => Number(flagValue(flag, process.env[envName] || fallback));
+
+// A large basket's rebalance takes about one signature per batch of legs plus open, finalize and
+// re-signs: about 30 for 45 components at two legs a batch. 60 an hour covers one with room to
+// retry; 600 in all lets ten baskets do that in the same hour.
 const CONFIG = {
   port: Number(flagValue("--port", process.env.PORT ?? "8080")),
-  maxSignaturesPerHour: Number(flagValue("--max-signatures-per-hour", "120")),
+  maxSignaturesPerHour: setting("--max-signatures-per-hour", "ORACLE_MAX_SIGNATURES_PER_HOUR", "600"),
+  maxSignaturesPerBasketPerHour: setting("--max-signatures-per-basket-per-hour", "ORACLE_MAX_SIGNATURES_PER_BASKET_PER_HOUR", "60"),
   maxMoveBps: Number(flagValue("--max-move-bps", "1500")),
   moveWindowS: Number(flagValue("--move-window-s", "900")),
   selfCheckIntervalS: Number(flagValue("--self-check-interval-s", "3600")),
@@ -91,6 +117,8 @@ const CONFIG = {
     probeUsd: Number(flagValue("--price-probe-usd", "50")),
     maxSpreadBps: Number(flagValue("--price-max-spread-bps", "400")),
     maxDeviationBps: Number(flagValue("--price-max-deviation-bps", "300")),
+    depthFractionBps: setting("--price-depth-fraction-bps", "ORACLE_DEPTH_FRACTION_BPS", "1000"),
+    depthCapUsd: setting("--price-depth-cap-usd", "ORACLE_DEPTH_CAP_USD", "5000"),
   },
 };
 
@@ -182,6 +210,11 @@ export class MoveGuard {
     return moves;
   }
 
+  /** Whether `mint` was signed for `intent` already (so its liquidity floor was checked). */
+  signedFor(intent, mint) {
+    return Boolean(this.intents.get(intent)?.first.has(mint));
+  }
+
   record(intent, prices) {
     const now = this.now();
     let entry = this.intents.get(intent);
@@ -196,22 +229,36 @@ export class MoveGuard {
   }
 }
 
-// Signatures made in the last hour, so a misbehaving caller can only get so many.
+// Signatures made in the last hour, so a misbehaving caller can only get so many: `perHour` in
+// all, and `perBasketPerHour` for any one basket so a busy one can't starve the rest.
 export class SignatureBudget {
-  constructor(perHour, now = () => Date.now()) {
+  constructor(perHour, now = () => Date.now(), perBasketPerHour = perHour) {
     this.perHour = perHour;
+    this.perBasketPerHour = perBasketPerHour;
     this.now = now;
-    this.made = [];
+    this.made = []; // { at, basket }
   }
 
-  remaining() {
+  prune() {
     const cutoff = this.now() - 3_600_000;
-    this.made = this.made.filter((t) => t > cutoff);
-    return this.perHour - this.made.length;
+    this.made = this.made.filter((t) => t.at > cutoff);
   }
 
-  spend() {
-    this.made.push(this.now());
+  /** Signatures left this hour in all, or for `basket` (base58) when given. */
+  remaining(basket) {
+    this.prune();
+    const left = this.perHour - this.made.length;
+    return basket === undefined ? left : Math.min(left, this.basketRemaining(basket));
+  }
+
+  /** Signatures left this hour for `basket` alone, whatever the overall budget says. */
+  basketRemaining(basket) {
+    this.prune();
+    return this.perBasketPerHour - this.made.filter((t) => t.basket === basket).length;
+  }
+
+  spend(basket) {
+    this.made.push({ at: this.now(), basket });
   }
 }
 
@@ -259,8 +306,8 @@ async function readJsonBody(req) {
 }
 
 // Why a signature can't be made now: the program doesn't accept this key, a price moved too
-// far, or the hourly budget is spent.
-async function signBlockers(deps, intent, prices) {
+// far, or the hourly budget (overall or the basket's own) is spent.
+async function signBlockers(deps, intent, prices, basket) {
   const blockers = [];
   const configured = await deps.configuredOracle();
   if (!configured) {
@@ -275,7 +322,9 @@ async function signBlockers(deps, intent, prices) {
     });
   }
   if (deps.budget.remaining() < 1) {
-    blockers.push({ status: 429, message: `the budget of ${deps.config.maxSignaturesPerHour} signatures an hour is spent` });
+    blockers.push({ status: 429, message: `the budget of ${deps.budget.perHour} signatures an hour is spent` });
+  } else if (deps.budget.basketRemaining(basket) < 1) {
+    blockers.push({ status: 429, message: `basket ${basket} has used its ${deps.budget.perBasketPerHour} signatures this hour` });
   }
   return blockers;
 }
@@ -288,14 +337,23 @@ async function priceAndSign(deps, { index, nonce, mints, dryRun }) {
   // how old the prices themselves are, not just how long ago they were signed.
   const slot = await deps.slot();
   const deadline = AbortSignal.timeout(PRICING_TIMEOUT_MS);
+  // The liquidity floor is checked at the intent's first signature for each mint (the open, which
+  // prices every token) and holds for the rest of it, so a rebalance whose buys grow a holding
+  // isn't refused halfway.
+  const tokens = components.map((c) => ({
+    mint: c.mint,
+    decimals: c.decimals,
+    label: c.mint.slice(0, 6),
+    ...(c.holdingAtoms && !deps.moves.signedFor(intent, c.mint) ? { holdingAtoms: c.holdingAtoms } : {}),
+  }));
   let prices;
   try {
-    prices = await deps.price(components.map((c) => ({ mint: c.mint, decimals: c.decimals, label: c.mint.slice(0, 6) })), { signal: deadline });
+    prices = await deps.price(tokens, { signal: deadline });
   } catch (error) {
     if (deadline.aborted) throw new RequestError(503, `pricing took over ${PRICING_TIMEOUT_MS / 1000}s and was stopped`);
     throw error;
   }
-  const blockers = await signBlockers(deps, intent, prices);
+  const blockers = await signBlockers(deps, intent, prices, index.toBase58());
   const pricingSlots = (await deps.slot()) - slot;
   if (pricingSlots > MAX_PRICING_SLOTS) {
     blockers.push({
@@ -314,7 +372,7 @@ async function priceAndSign(deps, { index, nonce, mints, dryRun }) {
     entries: components.map((c) => ({ componentIndex: c.index, price: prices.get(c.mint).scaled })),
   });
   const signature = deps.sign(message);
-  deps.budget.spend();
+  deps.budget.spend(index.toBase58());
   deps.moves.record(intent, prices);
   deps.log?.(`[signed] intent ${intent.slice(0, 8)}.. slot ${slot}: ${describePrices(prices)}`);
   return { ...result, slot, message: message.toString("base64"), signature: Buffer.from(signature).toString("base64") };
@@ -323,7 +381,8 @@ async function priceAndSign(deps, { index, nonce, mints, dryRun }) {
 /**
  * The service's request handler, over injected chain access so tests can run it without one.
  * deps: { programId, oracle (base58), token, config, budget: SignatureBudget, moves: MoveGuard,
- *   log?, basket(index) -> { components: [{ index, mint, decimals }] }, price(tokens) -> Map,
+ *   log?, basket(index) -> { components: [{ index, mint, decimals, holdingAtoms? }] },
+ *   price(tokens, { signal }) -> Map,
  *   configuredOracle() -> base58 | null, slot() -> number, sign(message) -> signature,
  *   status() -> object }
  */
@@ -359,8 +418,9 @@ export function createHandler(deps) {
 // --- chain ---------------------------------------------------------------------------------
 
 function chainDeps({ connection, program, oracle, config }) {
-  const budget = new SignatureBudget(config.maxSignaturesPerHour);
+  const budget = new SignatureBudget(config.maxSignaturesPerHour, undefined, config.maxSignaturesPerBasketPerHour);
   const moves = new MoveGuard(config);
+  const depthVerdicts = new DepthVerdicts();
   let selfCheck = null;
 
   // The program's own account at `address`, decoded, or null.
@@ -389,12 +449,15 @@ function chainDeps({ connection, program, oracle, config }) {
       index: page.startComponentIndex + i,
       mint: c.mint.toBase58(),
       decimals: c.decimals,
+      // What the basket's books say it holds, for the liquidity floor.
+      holdingAtoms: BigInt(c.accountedReserve.toString()),
     })));
     return { components };
   }
 
   // Every token a FixedWeights basket would price in a rebalance now (held, not retired), for
-  // the self-check; a pending composition change's additions are priced too.
+  // the self-check, with the largest holding any basket has of it for the liquidity floor; a
+  // pending composition change's additions are priced too.
   async function rebalancedTokens() {
     const indexes = await program.account.indexState.all([
       {
@@ -415,7 +478,9 @@ function chainDeps({ connection, program, oracle, config }) {
       for (const c of account.components) {
         const mint = c.mint.toBase58();
         if (mint === USDC_MINT || (c.targetWeightBps === 0 && c.accountedReserve.isZero())) continue;
-        tokens.set(mint, { mint, decimals: c.decimals, label: mint.slice(0, 6) });
+        const holdingAtoms = BigInt(c.accountedReserve.toString());
+        const seen = tokens.get(mint);
+        if (!seen || holdingAtoms > seen.holdingAtoms) tokens.set(mint, { mint, decimals: c.decimals, label: mint.slice(0, 6), holdingAtoms });
       }
     }
     const added = [
@@ -442,6 +507,7 @@ function chainDeps({ connection, program, oracle, config }) {
       priceApi: JUPITER_PRICE_API,
       fetchJson,
       uiMultipliers: (mints) => readUiMultipliers(connection, mints),
+      depthVerdicts,
       signal,
     });
   }
@@ -456,6 +522,7 @@ function chainDeps({ connection, program, oracle, config }) {
       oracle: oracle.publicKey.toBase58(),
       priceOracle: PRICE_ORACLE.toBase58(),
       signaturesLeftThisHour: budget.remaining(),
+      signaturesPerBasketPerHour: budget.perBasketPerHour,
       selfCheck,
     };
     try {

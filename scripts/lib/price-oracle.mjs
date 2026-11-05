@@ -8,6 +8,12 @@
 // and the round trip costs under MAX_SPREAD_BPS without gaining money. A token failing any
 // check is not priced, so its basket does not rebalance until it can be.
 //
+// Liquidity floor: a $50 round trip says nothing about whether the market can take what a basket
+// holds, and a thin pool is cheap to push. So a token the caller says the basket holds is also
+// round-tripped at depthProbeUsd(holding): a tenth of the holding, at least the price probe and
+// at most $5,000. If that costs over MAX_SPREAD_BPS the token is not priced. A pass is remembered
+// for a while (DepthVerdicts), so the steps of one rebalance don't probe again.
+//
 // MAX_SPREAD_BPS must stay well under twice the per-leg execution bound the keeper passes
 // (max_oracle_slippage_bps): a trade fills about half the spread away from the midpoint, so a
 // wider token could be priced but never traded within the bound.
@@ -30,7 +36,16 @@ export const DEFAULT_ORACLE_CONFIG = {
   probeUsd: 50,
   maxSpreadBps: 400,
   maxDeviationBps: 300,
+  // The liquidity floor's round trip: this share of the basket's holding, capped. A
+  // drift-triggered leg trades a few percent to a few tens of percent of a holding, so a tenth
+  // is a typical leg; a market taking $5,000 within the spread cap is deep enough for any leg
+  // the per-leg bound lets through.
+  depthFractionBps: 1_000,
+  depthCapUsd: 5_000,
 };
+// A depth pass holds this long: about one rebalance, and short enough that liquidity added just
+// to pass and then pulled is soon probed again.
+export const DEPTH_VERDICT_TTL_MS = 10 * 60_000;
 // A round trip that gains money means one leg priced off a stale or pushed pool.
 const MIN_SPREAD_BPS = -50;
 // Tokens priced at once. Open and finalize price every token of a basket, and the oracle stamps
@@ -81,7 +96,7 @@ export async function fetchJson(url, init = {}, attempts = 4) {
 }
 
 // `fn` over `items`, at most `limit` at a time, results in order.
-async function mapConcurrently(items, limit, fn) {
+export async function mapConcurrently(items, limit, fn) {
   const results = new Array(items.length);
   let next = 0;
   const worker = async () => {
@@ -93,6 +108,65 @@ async function mapConcurrently(items, limit, fn) {
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
+}
+
+/**
+ * A gate letting at most `limit` calls run at once; `run(fn)` waits its turn, then runs fn. A
+ * finished call hands its place straight to the next waiting one.
+ */
+export function createLimiter(limit) {
+  let active = 0;
+  const waiting = [];
+  const release = () => {
+    const next = waiting.shift();
+    if (next) next();
+    else active -= 1;
+  };
+  return async (fn) => {
+    if (active < limit) active += 1;
+    else await new Promise((resolve) => waiting.push(resolve));
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  };
+}
+
+/**
+ * The size of the liquidity floor's round trip for a holding worth `holdingUsd`: the configured
+ * share of it, at least the price probe and at most the cap. 0 when nothing is held.
+ */
+export function depthProbeUsd(holdingUsd, cfg = DEFAULT_ORACLE_CONFIG) {
+  if (!(holdingUsd > 0)) return 0;
+  const { probeUsd, depthFractionBps, depthCapUsd } = { ...DEFAULT_ORACLE_CONFIG, ...cfg };
+  return Math.min(depthCapUsd, Math.max(probeUsd, (holdingUsd * depthFractionBps) / 10_000));
+}
+
+/** Depth round trips that passed recently, by mint: the largest size that passed, and when. */
+export class DepthVerdicts {
+  constructor(ttlMs = DEPTH_VERDICT_TTL_MS, now = () => Date.now()) {
+    this.ttlMs = ttlMs;
+    this.now = now;
+    this.passed = new Map(); // mint -> { usd, at }
+  }
+
+  fresh(mint) {
+    const verdict = this.passed.get(mint);
+    if (verdict && this.now() - verdict.at > this.ttlMs) this.passed.delete(mint);
+    return this.passed.get(mint);
+  }
+
+  /** Whether a round trip of at least `usd` passed recently. */
+  covers(mint, usd) {
+    return (this.fresh(mint)?.usd ?? 0) >= usd;
+  }
+
+  record(mint, usd) {
+    for (const key of [...this.passed.keys()]) this.fresh(key);
+    const verdict = this.passed.get(mint);
+    if (!verdict || usd >= verdict.usd) this.passed.set(mint, { usd, at: this.now() });
+  }
 }
 
 export class OraclePriceError extends Error {
@@ -167,8 +241,8 @@ async function quote(env, inputMint, outputMint, amount) {
 }
 
 // Round-trip midpoint, exact in integers: (USDC in + USDC back) / (2 × tokens bought).
-async function roundTrip(env, token) {
-  const probeAtoms = BigInt(Math.round(env.probeUsd * 10 ** USDC_DECIMALS));
+async function roundTrip(env, token, usd = env.probeUsd) {
+  const probeAtoms = BigInt(Math.round(usd * 10 ** USDC_DECIMALS));
   const buy = await quote(env, USDC_MINT, token.mint, probeAtoms);
   const tokens = BigInt(buy.outAmount);
   const sell = await quote(env, token.mint, USDC_MINT, tokens);
@@ -179,6 +253,43 @@ async function roundTrip(env, token) {
   // Buy price over sell price: what a round trip costs.
   const spreadBps = Number(((probeAtoms - back) * 10_000n) / probeAtoms);
   return { scaled, spreadBps, slot: Number(buy.contextSlot ?? 0) };
+}
+
+const money = (usd) => `$${usd >= 100 ? Math.round(usd).toLocaleString("en-US") : usd.toFixed(2)}`;
+
+// What the caller says the basket holds of `token`, in USD at the round trip's price: the larger
+// of `holdingAtoms` (raw units) and `holdingUsd`.
+function holdingUsdOf(token, usd) {
+  const fromAtoms = token.holdingAtoms ? (Number(token.holdingAtoms) / 10 ** token.decimals) * usd : 0;
+  return Math.max(fromAtoms, Number(token.holdingUsd) || 0);
+}
+
+// The liquidity floor for one token whose price round trip passed. Returns null when there is
+// nothing to probe (nothing held, a holding the price probe already covers, or a recent pass),
+// else { usd, holdingUsd, spreadBps }, or { usd, holdingUsd, error } when the deeper trip found
+// no route.
+async function depthTrip(cfg, token, trip) {
+  const holdingUsd = holdingUsdOf(token, toNumber(trip.scaled));
+  const usd = depthProbeUsd(holdingUsd, cfg);
+  if (usd <= cfg.probeUsd || cfg.depthVerdicts?.covers(token.mint, usd)) return null;
+  try {
+    const deep = await roundTrip(cfg, token, usd);
+    if (deep.spreadBps <= cfg.maxSpreadBps) cfg.depthVerdicts?.record(token.mint, usd);
+    return { usd, holdingUsd, spreadBps: deep.spreadBps };
+  } catch (error) {
+    // Jupiter finding no route for the larger size says the market is thin; anything else (a
+    // timeout, a rate limit) is just a failure to price.
+    if (cfg.signal?.aborted || !/no Jupiter route|-> 400/.test(error.message ?? "")) throw error;
+    return { usd, holdingUsd, error };
+  }
+}
+
+// Why the liquidity floor refuses a token, or null when it passed.
+function depthFailure(depth, cfg) {
+  const size = `round trip of ${money(depth.usd)} (${((depth.usd / depth.holdingUsd) * 100).toFixed(1)}% of the basket's ${money(depth.holdingUsd)} holding)`;
+  if (depth.error) return `${size} found no route (${depth.error.message ?? depth.error}): the market is too thin for what the basket holds`;
+  if (depth.spreadBps <= cfg.maxSpreadBps) return null;
+  return `${size} costs ${(depth.spreadBps / 100).toFixed(2)}%, over the ${(cfg.maxSpreadBps / 100).toFixed(2)}% cap: the market is too thin for what the basket holds`;
 }
 
 async function jupiterReferences(env, mints) {
@@ -216,12 +327,14 @@ async function dexscreenerReferences(env, mints) {
 }
 
 /**
- * Prices `tokens` ([{ mint, decimals, label? }], USDC excluded) for signing.
+ * Prices `tokens` ([{ mint, decimals, label?, holdingAtoms?, holdingUsd? }], USDC excluded) for
+ * signing. A token with a holding (raw units, or USD) must also pass the liquidity floor.
  * Returns Map(mint -> { scaled: bigint (PRICE_SCALE), usd, spreadBps, confirmedBy: [sources],
- * references: [{ source, usd }] }).
+ * references: [{ source, usd }], depth: { usd, spreadBps } | null }).
  * Throws OraclePriceError naming every token it could not price.
  *
  * env: { swapApi, priceApi, fetchJson(url, init), probeUsd?, maxSpreadBps?, maxDeviationBps?,
+ *   depthFractionBps?, depthCapUsd?, depthVerdicts? (a DepthVerdicts kept between calls),
  *   signal? (an AbortSignal that stops pricing),
  *   uiMultipliers? (mints -> Map(mint -> scaled UI multiplier), e.g. readUiMultipliers with a
  *   connection; without it every token counts as unscaled) }
@@ -237,17 +350,24 @@ export async function oraclePrices(tokens, env) {
     dexscreenerReferences(cfg, mints).catch(() => new Map()),
     cfg.uiMultipliers ? cfg.uiMultipliers(mints).catch(() => null) : Promise.resolve(new Map()),
   ]);
-  const trips = await mapConcurrently(tokens, PRICE_CONCURRENCY, (token) =>
-    token.mint === USDC_MINT
-      ? { error: new Error("USDC is priced at $1 on chain") }
-      : roundTrip(cfg, token).then((trip) => ({ trip }), (error) => ({ error })));
+  // The liquidity floor's deeper trip runs only once the price's own trip is within bounds.
+  const trips = await mapConcurrently(tokens, PRICE_CONCURRENCY, async (token) => {
+    if (token.mint === USDC_MINT) return { error: new Error("USDC is priced at $1 on chain") };
+    try {
+      const trip = await roundTrip(cfg, token);
+      const inBounds = trip.spreadBps <= cfg.maxSpreadBps && trip.spreadBps >= MIN_SPREAD_BPS;
+      return { trip, depth: inBounds ? await depthTrip(cfg, token, trip) : null };
+    } catch (error) {
+      return { error };
+    }
+  });
   const [jupiter, dexscreener, multipliers] = await references;
   const prices = new Map();
   const failures = [];
   for (const [i, token] of tokens.entries()) {
     const label = token.label ?? token.mint;
     try {
-      const { trip, error } = trips[i];
+      const { trip, depth, error } = trips[i];
       if (error) throw error;
       if (trip.spreadBps > cfg.maxSpreadBps) {
         throw new Error(`round-trip spread ${(trip.spreadBps / 100).toFixed(2)}% is too wide to price`);
@@ -270,6 +390,8 @@ export async function oraclePrices(tokens, env) {
         const seen = disagreeing.map((r) => `${r.source} $${r.usd}`).join(", ");
         throw new Error(`round trip $${usd} disagrees by over ${cfg.maxDeviationBps / 100}% with ${seen}`);
       }
+      const thin = depth && depthFailure(depth, cfg);
+      if (thin) throw new Error(thin);
       const confirmedBy = references;
       prices.set(token.mint, {
         // The price a signed message carries (9 to 10 significant digits), so what the keeper
@@ -279,6 +401,7 @@ export async function oraclePrices(tokens, env) {
         spreadBps: trip.spreadBps,
         confirmedBy: confirmedBy.map((r) => r.source),
         references,
+        depth: depth ? { usd: depth.usd, spreadBps: depth.spreadBps } : null,
       });
     } catch (error) {
       failures.push({ mint: token.mint, label, reason: error.message ?? String(error) });
