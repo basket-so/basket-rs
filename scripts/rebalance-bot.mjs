@@ -508,8 +508,10 @@ function assessBasket(components, vaultAmounts, scratchAtoms, prices) {
   let maxDriftBps = 0;
   const rows = priced.map(({ c, amount, usd, valueMicro }) => {
     const weightBps = navMicro > 0n ? Number((valueMicro * BigInt(BPS)) / navMicro) : 0;
-    const driftBps = c.isQuote || !usd ? 0 : Math.abs(weightBps - weightOf(c));
-    if (!c.isQuote && usd && driftBps > maxDriftBps) maxDriftBps = driftBps;
+    // USDC counts like any component, as the program counts it: a basket left holding cash it
+    // shouldn't (the proceeds of an unwound rebalance) drifts, and the rebalance buys with it.
+    const driftBps = !usd ? 0 : Math.abs(weightBps - weightOf(c));
+    if (usd && driftBps > maxDriftBps) maxDriftBps = driftBps;
     let leg = 0n;
     let side = "none";
     if (!c.isQuote && usd) {
@@ -932,11 +934,11 @@ const EXCLUDED_DEXES = flagValue(
   "Obsidian,HumidiFi,SolFi,SolFi V2,TesseraV,ZeroFi,GoonFi V2,BisonFi,AlphaQ,WhaleStreet,Aquifer,Quantum,JupiterRfqV2",
 ).split(",").map((s) => s.trim()).filter(Boolean);
 
-async function jupiterQuote({ inputMint, outputMint, amount, swapMode, maxAccounts = ROUTE_MAX_ACCOUNTS[0] }) {
+async function jupiterQuote({ inputMint, outputMint, amount, swapMode, maxAccounts = ROUTE_MAX_ACCOUNTS[0], slippageBps = SLIPPAGE_BPS }) {
   const url =
     `${JUPITER_SWAP_API}/quote?inputMint=${inputMint.toBase58()}` +
     `&outputMint=${outputMint.toBase58()}&amount=${amount.toString()}` +
-    `&swapMode=${swapMode}&slippageBps=${SLIPPAGE_BPS}&onlyDirectRoutes=false` +
+    `&swapMode=${swapMode}&slippageBps=${slippageBps}&onlyDirectRoutes=false` +
     `&restrictIntermediateTokens=true&maxAccounts=${maxAccounts}` +
     (EXCLUDED_DEXES.length ? `&excludeDexes=${encodeURIComponent(EXCLUDED_DEXES.join(","))}` : "");
   return fetchJson(url, { headers: { accept: "application/json" } });
@@ -1008,24 +1010,37 @@ const WIDE_ROUTE_MAX_ACCOUNTS = [24, 32];
 
 // Whether a built buy costs more than twice the slippage over the signed price of what it is
 // sure to deliver. Without a signed price (a preview), nothing counts as over.
-function overSignedPrice(ctx, built) {
+function overSignedPrice(ctx, built, slippageBps = SLIPPAGE_BPS) {
   const signed = ctx.prices?.get(built.component.mint.toBase58())?.scaled;
   if (!signed) return false;
   const fair = (BigInt(built.atoms) * BigInt(signed) * pow10Big(USDC_DECIMALS)) / (pow10Big(built.component.decimals) * PRICE_SCALE);
-  return BigInt(built.entry.quoteLimit.toString()) * BigInt(BPS) > fair * BigInt(BPS + 2 * SLIPPAGE_BPS);
+  return BigInt(built.entry.quoteLimit.toString()) * BigInt(BPS) > fair * BigInt(BPS + 2 * slippageBps);
 }
+
+// A leg that failed is quoted again with more slippage each try (prices moved past the bound
+// between quote and send), up to this much, which stays well inside the program's own per-leg
+// price bound (the slippage plus VERIFY_ORACLE_BUFFER_BPS).
+const MAX_RETRY_SLIPPAGE_BPS = 150;
+function retrySlippageBps(attempt) {
+  return Math.min(Math.max(SLIPPAGE_BPS, MAX_RETRY_SLIPPAGE_BPS), SLIPPAGE_BPS * (1 + attempt));
+}
+// The route size a try starts from: the usual cap first, then others, as a route that failed is
+// often the only one of its size.
+const RETRY_ROUTE_CAPS = [16, 24, 12, 32];
 
 // Cost per atom it is sure to deliver, compared without division: a below b.
 const cheaperPerAtom = (a, b) => BigInt(a.entry.quoteLimit.toString()) * BigInt(b.atoms) < BigInt(b.entry.quoteLimit.toString()) * BigInt(a.atoms);
 
-async function buildLegEntry(connection, ctx, component, legAtoms, side, program = null) {
+async function buildLegEntry(connection, ctx, component, legAtoms, side, program = null, { attempt = 0 } = {}) {
   const method = side === "sell" ? "executeRebalanceSellBatch" : "executeRebalanceBuyBatch";
-  let built = await buildLegEntryOnRoute(connection, ctx, component, legAtoms, side, ROUTE_MAX_ACCOUNTS[0]);
-  if (side === "buy" && program && overSignedPrice(ctx, built)) {
-    for (const maxAccounts of WIDE_ROUTE_MAX_ACCOUNTS) {
+  const slippageBps = retrySlippageBps(attempt);
+  const firstCap = RETRY_ROUTE_CAPS[attempt % RETRY_ROUTE_CAPS.length];
+  let built = await buildLegEntryOnRoute(connection, ctx, component, legAtoms, side, firstCap, slippageBps);
+  if (side === "buy" && program && overSignedPrice(ctx, built, slippageBps)) {
+    for (const maxAccounts of WIDE_ROUTE_MAX_ACCOUNTS.filter((n) => n > firstCap)) {
       let wide;
       try {
-        wide = await buildLegEntryOnRoute(connection, ctx, component, legAtoms, side, maxAccounts);
+        wide = await buildLegEntryOnRoute(connection, ctx, component, legAtoms, side, maxAccounts, slippageBps);
       } catch (error) {
         log(`    [route] component ${component.globalIndex} buy: no route of up to ${maxAccounts} accounts (${error.message ?? error})`);
         continue;
@@ -1036,11 +1051,11 @@ async function buildLegEntry(connection, ctx, component, legAtoms, side, program
       }
     }
   }
-  for (const maxAccounts of ROUTE_MAX_ACCOUNTS.slice(1)) {
+  for (const maxAccounts of ROUTE_MAX_ACCOUNTS.filter((n) => n < firstCap)) {
     if (!program || (await batchFits(program, ctx, method, [built]))) return built;
     log(`    [route] component ${component.globalIndex} ${side}: its route does not fit one transaction; trying one of up to ${maxAccounts} accounts`);
     try {
-      built = await buildLegEntryOnRoute(connection, ctx, component, legAtoms, side, maxAccounts);
+      built = await buildLegEntryOnRoute(connection, ctx, component, legAtoms, side, maxAccounts, slippageBps);
     } catch (error) {
       log(`    [route] component ${component.globalIndex} ${side}: no smaller route (${error.message ?? error})`);
       return built;
@@ -1063,18 +1078,18 @@ const isNoRouteError = (error) => /NO_ROUTES_FOUND|COULD_NOT_FIND_ANY_ROUTE|No r
 // slippage of that price; otherwise the leg is also sized by exact input, seeded from the signed
 // price, and the cheaper of the two is used. (Seeding from what the leg sells for can't be
 // trusted then: the sale goes through the same mispriced pool.)
-async function buyQuote(component, legAtoms, maxAccounts, quote = jupiterQuote, signedPrice = null) {
+async function buyQuote(component, legAtoms, maxAccounts, quote = jupiterQuote, signedPrice = null, slippageBps = SLIPPAGE_BPS) {
   const leg = BigInt(legAtoms);
   let exactOut = null;
   try {
-    exactOut = await quote({ inputMint: USDC_MINT, outputMint: component.mint, amount: leg, swapMode: "ExactOut", maxAccounts });
+    exactOut = await quote({ inputMint: USDC_MINT, outputMint: component.mint, amount: leg, swapMode: "ExactOut", maxAccounts, slippageBps });
   } catch (error) {
     if (!isNoRouteError(error)) throw error;
   }
   const exactOutCost = exactOut ? BigInt(exactOut.otherAmountThreshold) : null;
   // What the leg is worth at the signed price, in USDC atoms.
   const fair = signedPrice ? (leg * BigInt(signedPrice) * pow10Big(USDC_DECIMALS)) / (pow10Big(component.decimals) * PRICE_SCALE) : null;
-  if (exactOutCost !== null && fair !== null && exactOutCost * BigInt(BPS) <= fair * BigInt(BPS + 2 * SLIPPAGE_BPS)) return exactOut;
+  if (exactOutCost !== null && fair !== null && exactOutCost * BigInt(BPS) <= fair * BigInt(BPS + 2 * slippageBps)) return exactOut;
   // Without an exact-input route to compare, the ExactOut route stands.
   const fallBack = (error) => {
     if (exactOut && (isNoRouteError(error) || error instanceof RebalanceBuildError)) return exactOut;
@@ -1085,22 +1100,22 @@ async function buyQuote(component, legAtoms, maxAccounts, quote = jupiterQuote, 
   // down when far over, so a wrong first guess doesn't overbuy.
   let input;
   if (fair !== null) {
-    input = (fair * BigInt(BPS + SLIPPAGE_BPS)) / BigInt(BPS - SLIPPAGE_BPS) + 1n;
+    input = (fair * BigInt(BPS + slippageBps)) / BigInt(BPS - slippageBps) + 1n;
   } else {
     let probe;
     try {
-      probe = await quote({ inputMint: component.mint, outputMint: USDC_MINT, amount: leg, swapMode: "ExactIn", maxAccounts });
+      probe = await quote({ inputMint: component.mint, outputMint: USDC_MINT, amount: leg, swapMode: "ExactIn", maxAccounts, slippageBps });
     } catch (error) {
       return fallBack(error);
     }
-    input = (BigInt(probe.outAmount) * BigInt(BPS + SLIPPAGE_BPS)) / BigInt(BPS - SLIPPAGE_BPS) + 1n;
+    input = (BigInt(probe.outAmount) * BigInt(BPS + slippageBps)) / BigInt(BPS - slippageBps) + 1n;
     if (exactOutCost !== null && exactOutCost <= input) return exactOut;
   }
   let best = null;
   for (let round = 1; round <= EXACT_IN_SIZING_ROUNDS; round += 1) {
     let exactIn;
     try {
-      exactIn = await quote({ inputMint: USDC_MINT, outputMint: component.mint, amount: input, swapMode: "ExactIn", maxAccounts });
+      exactIn = await quote({ inputMint: USDC_MINT, outputMint: component.mint, amount: input, swapMode: "ExactIn", maxAccounts, slippageBps });
     } catch (error) {
       if (best) break;
       return fallBack(error);
@@ -1120,11 +1135,11 @@ async function buyQuote(component, legAtoms, maxAccounts, quote = jupiterQuote, 
   return fallBack(new RebalanceBuildError(`component ${component.globalIndex} buy: no ExactOut route, and no ExactIn input found that guarantees the leg`));
 }
 
-async function buildLegEntryOnRoute(connection, ctx, component, legAtoms, side, maxAccounts) {
+async function buildLegEntryOnRoute(connection, ctx, component, legAtoms, side, maxAccounts, slippageBps = SLIPPAGE_BPS) {
   const isSell = side === "sell";
   const quote = isSell
-    ? await jupiterQuote({ inputMint: component.mint, outputMint: USDC_MINT, amount: legAtoms, swapMode: "ExactIn", maxAccounts })
-    : await buyQuote(component, legAtoms, maxAccounts, jupiterQuote, ctx.prices?.get(component.mint.toBase58())?.scaled ?? null);
+    ? await jupiterQuote({ inputMint: component.mint, outputMint: USDC_MINT, amount: legAtoms, swapMode: "ExactIn", maxAccounts, slippageBps })
+    : await buyQuote(component, legAtoms, maxAccounts, jupiterQuote, ctx.prices?.get(component.mint.toBase58())?.scaled ?? null, slippageBps);
   const exactInBuy = !isSell && quote.swapMode === "ExactIn";
   const swap = await jupiterSwapInstruction(quote, ctx.vaultAuthority);
   if (swap.swapInstruction.programId !== JUPITER_V6.toBase58()) {
@@ -1238,13 +1253,70 @@ function batchCuLimit(legCount) {
   return Math.min(1_400_000, 250_000 + legCount * 450_000);
 }
 
-async function sendBatches(env, ctx, method, batches) {
-  for (let i = 0; i < batches.length; i += 1) {
-    const batch = batches[i];
-    await sendWithFreshPrices(env, ctx, batch.map((b) => b.component),
-      `${method} batch ${i + 1}/${batches.length}`,
-      () => executeBatchIx(env.program, ctx, method, batch),
-      batchCuLimit(batch.length), 3, stepTables(ctx, batch.flatMap((b) => b.lookupTables)));
+// Seconds kept before the intent expires for the finalize, after the last leg retry.
+const FINALIZE_MARGIN_S = 90;
+// Tries per side: the first, then retries that quote afresh with more slippage and another
+// route size, each leg in its own transaction.
+const LEG_TRIES = 6;
+
+// Builds each component's leg for `attempt`; a leg that can't be built now is left for the
+// next try. Returns { entries, unbuilt }.
+async function buildEach(components, attempt, build) {
+  const entries = [];
+  const unbuilt = [];
+  for (const c of components) {
+    try {
+      entries.push(await build(c));
+    } catch (error) {
+      log(`    [route] component ${c.globalIndex}: not built on try ${attempt + 1} (${describeError(error)})`);
+      unbuilt.push(c);
+    }
+  }
+  return { entries, unbuilt };
+}
+
+// What went wrong with a step, with the program's own error lines when the RPC returned them.
+function describeError(error) {
+  const logs = error?.logs ?? error?.transactionLogs ?? error?.simulationLogs ?? [];
+  const lines = (Array.isArray(logs) ? logs : []).filter((l) => /error|failed|exceed|insufficient|slippage/i.test(l)).slice(-3);
+  return [String(error?.message ?? error).split("\n")[0].slice(0, 300), ...lines].join(" | ");
+}
+
+// Sends one side's legs and recovers from failed steps: whatever failed is re-quoted (with
+// more slippage and another route size each try) and resent, one leg per transaction, until
+// every leg is done, the tries run out, or the deadline nears. A step can land even when its
+// confirmation is lost, so what is left is read from the intent, not from the errors.
+async function executeLegs(env, ctx, side, batches, deadlineMs, rebuild) {
+  const { program } = env;
+  const method = side === "sell" ? "executeRebalanceSellBatch" : "executeRebalanceBuyBatch";
+  let pending = batches;
+  let unbuilt = [];
+  for (let attempt = 0; ; attempt += 1) {
+    const failed = [...unbuilt];
+    for (const [i, batch] of pending.entries()) {
+      const label = `${method} ${attempt ? `retry ${attempt} ` : ""}batch ${i + 1}/${pending.length}`;
+      try {
+        await sendWithFreshPrices(env, ctx, batch.map((b) => b.component), label,
+          () => executeBatchIx(program, ctx, method, batch),
+          batchCuLimit(batch.length), 3, stepTables(ctx, batch.flatMap((b) => b.lookupTables)));
+      } catch (error) {
+        log(`    ${label} failed: ${describeError(error)}`);
+        failed.push(...batch.map((b) => b.component));
+      }
+    }
+    if (!failed.length) return;
+    const intent = await fetchWritten(program.account.rebalanceIntent, ctx.intent);
+    const done = side === "sell" ? intent.sellDoneBitmap : intent.buyDoneBitmap;
+    const left = failed.filter((c) => !bitmapGet(done, c.globalIndex));
+    if (!left.length) return;
+    if (attempt + 1 >= LEG_TRIES || Date.now() >= deadlineMs) {
+      throw new Error(`${left.length} ${side} leg(s) did not execute after ${attempt + 1} tries (components ${left.map((c) => c.globalIndex).join(", ")})`);
+    }
+    log(`    re-quoting ${left.length} ${side} leg(s) for try ${attempt + 2} (slippage ${bpsPct(retrySlippageBps(attempt + 1))})`);
+    await new Promise((r) => setTimeout(r, 2_000));
+    const rebuilt = await rebuild(left, attempt + 1);
+    pending = rebuilt.entries.map((entry) => [entry]);
+    unbuilt = rebuilt.unbuilt;
   }
 }
 
@@ -2198,9 +2270,11 @@ async function executeRebalance(env, ctx, components, pagePdas, driftThresholdBp
   // instead of stranding the intent (which would hold the lock until expiry).
   let sellBatches;
   let buyBatches;
+  let intent;
+  let targets;
   try {
-    const intent = await fetchWritten(program.account.rebalanceIntent, intentPk);
-    const targets = intent.componentTargetAmounts.map((bn) => BigInt(bn.toString()));
+    intent = await fetchWritten(program.account.rebalanceIntent, intentPk);
+    targets = intent.componentTargetAmounts.map((bn) => BigInt(bn.toString()));
     const sellComponents = components.filter((c) => bitmapGet(intent.sellLegBitmap, c.globalIndex));
     const buyComponents = components.filter((c) => bitmapGet(intent.buyLegBitmap, c.globalIndex));
     log(`  intent open: ${sellComponents.length} sell, ${buyComponents.length} buy legs`);
@@ -2225,11 +2299,37 @@ async function executeRebalance(env, ctx, components, pagePdas, driftThresholdBp
     throw error;
   }
 
+  // Legs are retried until a little before the intent expires, keeping time to finalize.
+  const deadlineMs = Date.now() + Math.max(60, INTENT_TTL_S - FINALIZE_MARGIN_S) * 1000;
+  const opens = intent.componentOpenAmounts.map((bn) => BigInt(bn.toString()));
+  const tolerance = Number(intent.navToleranceBps);
   try {
     log("  sending sell batches...");
-    await sendBatches(env, ctx, "executeRebalanceSellBatch", sellBatches);
+    await executeLegs(env, ctx, "sell", sellBatches, deadlineMs, async (left, attempt) =>
+      buildEach(left, attempt, async (c) => {
+        const built = await buildLegEntry(connection, ctx, c, targets[c.globalIndex], "sell", program, { attempt });
+        assertLegsWithinOracle([built], prices, "sell");
+        return built;
+      }));
+    // Buys are quoted afresh now, sized to what the sells actually brought in (not just their
+    // guaranteed minimum), so price moves since the open don't strand the proceeds as cash.
+    const buyNow = async (left, attempt) => {
+      const scratch = parseTokenAmount(await connection.getAccountInfo(ctx.vaultQuote, "confirmed"));
+      try {
+        const entries = await affordableBuys(left, targets, opens, tolerance, scratch,
+          (c, atoms) => buildLegEntry(connection, ctx, c, atoms, "buy", program, { attempt }));
+        assertLegsWithinOracle(entries, prices, "buy");
+        return { entries, unbuilt: [] };
+      } catch (error) {
+        log(`    buys not built on try ${attempt + 1} (${describeError(error)}); trying again`);
+        return { entries: [], unbuilt: left };
+      }
+    };
+    const firstBuys = await buyNow(buyBatches.flat().map((b) => b.component), 0);
     log("  sending buy batches...");
-    await sendBatches(env, ctx, "executeRebalanceBuyBatch", buyBatches);
+    await executeLegs(env, ctx, "buy",
+      firstBuys.entries.length ? await packBatches(connection, program, ctx, "executeRebalanceBuyBatch", firstBuys.entries) : buyBatches,
+      deadlineMs, buyNow);
 
     log("  finalizing...");
     await finalize(env, ctx, components, pagePdas);

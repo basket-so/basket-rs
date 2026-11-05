@@ -193,8 +193,13 @@ function compact(swap, candidates) {
 }
 
 // Jupiter's quote, swap-instructions and price APIs over the mock, for the keeper.
+// `failOn` (mint -> slippage bps) makes every swap built for that token at that slippage or less
+// deliver one atom, so a step sending it fails as a real fill past its bound would. The keeper's
+// first try uses its base slippage and each retry more, so its first try fails and it has to
+// recover.
 function startMockJupiterApi(connection) {
   const calls = { quote: 0, swap: 0, price: 0 };
+  const failOn = new Map();
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://localhost");
     const reply = (status, body) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
@@ -224,7 +229,9 @@ function startMockJupiterApi(connection) {
         const taker = new PublicKey(body.userPublicKey);
         const inputMint = new PublicKey(q.inputMint);
         const outputMint = new PublicKey(q.outputMint);
-        const swap = mockSwap({ authority: taker, source: ata(inputMint, taker), destination: ata(outputMint, taker), inputMint, outputMint, inAmount: q.inAmount, outAmount: q.outAmount });
+        const token = inputMint.equals(USDC) ? outputMint.toBase58() : inputMint.toBase58();
+        const outAmount = failOn.has(token) && Number(q.slippageBps) <= failOn.get(token) ? 1n : q.outAmount;
+        const swap = mockSwap({ authority: taker, source: ata(inputMint, taker), destination: ata(outputMint, taker), inputMint, outputMint, inAmount: q.inAmount, outAmount });
         return reply(200, {
           computeBudgetInstructions: [], setupInstructions: [], cleanupInstruction: null, otherInstructions: [], addressLookupTableAddresses: [],
           swapInstruction: { programId: JUP6.toBase58(), accounts: swap.keys.map((k) => ({ pubkey: k.pubkey.toBase58(), isSigner: k.isSigner, isWritable: k.isWritable })), data: swap.data.toString("base64") },
@@ -241,7 +248,7 @@ function startMockJupiterApi(connection) {
       reply(500, { error: error.message });
     }
   });
-  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, calls, base: `http://127.0.0.1:${server.address().port}` })));
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, calls, failOn, base: `http://127.0.0.1:${server.address().port}` })));
 }
 
 // --- validator ----------------------------------------------------------------------------
@@ -1017,7 +1024,13 @@ async function phase3(dir) {
     const sovBefore = await basketState(F, "phase 3: cbBTC up 30%, XAUt0 frozen");
     printState(sovBefore);
     const lastBefore = sovBefore.lastRebalancedAt;
+    // Its cbBTC sell and ZEC buy fail on the first try (at the keeper's base 1% slippage): the
+    // keeper must re-quote them and finish anyway.
+    api.failOn.set(CBBTC.toBase58(), 100);
+    api.failOn.set("A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS", 100);
     const out = await keeper(SOV, flags);
+    api.failOn.clear();
+    assert.ok(/re-quoting 1 sell leg/.test(out) && /re-quoting \d+ buy leg/.test(out), `the keeper retried the failed legs: ${out.slice(-3000)}`);
     assert.ok(!/ERROR processing/.test(out), `SOV rebalance failed: ${out.slice(-3000)}`);
     assert.ok(/can't move \(VaultFrozen\): left out of rebalances/.test(out), "the keeper saw XAUt0 frozen");
     const sovAfter = await basketState(F, "phase 3: SOV rebalanced around frozen XAUt0");
@@ -1033,7 +1046,7 @@ async function phase3(dir) {
     const sovNavBps = Math.round((sovAfter.navUsd / sovBefore.navUsd - 1) * 10_000);
     assert.ok(Math.abs(sovNavBps) <= 100, `NAV moved ${sovNavBps} bps`);
     report.measurements.frozenRebalance = { driftBps: sovDrift, navChangeBps: sovNavBps };
-    step("keeper rebalanced SOV around its frozen XAUt0 vault", report.measurements.frozenRebalance);
+    step("keeper rebalanced SOV around its frozen XAUt0 vault, recovering a failed sell and a failed buy", report.measurements.frozenRebalance);
 
     // The community basket, off target by drift, rebalanced by the same keeper.
     const commBefore = await communityState(F, B, "community basket: cbBTC up 30%");

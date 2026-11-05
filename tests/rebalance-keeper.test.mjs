@@ -1145,3 +1145,18 @@ test("a basket this keeper doesn't operate is skipped before any pricing", async
   assert.deepEqual(jupiter.urls, []);
   assert.ok(logs.lines.some((l) => l.startsWith("[THIN]   skip:") && l.includes("is not this basket's authority or rebalance keeper")), logs.lines.join("\n"));
 });
+
+test("cash a basket isn't meant to hold counts as drift, so a rebalance spends it", () => {
+  const component = (weight, extra = {}) => ({ mint: Keypair.generate().publicKey, vault: Keypair.generate().publicKey, targetWeightBps: weight, activeWeightBps: weight, decimals: 6, isQuote: false, retired: false, excluded: false, ...extra });
+  // Two tokens at 50/50 and a USDC slot targeting 0, left holding 6.6% after an unwound rebalance.
+  const a1 = component(5000), a2 = component(5000), usdc = component(0, { isQuote: true });
+  const amounts = new Map([[a1.vault.toBase58(), 46_700_000n], [a2.vault.toBase58(), 46_700_000n], [usdc.vault.toBase58(), 6_600_000n]]);
+  const prices = new Map([[a1.mint.toBase58(), 1], [a2.mint.toBase58(), 1]]);
+  const a = assessBasket([a1, a2, usdc], amounts, 0n, prices);
+  assert.equal(a.rows.find((r) => r.component === usdc).driftBps, 660);
+  assert.equal(a.maxDriftBps, 660, "over a 5% threshold, as the program sees it");
+  assert.deepEqual(a.rows.filter((r) => !r.component.isQuote).map((r) => r.side), ["buy", "buy"], "the cash buys the tokens back to target");
+  // At target, USDC adds no drift.
+  const settled = assessBasket([a1, a2, usdc], new Map([[a1.vault.toBase58(), 50_000_000n], [a2.vault.toBase58(), 50_000_000n], [usdc.vault.toBase58(), 0n]]), 0n, prices);
+  assert.equal(settled.maxDriftBps, 0);
+});
