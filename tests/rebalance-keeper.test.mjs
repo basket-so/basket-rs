@@ -223,7 +223,7 @@ test("a step waits for the keeper's RPC to reach the slot its prices carry", asy
 
 // A Jupiter quote for one token: it sells at `bid` and buys at `ask` USDC atoms per token atom,
 // can't route ExactOut buys unless `exactOut`, and keeps `slippageBps` off each minimum.
-function fakeJupiter({ bid = 0.1, ask = 0.1003, exactOut = false, slippageBps = 100 } = {}) {
+function fakeJupiter({ bid = 0.1, ask = 0.1003, exactOut = false, exactOutAsk = ask, slippageBps = 100 } = {}) {
   const calls = [];
   const quote = async ({ inputMint, amount, swapMode }) => {
     const buying = inputMint.toBase58() === USDC_MINT;
@@ -231,7 +231,7 @@ function fakeJupiter({ bid = 0.1, ask = 0.1003, exactOut = false, slippageBps = 
     const atoms = BigInt(amount);
     if (buying && swapMode === "ExactOut") {
       if (!exactOut) throw new Error('https://api.jup.ag/swap/v1/quote?... -> 400: {"error":"No routes found","errorCode":"NO_ROUTES_FOUND"}');
-      const inAmount = BigInt(Math.ceil(Number(atoms) * ask));
+      const inAmount = BigInt(Math.ceil(Number(atoms) * exactOutAsk));
       return { swapMode, inAmount: String(inAmount), outAmount: String(atoms), otherAmountThreshold: String((inAmount * BigInt(10_000 + slippageBps)) / 10_000n) };
     }
     const out = BigInt(Math.floor(buying ? Number(atoms) / ask : Number(atoms) * bid));
@@ -253,10 +253,34 @@ test("a buy with no ExactOut route spends an exact input whose minimum output st
     assert.ok(Number(q.inAmount) <= cost * 1.025, `ask ${ask}: ${q.inAmount} for a ${cost} leg`);
     assert.deepEqual(jup.calls.slice(0, 2), [`buy ExactOut ${leg}`, `sell ExactIn ${leg}`]);
   }
-  // Where ExactOut routes, it is used as before, with no extra quotes.
+  // Where ExactOut routes at about the market, it is used, after one probe of what the leg sells for.
   const routed = fakeJupiter({ exactOut: true });
   assert.equal((await buyQuote(c, leg, 16, routed.quote)).swapMode, "ExactOut");
-  assert.deepEqual(routed.calls, [`buy ExactOut ${leg}`]);
+  assert.deepEqual(routed.calls, [`buy ExactOut ${leg}`, `sell ExactIn ${leg}`]);
+  // Where the only ExactOut route costs 2.6x the market, as one did for a cent-sized leg, the
+  // leg is bought by exact input for about its price instead.
+  const dear = fakeJupiter({ exactOut: true, exactOutAsk: 0.26 });
+  const cheaper = await buyQuote(c, leg, 16, dear.quote);
+  assert.equal(cheaper.swapMode, "ExactIn");
+  assert.ok(BigInt(cheaper.otherAmountThreshold) >= leg && Number(cheaper.inAmount) <= Number(leg) * 0.1003 * 1.025);
+  // With no exact-input route to compare, the ExactOut route stands.
+  const noExactIn = async (args) => {
+    if (args.swapMode === "ExactIn") throw new Error('https://api.jup.ag/swap/v1/quote?... -> 400: {"error":"No routes found","errorCode":"NO_ROUTES_FOUND"}');
+    return dear.quote(args);
+  };
+  assert.equal((await buyQuote(c, leg, 16, noExactIn)).swapMode, "ExactOut");
+  // With the signed price known (0.1 USDC atoms per token atom here; 6 decimals each side), a
+  // fair ExactOut route is used with no other quote, and a dear one is checked against a buy
+  // seeded from the signed price, not from a sale that could go through the same bad pool.
+  const signed = 100_000_000_000_000_000n; // $0.10 a token at PRICE_SCALE
+  const fair = fakeJupiter({ exactOut: true });
+  assert.equal((await buyQuote(c, leg, 16, fair.quote, signed)).swapMode, "ExactOut");
+  assert.deepEqual(fair.calls, [`buy ExactOut ${leg}`]);
+  const misled = fakeJupiter({ exactOut: true, exactOutAsk: 0.26, bid: 0.26 });
+  const sized = await buyQuote(c, leg, 16, misled.quote, signed);
+  assert.equal(sized.swapMode, "ExactIn");
+  assert.ok(BigInt(sized.otherAmountThreshold) >= leg && Number(sized.inAmount) <= Number(leg) * 0.1003 * 1.025, `${sized.inAmount} for a ${Number(leg) * 0.1} leg`);
+  assert.ok(!misled.calls.includes(`sell ExactIn ${leg}`), "no sale probe when the signed price is known");
   // Any other failure is not taken for a missing route.
   const down = async () => { throw new Error("https://api.jup.ag/swap/v1/quote -> 503: unavailable"); };
   await assert.rejects(buyQuote(c, leg, 16, down), /503/);

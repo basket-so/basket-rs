@@ -1000,9 +1000,42 @@ async function assertRouteScope(connection, routeAccounts, vaultAuthority, allow
 // Build one batch entry (compact plan + remaining accounts + lookup tables) for a single leg.
 // With `program`, a leg whose transaction would not fit alone (with its price signature) is
 // re-quoted on a smaller route; packBatches reports one that still does not fit.
+// Wider routes a buy may take when its route within ROUTE_MAX_ACCOUNTS[0] costs well over its
+// signed price: the only pools in reach can be mispriced (with 16 accounts one DBR buy found
+// only a pool charging 2.6x the market, while a two-pool route of about 20 was fair). A wider
+// route is kept only if it is cheaper and still fits a transaction on its own.
+const WIDE_ROUTE_MAX_ACCOUNTS = [24, 32];
+
+// Whether a built buy costs more than twice the slippage over the signed price of what it is
+// sure to deliver. Without a signed price (a preview), nothing counts as over.
+function overSignedPrice(ctx, built) {
+  const signed = ctx.prices?.get(built.component.mint.toBase58())?.scaled;
+  if (!signed) return false;
+  const fair = (BigInt(built.atoms) * BigInt(signed) * pow10Big(USDC_DECIMALS)) / (pow10Big(built.component.decimals) * PRICE_SCALE);
+  return BigInt(built.entry.quoteLimit.toString()) * BigInt(BPS) > fair * BigInt(BPS + 2 * SLIPPAGE_BPS);
+}
+
+// Cost per atom it is sure to deliver, compared without division: a below b.
+const cheaperPerAtom = (a, b) => BigInt(a.entry.quoteLimit.toString()) * BigInt(b.atoms) < BigInt(b.entry.quoteLimit.toString()) * BigInt(a.atoms);
+
 async function buildLegEntry(connection, ctx, component, legAtoms, side, program = null) {
   const method = side === "sell" ? "executeRebalanceSellBatch" : "executeRebalanceBuyBatch";
   let built = await buildLegEntryOnRoute(connection, ctx, component, legAtoms, side, ROUTE_MAX_ACCOUNTS[0]);
+  if (side === "buy" && program && overSignedPrice(ctx, built)) {
+    for (const maxAccounts of WIDE_ROUTE_MAX_ACCOUNTS) {
+      let wide;
+      try {
+        wide = await buildLegEntryOnRoute(connection, ctx, component, legAtoms, side, maxAccounts);
+      } catch (error) {
+        log(`    [route] component ${component.globalIndex} buy: no route of up to ${maxAccounts} accounts (${error.message ?? error})`);
+        continue;
+      }
+      if (cheaperPerAtom(wide, built) && (await batchFits(program, ctx, method, [wide]))) {
+        log(`    [route] component ${component.globalIndex} buy: a route of up to ${maxAccounts} accounts costs ${wide.entry.quoteLimit} USDC atoms instead of ${built.entry.quoteLimit}`);
+        return wide;
+      }
+    }
+  }
   for (const maxAccounts of ROUTE_MAX_ACCOUNTS.slice(1)) {
     if (!program || (await batchFits(program, ctx, method, [built]))) return built;
     log(`    [route] component ${component.globalIndex} ${side}: its route does not fit one transaction; trying one of up to ${maxAccounts} accounts`);
@@ -1024,35 +1057,74 @@ async function buildLegEntry(connection, ctx, component, legAtoms, side, program
 const EXACT_IN_SIZING_ROUNDS = 3;
 const isNoRouteError = (error) => /NO_ROUTES_FOUND|COULD_NOT_FIND_ANY_ROUTE|No routes found/i.test(String(error?.message ?? error));
 
-async function buyQuote(component, legAtoms, maxAccounts, quote = jupiterQuote) {
+// Fewer routes support ExactOut, and within the account cap the only one for a small leg can sit
+// in a mispriced pool (one charged 2.6x the market), which no buy budget covers. So with the
+// leg's signed price known, an ExactOut route is used as is only while it costs within twice the
+// slippage of that price; otherwise the leg is also sized by exact input, seeded from the signed
+// price, and the cheaper of the two is used. (Seeding from what the leg sells for can't be
+// trusted then: the sale goes through the same mispriced pool.)
+async function buyQuote(component, legAtoms, maxAccounts, quote = jupiterQuote, signedPrice = null) {
   const leg = BigInt(legAtoms);
+  let exactOut = null;
   try {
-    return await quote({ inputMint: USDC_MINT, outputMint: component.mint, amount: leg, swapMode: "ExactOut", maxAccounts });
+    exactOut = await quote({ inputMint: USDC_MINT, outputMint: component.mint, amount: leg, swapMode: "ExactOut", maxAccounts });
   } catch (error) {
     if (!isNoRouteError(error)) throw error;
   }
-  // What the leg sells for prices it; each round scales the input by how far the guaranteed
-  // output fell short, with a little margin, until it covers the leg.
-  const probe = await quote({ inputMint: component.mint, outputMint: USDC_MINT, amount: leg, swapMode: "ExactIn", maxAccounts });
-  let input = (BigInt(probe.outAmount) * BigInt(BPS + SLIPPAGE_BPS)) / BigInt(BPS - SLIPPAGE_BPS) + 1n;
+  const exactOutCost = exactOut ? BigInt(exactOut.otherAmountThreshold) : null;
+  // What the leg is worth at the signed price, in USDC atoms.
+  const fair = signedPrice ? (leg * BigInt(signedPrice) * pow10Big(USDC_DECIMALS)) / (pow10Big(component.decimals) * PRICE_SCALE) : null;
+  if (exactOutCost !== null && fair !== null && exactOutCost * BigInt(BPS) <= fair * BigInt(BPS + 2 * SLIPPAGE_BPS)) return exactOut;
+  // Without an exact-input route to compare, the ExactOut route stands.
+  const fallBack = (error) => {
+    if (exactOut && (isNoRouteError(error) || error instanceof RebalanceBuildError)) return exactOut;
+    throw error;
+  };
+  // The first input: the signed price, else what the leg sells for. Each round then scales the
+  // input by how far the guaranteed output missed the leg, with a little margin: up when short,
+  // down when far over, so a wrong first guess doesn't overbuy.
+  let input;
+  if (fair !== null) {
+    input = (fair * BigInt(BPS + SLIPPAGE_BPS)) / BigInt(BPS - SLIPPAGE_BPS) + 1n;
+  } else {
+    let probe;
+    try {
+      probe = await quote({ inputMint: component.mint, outputMint: USDC_MINT, amount: leg, swapMode: "ExactIn", maxAccounts });
+    } catch (error) {
+      return fallBack(error);
+    }
+    input = (BigInt(probe.outAmount) * BigInt(BPS + SLIPPAGE_BPS)) / BigInt(BPS - SLIPPAGE_BPS) + 1n;
+    if (exactOutCost !== null && exactOutCost <= input) return exactOut;
+  }
+  let best = null;
   for (let round = 1; round <= EXACT_IN_SIZING_ROUNDS; round += 1) {
-    const exactIn = await quote({ inputMint: USDC_MINT, outputMint: component.mint, amount: input, swapMode: "ExactIn", maxAccounts });
+    let exactIn;
+    try {
+      exactIn = await quote({ inputMint: USDC_MINT, outputMint: component.mint, amount: input, swapMode: "ExactIn", maxAccounts });
+    } catch (error) {
+      if (best) break;
+      return fallBack(error);
+    }
     const guaranteed = BigInt(exactIn.otherAmountThreshold);
     if (guaranteed >= leg) {
-      log(`    [route] component ${component.globalIndex} buy: no ExactOut route; buying with exactly ${input} USDC atoms for at least ${guaranteed} (leg ${leg})`);
-      return exactIn;
+      best = { quote: exactIn, input, guaranteed };
+      if (guaranteed * 1_000n <= leg * 1_010n) break;
     }
     if (guaranteed === 0n) break;
     input = (input * leg * 1_002n) / (guaranteed * 1_000n) + 1n;
   }
-  throw new RebalanceBuildError(`component ${component.globalIndex} buy: no ExactOut route, and no ExactIn input found that guarantees the leg`);
+  if (best && (exactOutCost === null || best.input < exactOutCost)) {
+    log(`    [route] component ${component.globalIndex} buy: ${exactOut ? `ExactOut costs up to ${exactOutCost} USDC atoms;` : "no ExactOut route;"} buying with exactly ${best.input} USDC atoms for at least ${best.guaranteed} (leg ${leg})`);
+    return best.quote;
+  }
+  return fallBack(new RebalanceBuildError(`component ${component.globalIndex} buy: no ExactOut route, and no ExactIn input found that guarantees the leg`));
 }
 
 async function buildLegEntryOnRoute(connection, ctx, component, legAtoms, side, maxAccounts) {
   const isSell = side === "sell";
   const quote = isSell
     ? await jupiterQuote({ inputMint: component.mint, outputMint: USDC_MINT, amount: legAtoms, swapMode: "ExactIn", maxAccounts })
-    : await buyQuote(component, legAtoms, maxAccounts);
+    : await buyQuote(component, legAtoms, maxAccounts, jupiterQuote, ctx.prices?.get(component.mint.toBase58())?.scaled ?? null);
   const exactInBuy = !isSell && quote.swapMode === "ExactIn";
   const swap = await jupiterSwapInstruction(quote, ctx.vaultAuthority);
   if (swap.swapInstruction.programId !== JUPITER_V6.toBase58()) {
@@ -2117,6 +2189,8 @@ async function executeRebalance(env, ctx, components, pagePdas, driftThresholdBp
   log("  opening rebalance intent...");
   const { intent: intentPk, prices } = await openIntent(env, ctx, components, pagePdas, driftThresholdBps, nowOnChain);
   ctx.intent = intentPk;
+  // Buys are sized against the signed prices, which the program checks every fill against.
+  ctx.prices = prices;
 
   // Read the program's authoritative legs (it recomputes them from the signed prices), then
   // build + validate EVERY batch (Jupiter quote, route-scope, tx-size packing) BEFORE sending
