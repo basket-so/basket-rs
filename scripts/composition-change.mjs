@@ -103,8 +103,11 @@ if (flag('--cancel')) {
     const [symbol, bps] = arg.split('=');
     const token = catalog.tokens[symbol];
     if (!token) throw new Error(`${symbol} is not in catalog.json tokens`);
-    // The program only adds classic SPL tokens (Token-2022 extensions break vault accounting).
-    if (token.tokenProgram !== 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') throw new Error(`${symbol} is not a classic SPL token`);
+    // Classic SPL or Token-2022, as at creation. The program refuses a transfer fee, and for a
+    // community basket the token controls a community basket can't hold.
+    if (!['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'].includes(token.tokenProgram)) {
+      throw new Error(`${symbol} is not an SPL Token or Token-2022 mint`);
+    }
     // Rebalances price components from the oracle's signed prices; oracle pairs are unused.
     additions.push({ mint: new PublicKey(token.mint), oraclePair: PublicKey.default, targetWeightBps: Number(bps) });
     tokens.push({ mint: token.mint, decimals: token.decimals, label: symbol, bps: Number(bps) });
