@@ -230,4 +230,18 @@ pub enum BasketError {
     NotCuratedCreator,
     #[msg("A community basket's fee is a whole number of its fee steps, at least one, split as when it was created.")]
     CommunityFeeSplit,
+    #[msg("Only a stORE component can be filled through ORE's staking program.")]
+    WrappedComponentNotStore,
+    #[msg("ORE's staking program did not wrap or unwrap the expected amount.")]
+    WrappedLegMismatch,
+    #[msg("A wrapped redeem leg has to sell the ORE it unwraps.")]
+    UnwrappedOreNotSold,
+    #[msg("The ORE mint or ORE staking program account is not the expected one.")]
+    InvalidOreStakingAccount,
+    #[msg("The basket's USDC vault can't move right now, so the basket can't rebalance.")]
+    QuoteComponentBlocked,
+    #[msg("A component reserve can't be synced while a rebalance is running.")]
+    ReserveSyncDuringRebalance,
+    #[msg("The community basket creation fee can be at most 1 SOL.")]
+    CreationFeeTooHigh,
 }

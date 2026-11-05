@@ -95,7 +95,12 @@ pub struct RebalanceIntent {
     // re-mark only when USDC is NOT a component (when it is, its open balance is already
     // captured in component_open_amounts, since the vaults alias).
     pub open_scratch_quote_atoms: u64,
-    pub reserved: [u8; 18],
+    // Components this rebalance leaves alone because they couldn't move at open (a frozen
+    // vault, a paused or hooked mint). They are not priced, traded or judged for drift, and the
+    // other weights are scaled up to share the rest. Taken from the reserved bytes, so intents
+    // opened before read none excluded.
+    pub excluded_bitmap: [u8; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
+    pub reserved: [u8; 11],
 }
 
 impl RebalanceIntent {
@@ -128,7 +133,8 @@ impl RebalanceIntent {
         + 4 + (MAX_LARGE_BASKET_COMPONENTS * 8) // component_fill_atoms
         + 4 + (MAX_LARGE_BASKET_COMPONENTS * 8) // component_open_amounts
         + 8 // open_scratch_quote_atoms
-        + 18; // reserved
+        + LARGE_BASKET_COMPONENT_BITMAP_BYTES // excluded_bitmap
+        + 11; // reserved
 }
 
 #[cfg(test)]
@@ -173,7 +179,8 @@ mod tests {
             component_fill_atoms: vec![u64::MAX; MAX_LARGE_BASKET_COMPONENTS],
             component_open_amounts: vec![u64::MAX; MAX_LARGE_BASKET_COMPONENTS],
             open_scratch_quote_atoms: u64::MAX,
-            reserved: [0xFF; 18],
+            excluded_bitmap: [0xFF; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
+            reserved: [0xFF; 11],
         }
     }
 

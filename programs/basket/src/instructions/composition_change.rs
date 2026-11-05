@@ -20,7 +20,8 @@ use crate::{
     utils::{
         associated_token_address_with_token_program,
         create_associated_token_account_idempotent_for_token_program, load_interface_mint,
-        new_page_for_additions, require_community_component_mint, total_redeem_fee_bps,
+        new_page_for_additions, require_community_component_mint, require_no_transfer_fee,
+        total_redeem_fee_bps,
         validate_composition_change, ASSOCIATED_TOKEN_ID,
     },
 };
@@ -34,9 +35,10 @@ use crate::{
 // COMPOSITION_CHANGE_APPLY_WINDOW_SECONDS. Applying needs no open intents, so the keeper
 // requests a rebalance (holding new intents back), applies, then opens the rebalance.
 //
-// New components must be classic SPL tokens: Token-2022 extensions (transfer fees and
-// hooks, permanent delegates, pausing, scaled UI amounts) break the vault accounting or let
-// a third party block or drain the basket.
+// New components may be classic SPL or Token-2022 tokens, as at creation. None may carry a
+// transfer fee (the books would drift), checked at propose and again at apply; a community
+// basket's additions also pass the community token screen at propose. A component its issuer
+// later freezes, pauses or hooks is left out of rebalances and skipped on redeem.
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct ProposeCompositionChangeArgs {
@@ -139,8 +141,13 @@ impl<'info> ProposeCompositionChange<'info> {
         )?;
         for (addition, mint_info) in args.additions.iter().zip(mint_infos) {
             require_keys_eq!(mint_info.key(), addition.mint, BasketError::InvalidComponentMint);
-            require_keys_eq!(*mint_info.owner, token::ID, BasketError::InvalidTokenProgram);
+            // Classic SPL or Token-2022, as at creation; no basket takes a transfer fee.
+            require!(
+                *mint_info.owner == token::ID || *mint_info.owner == anchor_spl::token_2022::ID,
+                BasketError::InvalidTokenProgram
+            );
             load_interface_mint(mint_info)?;
+            require_no_transfer_fee(mint_info)?;
             if index.community {
                 require_community_component_mint(mint_info)?;
             }
@@ -256,7 +263,11 @@ impl<'info> ApplyCompositionChange<'info> {
         for (addition, accounts) in additions.iter().zip(addition_infos.chunks(3)) {
             let (mint_info, vault_info, token_program_info) = (&accounts[0], &accounts[1], &accounts[2]);
             require_keys_eq!(mint_info.key(), addition.mint, BasketError::InvalidComponentMint);
-            require_keys_eq!(token_program_info.key(), token::ID, BasketError::InvalidTokenProgram);
+            require!(
+                token_program_info.key() == token::ID
+                    || token_program_info.key() == anchor_spl::token_2022::ID,
+                BasketError::InvalidTokenProgram
+            );
             require_keys_eq!(
                 *mint_info.owner,
                 token_program_info.key(),
@@ -278,6 +289,8 @@ impl<'info> ApplyCompositionChange<'info> {
                 token_program_info.clone(),
             )?;
             let mint = load_interface_mint(mint_info)?;
+            // A mint closed and recreated during the notice could carry a fee by now.
+            require_no_transfer_fee(mint_info)?;
             // Holds nothing until the next rebalance buys it in; mints and redeems move a
             // zero amount of it meanwhile.
             appended.push(LargeBasketComponent {

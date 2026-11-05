@@ -16,8 +16,9 @@ use crate::{
     },
     errors::BasketError,
     events::{
-        LargeBasketComponentFilled, LargeBasketIntentClosed, LargeBasketIntentFinalized,
-        LargeBasketIntentOpened,
+        LargeBasketComponentFilled, LargeBasketComponentForfeited, LargeBasketComponentSkipped,
+        LargeBasketRefundFeeKept,
+        LargeBasketIntentClosed, LargeBasketIntentFinalized, LargeBasketIntentOpened,
     },
     state::{
         IndexState, LargeBasketComponent, LargeBasketComponentPage,
@@ -27,6 +28,8 @@ use crate::{
     utils::{
         accrue_staking_rewards, associated_token_address,
         associated_token_address_with_token_program, basis_points_amount,
+        component_payout_blocked,
+        forfeit_restorable, refund_has_nowhere_to_go, token_account_frozen, ComponentBlock,
         create_associated_token_account_idempotent,
         create_associated_token_account_idempotent_for_token_program,
         invoke_jupiter_swap_with_scratch, large_basket_fee_split, load_interface_token_account,
@@ -450,6 +453,38 @@ pub struct FinalizeLargeBasketRedeemIntent<'info> {
     pub intent_lock: Account<'info, LargeBasketIntentLock>,
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
+pub struct SkipLargeBasketRedeemComponentArgs {
+    pub component_index: u16,
+}
+
+#[derive(Accounts)]
+pub struct SkipLargeBasketRedeemComponent<'info> {
+    pub owner: Signer<'info>,
+    #[account(mut)]
+    pub index: Account<'info, IndexState>,
+    #[account(mut, has_one = owner @ BasketError::InvalidLargeBasketIntent, has_one = index @ BasketError::InvalidLargeBasketIntent)]
+    pub intent: Account<'info, LargeBasketIntent>,
+    #[account(
+        mut,
+        seeds = [
+            LARGE_BASKET_INTENT_LOCK_SEED,
+            index.key().as_ref(),
+            owner.key().as_ref(),
+        ],
+        bump = intent_lock.bump
+    )]
+    pub intent_lock: Account<'info, LargeBasketIntentLock>,
+    #[account(mut)]
+    pub component_page: Account<'info, LargeBasketComponentPage>,
+    /// CHECK: the component's mint, matched to the page by validate_component_accounts.
+    pub component_mint: UncheckedAccount<'info>,
+    /// CHECK: the component's vault, matched to the page by validate_component_accounts.
+    pub component_vault: UncheckedAccount<'info>,
+    /// CHECK: the component's token program, matched by validate_component_accounts.
+    pub component_token_program: UncheckedAccount<'info>,
+}
+
 #[derive(Accounts)]
 pub struct CancelUnfilledLargeBasketMintIntent<'info> {
     pub owner: Signer<'info>,
@@ -821,7 +856,11 @@ impl<'info> CollectLargeBasketIntentFees<'info> {
                 .to_account_info(),
             ctx.accounts.intent.creator_fee_usdc_atoms,
         )?;
-        if ctx.accounts.intent.staking_fee_usdc_atoms > 0 {
+        if unless_frozen(
+            &ctx.accounts.staking_reward_vault.to_account_info(),
+            ctx.accounts.intent.staking_fee_usdc_atoms,
+        ) > 0
+        {
             transfer_fee_from_owner(
                 &ctx,
                 ctx.accounts.staking_reward_vault.to_account_info(),
@@ -1295,7 +1334,42 @@ fn redeem_fee_targets(intent: &LargeBasketIntent, fee_basis: u64) -> Result<(u64
 fn charge_redeem_leg_fees<'info>(
     ctx: &mut Context<'_, '_, 'info, 'info, ExecuteLargeBasketRedeemBatch<'info>>,
 ) -> Result<()> {
-    let intent = &ctx.accounts.intent;
+    let accounts = RedeemLegFeeAccounts {
+        owner: ctx.accounts.owner.to_account_info(),
+        owner_quote_token_account: ctx.accounts.owner_quote_token_account.to_account_info(),
+        quote_mint: ctx.accounts.quote_mint.to_account_info(),
+        quote_token_program: ctx.accounts.quote_token_program.to_account_info(),
+        fee_recipient_quote_token_account: &ctx.accounts.fee_recipient_quote_token_account,
+        creator_fee_recipient_quote_token_account: &ctx
+            .accounts
+            .creator_fee_recipient_quote_token_account,
+        staking_reward_vault: ctx.accounts.staking_reward_vault.to_account_info(),
+    };
+    charge_redeem_leg_fees_from(
+        &mut ctx.accounts.intent,
+        &mut ctx.accounts.staking_pool,
+        accounts,
+    )
+}
+
+/// Where a redeem leg's fee is paid from and to. The batched and the wrapped redeem legs
+/// both charge through charge_redeem_leg_fees_from.
+pub(crate) struct RedeemLegFeeAccounts<'a, 'info> {
+    pub owner: AccountInfo<'info>,
+    pub owner_quote_token_account: AccountInfo<'info>,
+    pub quote_mint: AccountInfo<'info>,
+    pub quote_token_program: AccountInfo<'info>,
+    pub fee_recipient_quote_token_account: &'a Account<'info, TokenAccount>,
+    pub creator_fee_recipient_quote_token_account: &'a Account<'info, TokenAccount>,
+    pub staking_reward_vault: AccountInfo<'info>,
+}
+
+#[inline(never)]
+pub(crate) fn charge_redeem_leg_fees_from<'info>(
+    intent: &mut LargeBasketIntent,
+    staking_pool: &mut StakingPool,
+    accounts: RedeemLegFeeAccounts<'_, 'info>,
+) -> Result<()> {
     let (protocol_fee, creator_fee, staking_fee) =
         redeem_fee_targets(intent, intent.quote_atoms_executed)?;
     let due = |target: u64, charged: u64| {
@@ -1307,32 +1381,29 @@ fn charge_redeem_leg_fees<'info>(
     let creator_due = due(creator_fee, intent.creator_fee_usdc_atoms)?;
     let staking_due = due(staking_fee, intent.staking_fee_usdc_atoms)?;
     validate_fee_destination(
-        &ctx.accounts.fee_recipient_quote_token_account,
+        accounts.fee_recipient_quote_token_account,
         &intent.protocol_fee_recipient,
         protocol_due,
         BasketError::InvalidFeeRecipientTokenAccount,
     )?;
     validate_fee_destination(
-        &ctx.accounts.creator_fee_recipient_quote_token_account,
+        accounts.creator_fee_recipient_quote_token_account,
         &intent.creator_fee_recipient,
         creator_due,
         BasketError::InvalidCreatorFeeRecipientTokenAccount,
     )?;
 
-    let fee_recipient = ctx.accounts.fee_recipient_quote_token_account.to_account_info();
-    let creator_fee_recipient = ctx
-        .accounts
+    let fee_recipient = accounts.fee_recipient_quote_token_account.to_account_info();
+    let creator_fee_recipient = accounts
         .creator_fee_recipient_quote_token_account
         .to_account_info();
-    let staking_reward_vault = ctx.accounts.staking_reward_vault.to_account_info();
-    transfer_redeem_fee(ctx, fee_recipient, protocol_due)?;
-    transfer_redeem_fee(ctx, creator_fee_recipient, creator_due)?;
-    if staking_due > 0 {
-        transfer_redeem_fee(ctx, staking_reward_vault, staking_due)?;
-        accrue_staking_rewards(&mut ctx.accounts.staking_pool, staking_due)?;
+    transfer_redeem_fee(&accounts, fee_recipient, protocol_due)?;
+    transfer_redeem_fee(&accounts, creator_fee_recipient, creator_due)?;
+    if unless_frozen(&accounts.staking_reward_vault, staking_due) > 0 {
+        transfer_redeem_fee(&accounts, accounts.staking_reward_vault.clone(), staking_due)?;
+        accrue_staking_rewards(staking_pool, staking_due)?;
     }
 
-    let intent = &mut ctx.accounts.intent;
     intent.fee_basis_usdc_atoms = intent.quote_atoms_executed;
     intent.protocol_fee_usdc_atoms = protocol_fee;
     intent.creator_fee_usdc_atoms = creator_fee;
@@ -1341,22 +1412,24 @@ fn charge_redeem_leg_fees<'info>(
 }
 
 fn transfer_redeem_fee<'info>(
-    ctx: &Context<'_, '_, 'info, 'info, ExecuteLargeBasketRedeemBatch<'info>>,
+    accounts: &RedeemLegFeeAccounts<'_, 'info>,
     destination: AccountInfo<'info>,
     amount: u64,
 ) -> Result<()> {
-    if amount == 0 || destination.key() == ctx.accounts.owner_quote_token_account.key() {
+    if unless_frozen(&destination, amount) == 0
+        || destination.key() == accounts.owner_quote_token_account.key()
+    {
         return Ok(());
     }
 
     token_interface::transfer_checked(
         CpiContext::new(
-            ctx.accounts.quote_token_program.to_account_info(),
+            accounts.quote_token_program.clone(),
             TransferChecked {
-                from: ctx.accounts.owner_quote_token_account.to_account_info(),
-                mint: ctx.accounts.quote_mint.to_account_info(),
+                from: accounts.owner_quote_token_account.clone(),
+                mint: accounts.quote_mint.clone(),
                 to: destination,
-                authority: ctx.accounts.owner.to_account_info(),
+                authority: accounts.owner.clone(),
             },
         ),
         amount,
@@ -1456,6 +1529,82 @@ impl<'info> FinalizeLargeBasketMintIntent<'info> {
             quote_atoms_executed: ctx.accounts.intent.quote_atoms_executed,
         });
 
+        Ok(())
+    }
+}
+
+impl<'info> SkipLargeBasketRedeemComponent<'info> {
+    /// The redeemer gives up one component of their open redeem: nothing leaves its vault, and
+    /// its share goes back into the basket's books for the holders who remain. This is how a
+    /// redeem gets past a component that can't move (a frozen vault, a paused or hooked mint,
+    /// a drained vault) and still pays out everything else. It costs only the redeemer who
+    /// signs it, so it needs no proof that the component is stuck.
+    pub fn handle(ctx: Context<Self>, args: SkipLargeBasketRedeemComponentArgs) -> Result<()> {
+        validate_open_intent(
+            &ctx.accounts.intent,
+            LargeBasketIntentKind::Redeem,
+            args.component_index,
+        )?;
+        require!(
+            !component_filled(&ctx.accounts.intent, args.component_index)?,
+            BasketError::LargeBasketComponentAlreadyFilled
+        );
+        let component = validate_component_accounts(
+            &ctx.accounts.index.key(),
+            &ctx.accounts.component_page,
+            &ctx.accounts.component_page.key(),
+            args.component_index,
+            &ctx.accounts.component_mint.to_account_info(),
+            &ctx.accounts.component_vault.to_account_info(),
+            &ctx.accounts.component_token_program.to_account_info(),
+        )?;
+        let amount = intent_component_amount(&ctx.accounts.intent, args.component_index)?;
+        let block = component_payout_blocked(
+            &ctx.accounts.component_mint.to_account_info(),
+            &ctx.accounts.component_vault.to_account_info(),
+            amount,
+        )?;
+        let vault_amount =
+            load_interface_token_account(&ctx.accounts.component_vault.to_account_info())?.amount;
+        let restored = forfeit_restorable(amount, vault_amount, component.accounted_reserve);
+        let local_index = ctx.accounts.component_page.component_offset(args.component_index)?;
+        let entry = &mut ctx.accounts.component_page.components[local_index];
+        entry.accounted_reserve = entry
+            .accounted_reserve
+            .checked_add(restored)
+            .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
+
+        let intent_key = ctx.accounts.intent.key();
+        let index_key = ctx.accounts.index.key();
+        set_component_quote_atoms(&mut ctx.accounts.intent, args.component_index, 0)?;
+        mark_component_filled(&mut ctx.accounts.intent, args.component_index)?;
+        // The redeemer gave up these proceeds, so the floor they set on them no longer holds.
+        ctx.accounts.intent.min_quote_out = 0;
+        emit!(LargeBasketComponentSkipped {
+            intent: intent_key,
+            index: index_key,
+            owner: ctx.accounts.owner.key(),
+            component_index: args.component_index,
+            amount,
+            restored,
+            block,
+        });
+
+        // Every earlier leg paid its own fee, so a skip that completes the redeem settles it.
+        if ctx.accounts.intent.completed_components == ctx.accounts.intent.component_count {
+            ctx.accounts.intent.fees_collected = true;
+            ctx.accounts.intent.status = LargeBasketIntentStatus::Finalized;
+            ctx.accounts.index.track_closed_intent();
+            clear_intent_lock(&mut ctx.accounts.intent_lock, intent_key)?;
+            emit!(LargeBasketIntentFinalized {
+                intent: intent_key,
+                index: index_key,
+                owner: ctx.accounts.intent.owner,
+                kind: ctx.accounts.intent.kind,
+                index_amount: ctx.accounts.intent.index_amount,
+                quote_atoms_executed: ctx.accounts.intent.quote_atoms_executed,
+            });
+        }
         Ok(())
     }
 }
@@ -1612,7 +1761,9 @@ impl<'info> CancelExpiredLargeBasketIntent<'info> {
             } else {
                 CancelledComponentSelection::Unfilled
             };
+            let intent_key = ctx.accounts.intent.key();
             let all_returned = return_owed_components(
+                intent_key,
                 ctx.accounts.index.key(),
                 ctx.accounts.index.vault_authority_bump,
                 &ctx.accounts.vault_authority.to_account_info(),
@@ -1679,6 +1830,11 @@ impl<'info> ClaimLargeBasketRefund<'info> {
         let escrow = ctx.accounts.refund_escrow.key();
         let escrow_bump = [ctx.bumps.refund_escrow];
         let signer_seeds: &[&[u8]] = &[REFUND_ESCROW_SEED, index_key.as_ref(), &escrow_bump];
+        // Escrowed components the chain shows can't move now (a frozen escrow account or owner
+        // account, a paused or hooked mint). They stay escrowed and claimable later, but once
+        // everything left is stuck, the owner's lock is released so they are not kept from new
+        // intents.
+        let mut stuck = [0u8; LARGE_BASKET_COMPONENT_BITMAP_BYTES];
         for group in transfer_infos.chunks(4) {
             let (component_index, component) = find_component_by_mint(&pages, &group[0].key())?;
             require!(
@@ -1692,9 +1848,20 @@ impl<'info> ClaimLargeBasketRefund<'info> {
                 associated_token_address_with_token_program(&escrow, &component.mint, &component.token_program),
                 BasketError::InvalidVaultAccount
             );
+            let (amount, _) = refund_split(&ctx.accounts.intent, component_index)?;
+            if component_payout_blocked(&group[0], &group[1], amount)?.is_some() {
+                bitmap_set_once(&mut stuck, component_index)?;
+                continue;
+            }
             let owner_token = load_interface_token_account(&group[2])?;
             require_keys_eq!(owner_token.owner, ctx.accounts.intent.owner, BasketError::InvalidUserTokenAccount);
             require_keys_eq!(owner_token.mint, component.mint, BasketError::InvalidUserTokenAccount);
+            // The owner's own account is frozen: the refund waits in escrow, claimable to another
+            // account later, and counts as stuck so the owner's lock can still be released.
+            if token_account_frozen(&group[2])? {
+                bitmap_set_once(&mut stuck, component_index)?;
+                continue;
+            }
             transfer_component_checked(
                 &group[3],
                 &group[1],
@@ -1702,15 +1869,20 @@ impl<'info> ClaimLargeBasketRefund<'info> {
                 &group[2],
                 &ctx.accounts.refund_escrow.to_account_info(),
                 &[signer_seeds],
-                intent_component_amount(&ctx.accounts.intent, component_index)?,
+                amount,
                 component.decimals,
             )?;
             let (byte_index, bit) = bitmap_position(component_index)?;
             ctx.accounts.intent.escrowed_bitmap[byte_index] &= !bit;
         }
-        if ctx.accounts.intent.escrowed_bitmap.iter().all(|byte| *byte == 0)
-            && ctx.accounts.intent_lock.active_intent == ctx.accounts.intent.key()
-        {
+        let only_stuck_left = ctx
+            .accounts
+            .intent
+            .escrowed_bitmap
+            .iter()
+            .zip(stuck.iter())
+            .all(|(escrowed, stuck)| escrowed & !stuck == 0);
+        if only_stuck_left && ctx.accounts.intent_lock.active_intent == ctx.accounts.intent.key() {
             clear_intent_lock(&mut ctx.accounts.intent_lock, ctx.accounts.intent.key())?;
         }
         Ok(())
@@ -1953,15 +2125,25 @@ impl<'info> ExecuteLargeBasketMintComponentInKind<'info> {
             let vault_after =
                 load_interface_token_account(&ctx.accounts.component_vault.to_account_info())?.amount;
             validate_token_account_credit(vault_before, vault_after, amount)?;
-            // Skim the in-kind fee on top of the deposit, paid by the owner.
+            // Skim the in-kind fee on top of the deposit, paid by the owner. A recipient's
+            // frozen account can't take its share, and must not hold up the mint.
             let (protocol_amount, creator_amount) =
                 in_kind_fee_amounts(&ctx.accounts.intent, amount)?;
+            let protocol_amount = component_fee_due(
+                &ctx.accounts.protocol_fee_component_account.to_account_info(),
+                &ctx.accounts.intent.protocol_fee_recipient,
+                &component.mint,
+                ctx.accounts.component_token_program.key,
+                protocol_amount,
+            )?;
+            let creator_amount = component_fee_due(
+                &ctx.accounts.creator_fee_component_account.to_account_info(),
+                &ctx.accounts.intent.creator_fee_recipient,
+                &component.mint,
+                ctx.accounts.component_token_program.key,
+                creator_amount,
+            )?;
             if protocol_amount > 0 {
-                validate_recipient_component_ata(
-                    &ctx.accounts.protocol_fee_component_account.to_account_info(),
-                    &ctx.accounts.intent.protocol_fee_recipient,
-                    &component.mint,
-                )?;
                 transfer_component_checked(
                     &ctx.accounts.component_token_program.to_account_info(),
                     &ctx.accounts.owner_component_token_account.to_account_info(),
@@ -1974,11 +2156,6 @@ impl<'info> ExecuteLargeBasketMintComponentInKind<'info> {
                 )?;
             }
             if creator_amount > 0 {
-                validate_recipient_component_ata(
-                    &ctx.accounts.creator_fee_component_account.to_account_info(),
-                    &ctx.accounts.intent.creator_fee_recipient,
-                    &component.mint,
-                )?;
                 transfer_component_checked(
                     &ctx.accounts.component_token_program.to_account_info(),
                     &ctx.accounts.owner_component_token_account.to_account_info(),
@@ -2045,8 +2222,24 @@ impl<'info> ExecuteLargeBasketRedeemComponentInKind<'info> {
                 ctx.accounts.system_program.to_account_info(),
                 ctx.accounts.component_token_program.to_account_info(),
             )?;
+            // A recipient's frozen account can't take its share, and must not hold up the
+            // redeem: that share stays with the redeemer.
             let (protocol_amount, creator_amount) =
                 in_kind_fee_amounts(&ctx.accounts.intent, amount)?;
+            let protocol_amount = component_fee_due(
+                &ctx.accounts.protocol_fee_component_account.to_account_info(),
+                &ctx.accounts.intent.protocol_fee_recipient,
+                &component.mint,
+                ctx.accounts.component_token_program.key,
+                protocol_amount,
+            )?;
+            let creator_amount = component_fee_due(
+                &ctx.accounts.creator_fee_component_account.to_account_info(),
+                &ctx.accounts.intent.creator_fee_recipient,
+                &component.mint,
+                ctx.accounts.component_token_program.key,
+                creator_amount,
+            )?;
             let total_fee = protocol_amount
                 .checked_add(creator_amount)
                 .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
@@ -2069,11 +2262,6 @@ impl<'info> ExecuteLargeBasketRedeemComponentInKind<'info> {
                 component.decimals,
             )?;
             if protocol_amount > 0 {
-                validate_recipient_component_ata(
-                    &ctx.accounts.protocol_fee_component_account.to_account_info(),
-                    &ctx.accounts.intent.protocol_fee_recipient,
-                    &component.mint,
-                )?;
                 transfer_component_checked(
                     &ctx.accounts.component_token_program.to_account_info(),
                     &ctx.accounts.component_vault.to_account_info(),
@@ -2086,11 +2274,6 @@ impl<'info> ExecuteLargeBasketRedeemComponentInKind<'info> {
                 )?;
             }
             if creator_amount > 0 {
-                validate_recipient_component_ata(
-                    &ctx.accounts.creator_fee_component_account.to_account_info(),
-                    &ctx.accounts.intent.creator_fee_recipient,
-                    &component.mint,
-                )?;
                 transfer_component_checked(
                     &ctx.accounts.component_token_program.to_account_info(),
                     &ctx.accounts.component_vault.to_account_info(),
@@ -2140,6 +2323,31 @@ fn in_kind_fee_amounts(intent: &LargeBasketIntent, amount: u64) -> Result<(u64, 
         u64::from(total_bps),
     )?;
     route_creator_fee(total_fee - creator_fee, creator_fee, &intent.creator_fee_recipient)
+}
+
+/// What a fee recipient is due in a component, once its account is checked to be the
+/// recipient's for that token. It is waived only when that account is the recipient's own
+/// associated account and is frozen, so nobody dodges a fee by passing another frozen account.
+fn component_fee_due(
+    fee_account: &AccountInfo<'_>,
+    recipient: &Pubkey,
+    component_mint: &Pubkey,
+    token_program: &Pubkey,
+    amount: u64,
+) -> Result<u64> {
+    if amount == 0 {
+        return Ok(0);
+    }
+    validate_recipient_component_ata(fee_account, recipient, component_mint)?;
+    if !token_account_frozen(fee_account)? {
+        return Ok(amount);
+    }
+    require_keys_eq!(
+        fee_account.key(),
+        associated_token_address_with_token_program(recipient, component_mint, token_program),
+        BasketError::InvalidFeeRecipientTokenAccount
+    );
+    Ok(0)
 }
 
 fn validate_recipient_component_ata(
@@ -2218,7 +2426,7 @@ struct IntentInit {
     bump: u8,
 }
 
-fn require_mint_basis<'info>(
+pub(crate) fn require_mint_basis<'info>(
     index: &IndexState,
     index_mint: &UncheckedAccount<'info>,
     intent: &LargeBasketIntent,
@@ -2280,7 +2488,7 @@ fn activate_intent_lock(
     Ok(())
 }
 
-fn clear_intent_lock(
+pub(crate) fn clear_intent_lock(
     intent_lock: &mut Account<LargeBasketIntentLock>,
     intent: Pubkey,
 ) -> Result<()> {
@@ -2722,7 +2930,13 @@ fn component_owed(
 /// owed component has now left the vaults. The destination is a token account the owner holds,
 /// or the refund escrow's associated token account, which costs the caller no rent and which
 /// the owner cannot make refuse a transfer.
+/// Returns owed components from the vaults, a few per call. A component the chain shows can't
+/// leave its vault (frozen, paused, hooked or short) is forfeited instead of returned: its
+/// amount goes back into the basket's books, as far as the vault still holds it, so a stuck
+/// component can never keep the intent open, the owner locked out, or the basket's
+/// rebalances held. Forfeits need that proof, since anyone may call this after expiry.
 fn return_owed_components<'info>(
+    intent_key: Pubkey,
     index: Pubkey,
     vault_authority_bump: u8,
     vault_authority: &AccountInfo<'info>,
@@ -2745,8 +2959,11 @@ fn return_owed_components<'info>(
             && (!transfer_infos.is_empty() || !anything_owed(intent, selection)?),
         BasketError::InvalidRemainingAccounts
     );
-    let pages = load_ordered_writable_component_pages(&index, page_infos, intent.component_count)?;
+    let mut pages =
+        load_ordered_writable_component_pages(&index, page_infos, intent.component_count)?;
     let escrow = Pubkey::find_program_address(&[REFUND_ESCROW_SEED, index.as_ref()], &crate::ID).0;
+    let mut restorations: Vec<(u16, u64)> = Vec::new();
+    {
     let mut components: Vec<(u16, &LargeBasketComponent)> = Vec::new();
     for page in pages.iter() {
         for (local_index, component) in page.components.iter().enumerate() {
@@ -2768,13 +2985,48 @@ fn return_owed_components<'info>(
                 && !bitmap_get(&intent.refunded_bitmap, component_index)?,
             BasketError::InvalidRemainingAccounts
         );
+        let amount = intent_component_amount(intent, component_index)?;
+        let (refund, fee) = refund_split(intent, component_index)?;
+        require_keys_eq!(
+            group[1].key(),
+            component.vault,
+            BasketError::InvalidVaultAccount
+        );
+        // The vault can't pay, or (the issuer's doing) the escrow's own account for the token is
+        // frozen and every new account starts frozen, so the refund has nowhere to go. Either
+        // way the owed amount goes back into the books rather than holding the intent open.
+        let escrow_account =
+            associated_token_address_with_token_program(&escrow, &component.mint, &component.token_program);
+        let blocked = match component_payout_blocked(&group[0], &group[1], refund)? {
+            Some(block) => Some(block),
+            None if group[2].key() == escrow_account
+                && *group[2].owner == component.token_program
+                && refund_has_nowhere_to_go(&group[0], &group[2])? =>
+            {
+                Some(ComponentBlock::RefundBlocked)
+            }
+            None => None,
+        };
+        if let Some(block) = blocked {
+            let vault_amount = load_interface_token_account(&group[1])?.amount;
+            let restored = forfeit_restorable(amount, vault_amount, component.accounted_reserve);
+            restorations.push((component_index, restored));
+            bitmap_set_once(&mut intent.refunded_bitmap, component_index)?;
+            emit!(LargeBasketComponentForfeited {
+                intent: intent_key,
+                index,
+                owner: intent.owner,
+                kind: intent.kind,
+                component_index,
+                amount,
+                restored,
+                block,
+            });
+            continue;
+        }
         let to_escrow = load_interface_token_account(&group[2])?.owner == escrow;
         if to_escrow {
-            require_keys_eq!(
-                group[2].key(),
-                associated_token_address_with_token_program(&escrow, &component.mint, &component.token_program),
-                BasketError::InvalidUserTokenAccount
-            );
+            require_keys_eq!(group[2].key(), escrow_account, BasketError::InvalidUserTokenAccount);
         }
         transfer_component_to_owner(
             CancelledComponentTransfer {
@@ -2783,7 +3035,7 @@ fn return_owed_components<'info>(
                 vault_authority,
                 owner: if to_escrow { escrow } else { intent.owner },
                 component,
-                amount: intent_component_amount(intent, component_index)?,
+                amount: refund,
             },
             CancelledComponentTransferAccounts {
                 mint: &group[0],
@@ -2792,13 +3044,70 @@ fn return_owed_components<'info>(
                 token_program: &group[3],
             },
         )?;
+        // The fee stays in the vault and goes back into the books, for the basket's holders.
+        if fee > 0 {
+            let vault_amount = load_interface_token_account(&group[1])?.amount;
+            let restored = forfeit_restorable(fee, vault_amount, component.accounted_reserve);
+            restorations.push((component_index, restored));
+            emit!(LargeBasketRefundFeeKept {
+                intent: intent_key,
+                index,
+                owner: intent.owner,
+                component_index,
+                refund,
+                fee,
+                restored,
+            });
+        }
         bitmap_set_once(&mut intent.refunded_bitmap, component_index)?;
-        if to_escrow {
+        if to_escrow && refund > 0 {
             bitmap_set_once(&mut intent.escrowed_bitmap, component_index)?;
+        }
+    }
+    }
+
+    if !restorations.is_empty() {
+        for page in pages.iter_mut() {
+            let start = page.start_component_index;
+            let end = start
+                .checked_add(page.component_count)
+                .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
+            for (component_index, restored) in &restorations {
+                if (start..end).contains(component_index) {
+                    let entry = &mut page.components[usize::from(component_index - start)];
+                    entry.accounted_reserve = entry
+                        .accounted_reserve
+                        .checked_add(*restored)
+                        .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
+                }
+            }
+        }
+        for page in pages.iter() {
+            page.exit(&crate::ID)?;
         }
     }
 
     Ok(!anything_owed(intent, selection)?)
+}
+
+/// What an expired intent pays back for one owed component, and the fee it keeps:
+/// (refund, fee). A mint gets back exactly what it deposited. A redeem's unsold components
+/// come back in kind, so they pay the in-kind redeem fee a completed in-kind redeem would;
+/// otherwise letting a part-filled redeem expire would be a fee-free way out. The fee stays
+/// in the vault and is booked back to the basket.
+fn refund_split(intent: &LargeBasketIntent, component_index: u16) -> Result<(u64, u64)> {
+    let amount = intent_component_amount(intent, component_index)?;
+    if intent.kind != LargeBasketIntentKind::Redeem {
+        return Ok((amount, 0));
+    }
+    let (protocol_fee, creator_fee) = in_kind_fee_amounts(intent, amount)?;
+    let fee = protocol_fee
+        .checked_add(creator_fee)
+        .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
+    let refund = amount
+        .checked_sub(fee)
+        .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
+    Ok((refund, fee))
 }
 
 /// Whether any component the cancelled intent owes its owner is still in the vaults.
@@ -2936,7 +3245,7 @@ fn validate_component_execution_args(max_oracle_slippage_bps: u16) -> Result<()>
     Ok(())
 }
 
-fn validate_open_intent(
+pub(crate) fn validate_open_intent(
     intent: &LargeBasketIntent,
     expected_kind: LargeBasketIntentKind,
     component_index: u16,
@@ -2993,12 +3302,12 @@ fn bitmap_position(component_index: u16) -> Result<(usize, u8)> {
     Ok((byte_index, bit))
 }
 
-fn component_filled(intent: &LargeBasketIntent, component_index: u16) -> Result<bool> {
+pub(crate) fn component_filled(intent: &LargeBasketIntent, component_index: u16) -> Result<bool> {
     let (byte_index, bit) = bitmap_position(component_index)?;
     Ok((intent.component_fill_bitmap[byte_index] & bit) != 0)
 }
 
-fn mark_component_filled(intent: &mut LargeBasketIntent, component_index: u16) -> Result<()> {
+pub(crate) fn mark_component_filled(intent: &mut LargeBasketIntent, component_index: u16) -> Result<()> {
     if component_filled(intent, component_index)? {
         return err!(BasketError::LargeBasketComponentAlreadyFilled);
     }
@@ -3015,7 +3324,7 @@ fn mark_component_filled(intent: &mut LargeBasketIntent, component_index: u16) -
 // reached the vault makes finalize book all of it as backing and an expiry refund return all
 // of it, rather than leaving the surplus in the vault outside the reserve ledger. The
 // smallest over-delivery so far is kept so finalize can credit the minter for it.
-fn record_component_received(
+pub(crate) fn record_component_received(
     intent: &mut LargeBasketIntent,
     component_index: u16,
     received: u64,
@@ -3106,7 +3415,7 @@ fn credited_mint_amount(intent: &LargeBasketIntent, supply: u64, max_supply: u64
     Ok(credited)
 }
 
-fn intent_component_amount(intent: &LargeBasketIntent, component_index: u16) -> Result<u64> {
+pub(crate) fn intent_component_amount(intent: &LargeBasketIntent, component_index: u16) -> Result<u64> {
     intent
         .component_amounts
         .get(usize::from(component_index))
@@ -3115,7 +3424,7 @@ fn intent_component_amount(intent: &LargeBasketIntent, component_index: u16) -> 
 }
 
 // Record the quote spent (mint) / received (redeem) for a component at execute time.
-fn set_component_quote_atoms(
+pub(crate) fn set_component_quote_atoms(
     intent: &mut LargeBasketIntent,
     component_index: u16,
     quote_atoms: u64,
@@ -3128,7 +3437,7 @@ fn set_component_quote_atoms(
     Ok(())
 }
 
-fn validate_component_accounts(
+pub(crate) fn validate_component_accounts(
     index: &Pubkey,
     page: &LargeBasketComponentPage,
     page_key: &Pubkey,
@@ -3163,7 +3472,7 @@ fn validate_component_accounts(
     Ok(component)
 }
 
-fn add_mint_quote_spent(intent: &mut LargeBasketIntent, quote_spent: u64) -> Result<()> {
+pub(crate) fn add_mint_quote_spent(intent: &mut LargeBasketIntent, quote_spent: u64) -> Result<()> {
     intent.quote_atoms_executed = intent
         .quote_atoms_executed
         .checked_add(quote_spent)
@@ -3181,7 +3490,7 @@ fn add_mint_quote_spent(intent: &mut LargeBasketIntent, quote_spent: u64) -> Res
     Ok(())
 }
 
-fn add_redeem_quote_received(intent: &mut LargeBasketIntent, quote_received: u64) -> Result<()> {
+pub(crate) fn add_redeem_quote_received(intent: &mut LargeBasketIntent, quote_received: u64) -> Result<()> {
     let quote_atoms_executed = intent
         .quote_atoms_executed
         .checked_add(quote_received)
@@ -3508,7 +3817,9 @@ fn transfer_fee_from_owner<'info>(
     destination: AccountInfo<'info>,
     amount: u64,
 ) -> Result<()> {
-    if amount == 0 || destination.key() == ctx.accounts.owner_quote_token_account.key() {
+    if unless_frozen(&destination, amount) == 0
+        || destination.key() == ctx.accounts.owner_quote_token_account.key()
+    {
         return Ok(());
     }
 
@@ -3523,6 +3834,16 @@ fn transfer_fee_from_owner<'info>(
         ),
         amount,
     )
+}
+
+/// A fee bound for a frozen token account is waived. The account can't take it, and a fee
+/// recipient's frozen account must never hold up anyone's mint or redeem.
+fn unless_frozen(destination: &AccountInfo, amount: u64) -> u64 {
+    if amount > 0 && matches!(token_account_frozen(destination), Ok(true)) {
+        0
+    } else {
+        amount
+    }
 }
 
 #[cfg(test)]
@@ -3858,6 +4179,29 @@ mod tests {
         // protocol (0.5%) + staking (0.25%) folded together, creator (0.25%) kept apart.
         assert_eq!(protocol_amount, 7_500);
         assert_eq!(creator_amount, 2_500);
+    }
+
+    #[test]
+    fn an_expired_redeem_refund_pays_the_in_kind_fee_and_a_mint_refund_none() {
+        let mut i = intent(2);
+        i.component_amounts = vec![1_000_000, 0];
+        i.protocol_fee_bps = 4;
+        i.creator_fee_bps = 1;
+        i.staking_fee_bps = 5;
+        // A mint gets back all it deposited.
+        assert_eq!(refund_split(&i, 0).unwrap(), (1_000_000, 0));
+        // A redeem's unsold component pays 0.10%, as an in-kind redeem would.
+        i.kind = LargeBasketIntentKind::Redeem;
+        assert_eq!(refund_split(&i, 0).unwrap(), (999_000, 1_000));
+        assert_eq!(refund_split(&i, 1).unwrap(), (0, 0));
+        // Rounded up once, never more than the component.
+        i.component_amounts = vec![1, 0];
+        assert_eq!(refund_split(&i, 0).unwrap(), (0, 1));
+        // No fee set, nothing kept.
+        i.protocol_fee_bps = 0;
+        i.creator_fee_bps = 0;
+        i.staking_fee_bps = 0;
+        assert_eq!(refund_split(&i, 0).unwrap(), (1, 0));
     }
 
     #[test]

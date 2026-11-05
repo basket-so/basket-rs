@@ -1,6 +1,7 @@
 import { prepareRebalanceFixtures, testRebalanceMigration } from "./rebalance-migration-fixtures.mjs";
 import { prepareCompositionFixtures, testCompositionChange } from "./composition-change-fixtures.mjs";
 import { ACCOUNT_LOCK_LIMIT_128_FEATURE, prepareSignedPriceFixtures, testSignedPrices } from "./signed-prices-fixtures.mjs";
+import { prepareBrokenComponentFixtures, testBrokenComponents } from "./broken-component-fixtures.mjs";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -15,6 +16,10 @@ import {
   createInitializePermanentDelegateInstruction,
   createInitializeTransferFeeConfigInstruction,
   createInitializeTransferHookInstruction,
+  createInitializeNonTransferableMintInstruction,
+  createInitializeDefaultAccountStateInstruction,
+  createInitializeInterestBearingMintInstruction,
+  AccountState,
   createMint,
   ExtensionType,
   getAccount,
@@ -291,6 +296,7 @@ async function main() {
   const rebalanceFixtures = await prepareRebalanceFixtures(fixtureDir, programId, payer.publicKey);
   const compositionFixtures = await prepareCompositionFixtures(fixtureDir, programId, payer.publicKey);
   const signedPriceFixtures = await prepareSignedPriceFixtures(fixtureDir, programId, payer.publicKey);
+  const brokenFixtures = await prepareBrokenComponentFixtures(fixtureDir, programId, payer.publicKey);
   const validatorArgs = [
       "--reset",
       "--quiet",
@@ -313,7 +319,7 @@ async function main() {
       usdcMint.toBase58(),
       usdcMintDump,
     ];
-  validatorArgs.push(...rebalanceFixtures.validatorArgs, ...compositionFixtures.validatorArgs, ...signedPriceFixtures.validatorArgs);
+  validatorArgs.push(...rebalanceFixtures.validatorArgs, ...compositionFixtures.validatorArgs, ...signedPriceFixtures.validatorArgs, ...brokenFixtures.validatorArgs);
   // Enforce mainnet's 64 accounts per transaction (the 128 feature is inactive there).
   validatorArgs.push("--deactivate-feature", ACCOUNT_LOCK_LIMIT_128_FEATURE);
   const wslPath = p => p.replace(/^([A-Za-z]):/, (_, drive) => '/mnt/' + drive.toLowerCase()).replaceAll('\\','/');
@@ -447,6 +453,7 @@ async function main() {
     await testRebalanceMigration(program, connection, payer, stakingPool, rebalanceFixtures.fixtures);
     await testCompositionChange(program, connection, payer, user, stakingPool, compositionFixtures.fixtures);
     await testSignedPrices(program, connection, payer, user, signedPriceFixtures.fixtures);
+    await testBrokenComponents(program, connection, payer, user, stakingPool, brokenFixtures.fixtures);
     for (const fixedWeights of [false, true]) {
       const symbol = fixedWeights ? 'FIXED' : 'UNITS';
       const index = pda('index', payer.publicKey, symbol);
@@ -909,6 +916,10 @@ async function main() {
         const setConfig = (args, authority = payer) => program.methods.setCommunityConfig(args).accounts({ payer: payer.publicKey, authority: authority.publicKey, protocolConfig, communityConfig, systemProgram: SystemProgram.programId }).signers(authority === payer ? [] : [authority]).rpc();
         await assert.rejects(setConfig(configArgs, maker), /UnauthorizedAuthority/);
         await assert.rejects(setConfig({ ...configArgs, stakingStepBps: 96 }), /InvalidFeeBps/, 'a step has to fit under the 1% cap');
+        // The protocol authority sets the creation fee, up to 1 SOL.
+        await assert.rejects(setConfig({ ...configArgs, creationFeeLamports: bn(1_000_000_001) }), /CreationFeeTooHigh/, 'over 1 SOL');
+        await setConfig({ ...configArgs, creationFeeLamports: bn(1_000_000_000) });
+        assert.equal((await program.account.communityConfig.fetch(communityConfig)).creationFeeLamports.toString(), '1000000000');
         await setConfig(configArgs);
 
         const asMaker = (builder) => builder.signers([maker]).rpc();
@@ -952,27 +963,46 @@ async function main() {
         // A symbol that only passes for COMM (zero for O) is taken with it.
         await assert.rejects(communityBasket('C0MM').create(), /already in use/);
 
-        // Only tokens whose transfers nobody else controls.
-        const token2022 = async (extension, init) => {
+        // Issuer controls are allowed: a component its issuer stops is skipped on redeem and left
+        // out of rebalances. What the books can't follow, or a vault could never take, is not.
+        const token2022 = async (extensions, inits, freezeAuthority = null) => {
           const mint = Keypair.generate();
-          const space = getMintLen([extension]);
+          const space = getMintLen(extensions);
           const tx = new Transaction().add(SystemProgram.createAccount({ fromPubkey: payer.publicKey, newAccountPubkey: mint.publicKey, space, lamports: await connection.getMinimumBalanceForRentExemption(space), programId: TOKEN_2022_PROGRAM_ID }));
-          tx.add(init(mint.publicKey), createInitializeMintInstruction(mint.publicKey, 6, payer.publicKey, null, TOKEN_2022_PROGRAM_ID));
+          for (const init of inits) tx.add(init(mint.publicKey));
+          tx.add(createInitializeMintInstruction(mint.publicKey, 6, payer.publicKey, freezeAuthority, TOKEN_2022_PROGRAM_ID));
           await sendAndConfirmTransaction(connection, tx, [payer, mint]);
           return mint.publicKey;
         };
-        const delegated = await token2022(ExtensionType.PermanentDelegate, (m) => createInitializePermanentDelegateInstruction(m, payer.publicKey, TOKEN_2022_PROGRAM_ID));
-        // A hook with no program yet, but an authority that could set one (as PUMP has).
-        const hookable = await token2022(ExtensionType.TransferHook, (m) => createInitializeTransferHookInstruction(m, payer.publicKey, PublicKey.default, TOKEN_2022_PROGRAM_ID));
-        for (const mint of [delegated, hookable]) {
-          await assert.rejects(comm.initPage([[mint, TOKEN_2022_PROGRAM_ID, 1_000_000, 0]]), /CommunityTokenNotAllowed/);
+        const refused = {
+          'a hook program is set': await token2022([ExtensionType.TransferHook], [(m) => createInitializeTransferHookInstruction(m, payer.publicKey, Keypair.generate().publicKey, TOKEN_2022_PROGRAM_ID)]),
+          'non-transferable': await token2022([ExtensionType.NonTransferable], [(m) => createInitializeNonTransferableMintInstruction(m, TOKEN_2022_PROGRAM_ID)]),
+          'accounts start frozen': await token2022([ExtensionType.DefaultAccountState], [(m) => createInitializeDefaultAccountStateInstruction(m, AccountState.Frozen, TOKEN_2022_PROGRAM_ID)], payer.publicKey),
+          'interest-bearing': await token2022([ExtensionType.InterestBearingConfig], [(m) => createInitializeInterestBearingMintInstruction(m, payer.publicKey, 500, TOKEN_2022_PROGRAM_ID)]),
+        };
+        for (const [why, mint] of Object.entries(refused)) {
+          await assert.rejects(comm.initPage([[mint, TOKEN_2022_PROGRAM_ID, 1_000_000, 0]]), /CommunityTokenNotAllowed/, why);
         }
-        // A freeze authority could freeze a vault, and with it every redeem.
-        const freezable = await createMint(connection, payer, payer.publicKey, payer.publicKey, 6);
-        await assert.rejects(comm.initPage([[freezable, TOKEN_PROGRAM_ID, 1_000_000, 0]]), /CommunityTokenNotAllowed/);
         const plain = await createMint(connection, payer, payer.publicKey, null, 6);
         await comm.initPage([[plain, TOKEN_PROGRAM_ID, 1_000_000, 0]]);
         await comm.finalize();
+        // An xStock-like token (a freeze authority, a permanent delegate, a hook authority with no
+        // hook program, accounts that start initialized) and a classic token with a freeze
+        // authority both go into a community basket.
+        const xstockLike = await token2022(
+          [ExtensionType.PermanentDelegate, ExtensionType.TransferHook, ExtensionType.DefaultAccountState],
+          [
+            (m) => createInitializePermanentDelegateInstruction(m, payer.publicKey, TOKEN_2022_PROGRAM_ID),
+            (m) => createInitializeTransferHookInstruction(m, payer.publicKey, PublicKey.default, TOKEN_2022_PROGRAM_ID),
+            (m) => createInitializeDefaultAccountStateInstruction(m, AccountState.Initialized, TOKEN_2022_PROGRAM_ID),
+          ],
+          payer.publicKey,
+        );
+        const freezable = await createMint(connection, payer, payer.publicKey, payer.publicKey, 6);
+        const xstk = communityBasket('XSTK', { components: 2 });
+        await xstk.create();
+        await xstk.initPage([[xstockLike, TOKEN_2022_PROGRAM_ID, 1_000_000, 0], [freezable, TOKEN_PROGRAM_ID, 1_000_000, 0]]);
+        await xstk.finalize();
 
         // The creator chooses how many steps its fee is, never how a step splits.
         const commFees = { mintFeeBps: 4, redeemFeeBps: 4, creatorMintFeeBps: 1, creatorRedeemFeeBps: 1, stakingMintFeeBps: 5, stakingRedeemFeeBps: 5 };
@@ -1012,7 +1042,11 @@ async function main() {
         await comw.initPage([[plain, TOKEN_PROGRAM_ID, 500_000, 10_000], [usdcMint, TOKEN_PROGRAM_ID, 0, 0]]);
         await comw.finalize();
         const proposeAddition = (mint) => asMaker(program.methods.proposeCompositionChange({ targetWeightsBps: [9000, 0], additions: [{ mint, oraclePair: Keypair.generate().publicKey, targetWeightBps: 1000 }] }).accounts({ authority: maker.publicKey, index: comw.index, compositionChange: pda('composition-change', comw.index), systemProgram: SystemProgram.programId }).remainingAccounts([meta(comw.page), meta(mint)]));
-        await assert.rejects(proposeAddition(freezable), /CommunityTokenNotAllowed/);
+        // Additions pass the same screen as creation: a Token-2022 token is fine, a hooked one is not.
+        await assert.rejects(proposeAddition(refused['a hook program is set']), /CommunityTokenNotAllowed/);
+        await proposeAddition(xstockLike);
+        assert.ok((await program.account.compositionChange.fetch(pda('composition-change', comw.index))).additions[0].mint.equals(xstockLike));
+        await asMaker(program.methods.cancelCompositionChange().accounts({ authority: maker.publicKey, index: comw.index, compositionChange: pda('composition-change', comw.index), proposer: maker.publicKey }));
         const request = (operator) => program.methods.requestRebalance().accounts({ operator: operator.publicKey, index: comw.index }).signers([operator]).rpc();
         await assert.rejects(request(maker), /NotRebalanceOperator/);
         await request(keeper);

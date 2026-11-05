@@ -16,17 +16,31 @@ pub type SplMint = token::spl_token::state::Mint;
 pub type SplTokenAccount = token::spl_token::state::Account;
 const MINT_DECIMALS_OFFSET: usize = 44;
 const MINT_INITIALIZED_OFFSET: usize = 45;
-const MINT_FREEZE_AUTHORITY_OFFSET: usize = 46;
+// A token account's state byte (SPL Token and Token-2022 share the base layout): after the
+// mint, owner, amount and the delegate COption.
+const TOKEN_ACCOUNT_STATE_OFFSET: usize = 108;
+const ACCOUNT_STATE_INITIALIZED: u8 = 1;
+const ACCOUNT_STATE_FROZEN: u8 = 2;
 // A Token-2022 mint with extensions pads its base to a token account's length, then holds an
 // account-type byte and the extensions as (type u16, length u16, value) entries.
 const TOKEN_2022_ACCOUNT_TYPE_OFFSET: usize = SplTokenAccount::LEN;
+const TOKEN_2022_ACCOUNT_TYPE_ACCOUNT: u8 = 2;
 const TOKEN_2022_MINT_ACCOUNT_TYPE: u8 = 1;
 const TRANSFER_FEE_CONFIG_EXTENSION: u16 = 1;
+const CONFIDENTIAL_TRANSFER_MINT_EXTENSION: u16 = 4;
+const DEFAULT_ACCOUNT_STATE_EXTENSION: u16 = 6;
+const PERMANENT_DELEGATE_EXTENSION: u16 = 12;
 const TRANSFER_HOOK_EXTENSION: u16 = 14;
 // MetadataPointer, TokenMetadata, GroupPointer, TokenGroup, GroupMemberPointer and
 // TokenGroupMember are numbered 18 to 23. None of them affects transfers.
 const METADATA_POINTER_EXTENSION: u16 = 18;
 const TOKEN_GROUP_MEMBER_EXTENSION: u16 = 23;
+const SCALED_UI_AMOUNT_EXTENSION: u16 = 25;
+// PausableConfig: the pause authority (32 bytes), then whether the mint is paused.
+const PAUSABLE_EXTENSION: u16 = 26;
+const PAUSABLE_PAUSED_OFFSET: usize = 32;
+// TransferHook: its authority (32 bytes), then the hook program (zero when unset).
+const TRANSFER_HOOK_PROGRAM: core::ops::Range<usize> = 32..64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InterfaceMintInfo {
@@ -200,14 +214,17 @@ pub fn require_no_transfer_fee(info: &AccountInfo) -> Result<()> {
     Ok(())
 }
 
-/// Refuses any component a community basket can't safely hold: anything whose transfers
-/// someone else can stop or take from. No freeze authority (whoever holds one could freeze a
-/// vault and so every redeem), except USDC's: Circle's, and every fixed-weight basket needs
-/// a USDC slot. A Token-2022 mint passes only with metadata and group extensions, plus a
-/// transfer hook that has neither a program nor an authority that could set one. Everything
-/// else is refused: transfer fees, permanent delegates, default-frozen accounts,
-/// non-transferable tokens, a mint close authority (a closed mint can be re-created with new
-/// extensions), interest and confidential transfers.
+/// Refuses a component a community basket's books can't follow. Issuer controls are allowed:
+/// a freeze authority, a pause switch, a permanent delegate, a transfer-hook authority. If one
+/// of them stops a component from moving, a redeemer skips that component and still takes
+/// everything else (skip_large_basket_redeem_component, cancel_expired_large_basket_intent),
+/// and rebalances leave it out, so no issuer can trap the rest of a basket.
+///
+/// Still refused: a token already paused or with a transfer-hook program set (it could not
+/// enter a vault), token accounts that start frozen, non-transferable tokens, interest-bearing
+/// amounts, confidential mint/burn and transfer fees, a mint close authority (a closed mint can
+/// come back with different rules), and any extension this program doesn't know. Transfer fees
+/// are refused for every basket (require_no_transfer_fee).
 pub fn require_community_component_mint(info: &AccountInfo) -> Result<()> {
     require!(
         *info.owner == token::ID || *info.owner == anchor_spl::token_2022::ID,
@@ -215,31 +232,140 @@ pub fn require_community_component_mint(info: &AccountInfo) -> Result<()> {
     );
     let data = info.try_borrow_data()?;
     require!(
-        info.key() == crate::constants::USDC_MINT || !has_freeze_authority(&data)?,
-        BasketError::CommunityTokenNotAllowed
-    );
-    require!(
         community_extensions_allowed(&data)?,
         BasketError::CommunityTokenNotAllowed
     );
     Ok(())
 }
 
-/// The mint's freeze authority is a COption: a u32 tag (1 = set), then the key.
-fn has_freeze_authority(data: &[u8]) -> Result<bool> {
-    let tag = data
-        .get(MINT_FREEZE_AUTHORITY_OFFSET..MINT_FREEZE_AUTHORITY_OFFSET + 4)
-        .ok_or_else(|| error!(BasketError::InvalidTokenMint))?;
-    Ok(tag != [0, 0, 0, 0])
-}
-
 fn community_extensions_allowed(data: &[u8]) -> Result<bool> {
     Ok(mint_extensions(data)?.iter().all(|(kind, value)| match *kind {
-        METADATA_POINTER_EXTENSION..=TOKEN_GROUP_MEMBER_EXTENSION => true,
-        // TransferHook { authority, program_id }: both must be unset.
-        TRANSFER_HOOK_EXTENSION => value.len() == 64 && value.iter().all(|byte| *byte == 0),
+        CONFIDENTIAL_TRANSFER_MINT_EXTENSION
+        | PERMANENT_DELEGATE_EXTENSION
+        | METADATA_POINTER_EXTENSION..=TOKEN_GROUP_MEMBER_EXTENSION
+        | SCALED_UI_AMOUNT_EXTENSION => true,
+        DEFAULT_ACCOUNT_STATE_EXTENSION => value.first() == Some(&ACCOUNT_STATE_INITIALIZED),
+        // TransferHook { authority, program_id }: the program must be unset.
+        TRANSFER_HOOK_EXTENSION => {
+            value.len() == 64 && value[TRANSFER_HOOK_PROGRAM].iter().all(|byte| *byte == 0)
+        }
+        PAUSABLE_EXTENSION => value.get(PAUSABLE_PAUSED_OFFSET) == Some(&0),
         _ => false,
     }))
+}
+
+/// Why a component's vault can't pay out right now, judged from chain state alone, never from
+/// the caller's word.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ComponentBlock {
+    /// The vault token account is frozen.
+    VaultFrozen,
+    /// The mint is paused (Token-2022 Pausable).
+    MintPaused,
+    /// The mint has a transfer-hook program. This program's transfers don't carry a hook's
+    /// accounts, so every transfer of the mint fails.
+    TransferHookSet,
+    /// The vault holds less than is owed (someone moved tokens out, e.g. a permanent delegate).
+    VaultShort,
+    /// A refund has nowhere to go: the refund escrow's account for the token is frozen, and
+    /// the mint makes every new account frozen, so no account of the owner's can take it.
+    RefundBlocked,
+}
+
+/// Whether a token account is frozen. Only a token account of SPL Token or Token-2022 counts:
+/// any other account (one whose byte 108 merely reads 2) is refused.
+pub fn token_account_frozen(info: &AccountInfo) -> Result<bool> {
+    require!(
+        *info.owner == token::ID || *info.owner == anchor_spl::token_2022::ID,
+        BasketError::InvalidUserTokenAccount
+    );
+    token_account_frozen_from_data(&info.try_borrow_data()?)
+}
+
+fn token_account_frozen_from_data(data: &[u8]) -> Result<bool> {
+    // A token account is the 165-byte base, then (Token-2022 with extensions) the account type.
+    require!(
+        data.len() == SplTokenAccount::LEN
+            || (data.len() > SplTokenAccount::LEN
+                && data[TOKEN_2022_ACCOUNT_TYPE_OFFSET] == TOKEN_2022_ACCOUNT_TYPE_ACCOUNT),
+        BasketError::InvalidUserTokenAccount
+    );
+    Ok(data[TOKEN_ACCOUNT_STATE_OFFSET] == ACCOUNT_STATE_FROZEN)
+}
+
+/// Whether every new account of this mint starts frozen (Token-2022 DefaultAccountState).
+pub fn mint_default_frozen(info: &AccountInfo) -> Result<bool> {
+    if *info.owner != anchor_spl::token_2022::ID {
+        return Ok(false);
+    }
+    mint_default_frozen_from_data(&info.try_borrow_data()?)
+}
+
+fn mint_default_frozen_from_data(data: &[u8]) -> Result<bool> {
+    Ok(mint_extensions(data)?.iter().any(|(kind, value)| {
+        *kind == DEFAULT_ACCOUNT_STATE_EXTENSION && value.first() == Some(&ACCOUNT_STATE_FROZEN)
+    }))
+}
+
+/// Whether a refund of `mint` can't be paid anywhere: `escrow_account` (already checked to be
+/// the refund escrow's own account for the mint) is frozen, and any account the owner could
+/// open for it would start frozen too.
+pub fn refund_has_nowhere_to_go(mint: &AccountInfo, escrow_account: &AccountInfo) -> Result<bool> {
+    Ok(token_account_frozen(escrow_account)? && mint_default_frozen(mint)?)
+}
+
+/// Whether every transfer of this mint fails right now: it is paused, or it has a
+/// transfer-hook program set.
+pub fn mint_transfers_blocked(info: &AccountInfo) -> Result<Option<ComponentBlock>> {
+    if *info.owner != anchor_spl::token_2022::ID {
+        return Ok(None);
+    }
+    mint_transfers_blocked_from_data(&info.try_borrow_data()?)
+}
+
+fn mint_transfers_blocked_from_data(data: &[u8]) -> Result<Option<ComponentBlock>> {
+    for (kind, value) in mint_extensions(data)? {
+        match kind {
+            PAUSABLE_EXTENSION if value.get(PAUSABLE_PAUSED_OFFSET).is_some_and(|b| *b != 0) => {
+                return Ok(Some(ComponentBlock::MintPaused));
+            }
+            TRANSFER_HOOK_EXTENSION
+                if value
+                    .get(TRANSFER_HOOK_PROGRAM)
+                    .is_some_and(|program| program.iter().any(|b| *b != 0)) =>
+            {
+                return Ok(Some(ComponentBlock::TransferHookSet));
+            }
+            _ => {}
+        }
+    }
+    Ok(None)
+}
+
+/// Why `vault` can't pay `owed` of `mint` now, if it can't. The caller has already matched
+/// `mint` and `vault` to the component.
+pub fn component_payout_blocked(
+    mint: &AccountInfo,
+    vault: &AccountInfo,
+    owed: u64,
+) -> Result<Option<ComponentBlock>> {
+    if token_account_frozen(vault)? {
+        return Ok(Some(ComponentBlock::VaultFrozen));
+    }
+    if let Some(block) = mint_transfers_blocked(mint)? {
+        return Ok(Some(block));
+    }
+    if load_interface_token_account(vault)?.amount < owed {
+        return Ok(Some(ComponentBlock::VaultShort));
+    }
+    Ok(None)
+}
+
+/// How much of a forfeited component can go back into the basket's books: the owed amount, but
+/// never more than the vault holds beyond what is already booked, so a drained vault can't
+/// leave the books above its balance.
+pub fn forfeit_restorable(owed: u64, vault_amount: u64, accounted_reserve: u64) -> u64 {
+    owed.min(vault_amount.saturating_sub(accounted_reserve))
 }
 
 fn has_mint_extension(data: &[u8], extension_type: u16) -> Result<bool> {
@@ -423,34 +549,107 @@ mod tests {
         assert!(!has_fee(&padded));
     }
 
+    /// An xStock's extensions as they are on mainnet: metadata, permanent delegate, accounts
+    /// that start initialized, scaled UI amount, an unpaused pause switch, confidential
+    /// transfers and a hook authority with no hook program.
+    fn xstock_extensions() -> Vec<(u16, Vec<u8>)> {
+        let mut hook = vec![0u8; 64];
+        hook[..32].fill(5);
+        let mut pausable = vec![0u8; 33];
+        pausable[..32].fill(6);
+        vec![
+            (18, vec![7u8; 64]),
+            (PERMANENT_DELEGATE_EXTENSION, vec![5u8; 32]),
+            (DEFAULT_ACCOUNT_STATE_EXTENSION, vec![ACCOUNT_STATE_INITIALIZED]),
+            (SCALED_UI_AMOUNT_EXTENSION, vec![0u8; 56]),
+            (PAUSABLE_EXTENSION, pausable),
+            (CONFIDENTIAL_TRANSFER_MINT_EXTENSION, vec![0u8; 65]),
+            (TRANSFER_HOOK_EXTENSION, hook),
+            (19, vec![1u8; 90]),
+        ]
+    }
+
+    fn mint_of(extensions: &[(u16, Vec<u8>)]) -> Vec<u8> {
+        let refs: Vec<(u16, &[u8])> = extensions.iter().map(|(k, v)| (*k, v.as_slice())).collect();
+        token_2022_mint(&refs)
+    }
+
     #[test]
-    fn community_baskets_accept_only_extensions_that_leave_transfers_plain() {
+    fn community_baskets_accept_issuer_controls_but_not_what_the_books_cant_follow() {
         let allowed = |extensions: &[(u16, &[u8])]| {
             community_extensions_allowed(&token_2022_mint(extensions)).unwrap()
         };
-        let mut hook_with_authority = [0u8; 64];
-        hook_with_authority[0] = 9;
-        let mut hook_with_program = [0u8; 64];
-        hook_with_program[40] = 9;
-
         assert!(allowed(&[]));
         assert!(allowed(&[(18, &[7u8; 64]), (19, &[1u8; 90]), (23, &[0u8; 72])]));
-        assert!(allowed(&[(TRANSFER_HOOK_EXTENSION, &[0u8; 64])]));
-        assert!(!allowed(&[(TRANSFER_HOOK_EXTENSION, &hook_with_authority)]));
+        assert!(community_extensions_allowed(&mint_of(&xstock_extensions())).unwrap());
+
+        let mut hook_with_program = [0u8; 64];
+        hook_with_program[40] = 9;
         assert!(!allowed(&[(TRANSFER_HOOK_EXTENSION, &hook_with_program)]));
-        for refused in [1u16, 3, 4, 6, 9, 10, 12, 16, 24, 25, 26] {
+        let mut paused = [0u8; 33];
+        paused[PAUSABLE_PAUSED_OFFSET] = 1;
+        assert!(!allowed(&[(PAUSABLE_EXTENSION, &paused)]));
+        assert!(!allowed(&[(DEFAULT_ACCOUNT_STATE_EXTENSION, &[ACCOUNT_STATE_FROZEN])]));
+        // Transfer fee, close authority, non-transferable, interest, confidential fee,
+        // confidential mint/burn, and an unknown type.
+        for refused in [1u16, 3, 9, 10, 16, 24, 27, 99] {
             assert!(!allowed(&[(18, &[7u8; 64]), (refused, &[0u8; 8])]), "type {refused}");
         }
     }
 
     #[test]
-    fn reads_whether_a_mint_has_a_freeze_authority() {
-        let mut data = [0u8; SplMint::LEN];
-        assert!(!has_freeze_authority(&data).unwrap());
-        data[MINT_FREEZE_AUTHORITY_OFFSET] = 1;
-        data[MINT_FREEZE_AUTHORITY_OFFSET + 4] = 7;
-        assert!(has_freeze_authority(&data).unwrap());
-        assert!(has_freeze_authority(&data[..40]).is_err());
+    fn a_paused_mint_or_a_set_hook_program_blocks_every_transfer() {
+        let blocked = |extensions: &[(u16, Vec<u8>)]| {
+            mint_transfers_blocked_from_data(&mint_of(extensions)).unwrap()
+        };
+        assert_eq!(blocked(&xstock_extensions()), None);
+        assert_eq!(mint_transfers_blocked_from_data(&[0u8; SplMint::LEN]).unwrap(), None);
+
+        let mut paused = xstock_extensions();
+        paused[4].1[PAUSABLE_PAUSED_OFFSET] = 1;
+        assert_eq!(blocked(&paused), Some(ComponentBlock::MintPaused));
+
+        let mut hooked = xstock_extensions();
+        hooked[6].1[50] = 3;
+        assert_eq!(blocked(&hooked), Some(ComponentBlock::TransferHookSet));
+    }
+
+    #[test]
+    fn reads_whether_a_token_account_is_frozen() {
+        let mut data = [0u8; SplTokenAccount::LEN];
+        data[TOKEN_ACCOUNT_STATE_OFFSET] = ACCOUNT_STATE_INITIALIZED;
+        assert!(!token_account_frozen_from_data(&data).unwrap());
+        data[TOKEN_ACCOUNT_STATE_OFFSET] = ACCOUNT_STATE_FROZEN;
+        assert!(token_account_frozen_from_data(&data).unwrap());
+        assert!(token_account_frozen_from_data(&data[..100]).is_err());
+        // A Token-2022 account with extensions carries its account type after the base.
+        let mut extended = data.to_vec();
+        extended.extend_from_slice(&[TOKEN_2022_ACCOUNT_TYPE_ACCOUNT, 7, 0, 0, 0]);
+        assert!(token_account_frozen_from_data(&extended).unwrap());
+        // A mint (account type 1) is not a token account, whatever its byte 108 says.
+        extended[TOKEN_2022_ACCOUNT_TYPE_OFFSET] = TOKEN_2022_MINT_ACCOUNT_TYPE;
+        assert!(token_account_frozen_from_data(&extended).is_err());
+    }
+
+    #[test]
+    fn reads_whether_new_accounts_of_a_mint_start_frozen() {
+        let frozen = token_2022_mint(&[(DEFAULT_ACCOUNT_STATE_EXTENSION, &[ACCOUNT_STATE_FROZEN])]);
+        assert!(mint_default_frozen_from_data(&frozen).unwrap());
+        let initialized = token_2022_mint(&[(DEFAULT_ACCOUNT_STATE_EXTENSION, &[ACCOUNT_STATE_INITIALIZED])]);
+        assert!(!mint_default_frozen_from_data(&initialized).unwrap());
+        assert!(!mint_default_frozen_from_data(&token_2022_mint(&[])).unwrap());
+        assert!(!mint_default_frozen_from_data(&[0u8; SplMint::LEN]).unwrap());
+    }
+
+    #[test]
+    fn a_forfeit_restores_no_more_than_the_vault_holds_beyond_the_books() {
+        // Frozen but whole: the vault holds the books plus what was owed.
+        assert_eq!(forfeit_restorable(40, 140, 100), 40);
+        // Some of it was taken: only what is left goes back.
+        assert_eq!(forfeit_restorable(40, 120, 100), 20);
+        // Drained below the books: nothing goes back.
+        assert_eq!(forfeit_restorable(40, 90, 100), 0);
+        assert_eq!(forfeit_restorable(0, 140, 100), 0);
     }
 
     #[test]

@@ -2,7 +2,10 @@ use anchor_lang::prelude::*;
 
 use super::{large_basket_config::validate_symbol_claim_key, update_config::emit_config_updated};
 use crate::{
-    constants::{COMMUNITY_CONFIG_SEED, PROTOCOL_CONFIG_SEED, SYMBOL_CLAIM_SEED},
+    constants::{
+        COMMUNITY_CONFIG_SEED, MAX_COMMUNITY_CREATION_FEE_LAMPORTS, PROTOCOL_CONFIG_SEED,
+        SYMBOL_CLAIM_SEED,
+    },
     errors::BasketError,
     events::{CommunityBasketUpdated, CommunityConfigUpdated, IndexSymbolClaimed},
     state::{CommunityConfig, IndexState, ProtocolConfig, SymbolClaim},
@@ -106,6 +109,11 @@ impl<'info> SetCommunityConfig<'info> {
         require!(
             args.treasury != Pubkey::default() && args.keeper != Pubkey::default(),
             BasketError::InvalidCommunityConfig
+        );
+        // The creation fee is the protocol authority's to set, up to 1 SOL.
+        require!(
+            args.creation_fee_lamports <= MAX_COMMUNITY_CREATION_FEE_LAMPORTS,
+            BasketError::CreationFeeTooHigh
         );
         // A step must fit under the fee cap, so every basket can charge at least one.
         validate_total_index_fee_bps(args.protocol_step_bps, args.creator_step_bps, args.staking_step_bps)?;

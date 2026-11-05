@@ -2109,6 +2109,174 @@
       ]
     },
     {
+      "name": "execute_large_basket_mint_wrapped_component",
+      "discriminator": [
+        25,
+        87,
+        20,
+        208,
+        40,
+        236,
+        218,
+        110
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index",
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        {
+          "name": "owner_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "jupiter_program"
+        },
+        {
+          "name": "component_page"
+        },
+        {
+          "name": "component_mint",
+          "writable": true
+        },
+        {
+          "name": "component_vault",
+          "writable": true
+        },
+        {
+          "name": "ore_mint",
+          "writable": true,
+          "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp"
+        },
+        {
+          "name": "owner_ore_token_account",
+          "writable": true
+        },
+        {
+          "name": "owner_store_token_account",
+          "writable": true
+        },
+        {
+          "name": "ore_lst",
+          "accounts": [
+            {
+              "name": "ore_lst_vault",
+              "writable": true
+            },
+            {
+              "name": "ore_lst_vault_tokens",
+              "writable": true
+            },
+            {
+              "name": "ore_stake",
+              "writable": true
+            },
+            {
+              "name": "ore_stake_tokens",
+              "writable": true
+            },
+            {
+              "name": "ore_stake_treasury",
+              "writable": true
+            },
+            {
+              "name": "ore_stake_treasury_tokens",
+              "writable": true
+            },
+            {
+              "name": "ore_stake_vesting",
+              "writable": true
+            },
+            {
+              "name": "ore_lst_program",
+              "address": "storeD7bEkywTTMrje19WRoyrkEhbhrvyjVnLxWih6a"
+            },
+            {
+              "name": "ore_stake_program",
+              "address": "stakecNP3FpiExZPCgZfqRgumVzi6dNqnfrjwXyTgeH"
+            }
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteLargeBasketMintWrappedComponentArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "execute_large_basket_redeem_batch",
       "discriminator": [
         59,
@@ -2539,6 +2707,286 @@
           "type": {
             "defined": {
               "name": "ExecuteLargeBasketRedeemComponentInKindArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "execute_large_basket_redeem_wrapped_component",
+      "discriminator": [
+        40,
+        203,
+        216,
+        31,
+        230,
+        2,
+        142,
+        8
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_mint",
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        },
+        {
+          "name": "owner_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "jupiter_program"
+        },
+        {
+          "name": "component_page"
+        },
+        {
+          "name": "component_mint",
+          "writable": true
+        },
+        {
+          "name": "component_vault",
+          "writable": true
+        },
+        {
+          "name": "ore_mint",
+          "writable": true,
+          "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp"
+        },
+        {
+          "name": "owner_ore_token_account",
+          "writable": true
+        },
+        {
+          "name": "owner_store_token_account",
+          "writable": true
+        },
+        {
+          "name": "ore_lst",
+          "accounts": [
+            {
+              "name": "ore_lst_vault",
+              "writable": true
+            },
+            {
+              "name": "ore_lst_vault_tokens",
+              "writable": true
+            },
+            {
+              "name": "ore_stake",
+              "writable": true
+            },
+            {
+              "name": "ore_stake_tokens",
+              "writable": true
+            },
+            {
+              "name": "ore_stake_treasury",
+              "writable": true
+            },
+            {
+              "name": "ore_stake_treasury_tokens",
+              "writable": true
+            },
+            {
+              "name": "ore_stake_vesting",
+              "writable": true
+            },
+            {
+              "name": "ore_lst_program",
+              "address": "storeD7bEkywTTMrje19WRoyrkEhbhrvyjVnLxWih6a"
+            },
+            {
+              "name": "ore_stake_program",
+              "address": "stakecNP3FpiExZPCgZfqRgumVzi6dNqnfrjwXyTgeH"
+            }
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "fee_recipient_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "creator_fee_recipient_quote_token_account",
+          "writable": true
+        },
+        {
+          "name": "staking_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  45,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "staking_reward_vault",
+          "writable": true
+        },
+        {
+          "name": "intent_lock",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116,
+                  45,
+                  108,
+                  111,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ExecuteLargeBasketRedeemWrappedComponentArgs"
             }
           }
         }
@@ -4640,6 +5088,111 @@
       ]
     },
     {
+      "name": "skip_large_basket_redeem_component",
+      "docs": [
+        "The redeemer gives up one component of an open redeem (one that can't move, usually),",
+        "so the redeem still pays out everything else."
+      ],
+      "discriminator": [
+        2,
+        202,
+        72,
+        131,
+        240,
+        42,
+        31,
+        109
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "index",
+          "writable": true,
+          "relations": [
+            "intent"
+          ]
+        },
+        {
+          "name": "intent",
+          "writable": true
+        },
+        {
+          "name": "intent_lock",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  97,
+                  114,
+                  103,
+                  101,
+                  45,
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  45,
+                  105,
+                  110,
+                  116,
+                  101,
+                  110,
+                  116,
+                  45,
+                  108,
+                  111,
+                  99,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "index"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "component_page",
+          "writable": true
+        },
+        {
+          "name": "component_mint"
+        },
+        {
+          "name": "component_vault"
+        },
+        {
+          "name": "component_token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "SkipLargeBasketRedeemComponentArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "stake_basket",
       "discriminator": [
         197,
@@ -4773,6 +5326,34 @@
           }
         }
       ]
+    },
+    {
+      "name": "sync_large_basket_reserves",
+      "docs": [
+        "Lowers a component's books to what its vault holds, if it holds less. Permissionless."
+      ],
+      "discriminator": [
+        106,
+        166,
+        176,
+        32,
+        195,
+        202,
+        154,
+        232
+      ],
+      "accounts": [
+        {
+          "name": "index"
+        },
+        {
+          "name": "index_mint",
+          "relations": [
+            "index"
+          ]
+        }
+      ],
+      "args": []
     },
     {
       "name": "unstake_basket",
@@ -5968,6 +6549,19 @@
       ]
     },
     {
+      "name": "LargeBasketComponentForfeited",
+      "discriminator": [
+        139,
+        5,
+        142,
+        46,
+        134,
+        131,
+        180,
+        153
+      ]
+    },
+    {
       "name": "LargeBasketComponentOraclePairUpdated",
       "discriminator": [
         178,
@@ -5991,6 +6585,19 @@
         212,
         18,
         185
+      ]
+    },
+    {
+      "name": "LargeBasketComponentSkipped",
+      "discriminator": [
+        142,
+        190,
+        243,
+        176,
+        115,
+        197,
+        240,
+        172
       ]
     },
     {
@@ -6046,6 +6653,32 @@
       ]
     },
     {
+      "name": "LargeBasketRefundFeeKept",
+      "discriminator": [
+        87,
+        29,
+        72,
+        224,
+        104,
+        198,
+        14,
+        154
+      ]
+    },
+    {
+      "name": "LargeBasketReserveWrittenDown",
+      "discriminator": [
+        151,
+        103,
+        98,
+        25,
+        92,
+        217,
+        147,
+        82
+      ]
+    },
+    {
       "name": "PriceOracleSet",
       "discriminator": [
         18,
@@ -6095,6 +6728,19 @@
         199,
         207,
         81
+      ]
+    },
+    {
+      "name": "RebalanceComponentsExcluded",
+      "discriminator": [
+        7,
+        110,
+        208,
+        179,
+        207,
+        31,
+        30,
+        78
       ]
     },
     {
@@ -6759,6 +7405,41 @@
       "code": 6113,
       "name": "CommunityFeeSplit",
       "msg": "A community basket's fee is a whole number of its fee steps, at least one, split as when it was created."
+    },
+    {
+      "code": 6114,
+      "name": "WrappedComponentNotStore",
+      "msg": "Only a stORE component can be filled through ORE's staking program."
+    },
+    {
+      "code": 6115,
+      "name": "WrappedLegMismatch",
+      "msg": "ORE's staking program did not wrap or unwrap the expected amount."
+    },
+    {
+      "code": 6116,
+      "name": "UnwrappedOreNotSold",
+      "msg": "A wrapped redeem leg has to sell the ORE it unwraps."
+    },
+    {
+      "code": 6117,
+      "name": "InvalidOreStakingAccount",
+      "msg": "The ORE mint or ORE staking program account is not the expected one."
+    },
+    {
+      "code": 6118,
+      "name": "QuoteComponentBlocked",
+      "msg": "The basket's USDC vault can't move right now, so the basket can't rebalance."
+    },
+    {
+      "code": 6119,
+      "name": "ReserveSyncDuringRebalance",
+      "msg": "A component reserve can't be synced while a rebalance is running."
+    },
+    {
+      "code": 6120,
+      "name": "CreationFeeTooHigh",
+      "msg": "The community basket creation fee can be at most 1 SOL."
     }
   ],
   "types": [
@@ -6998,6 +7679,33 @@
           {
             "name": "net_amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ComponentBlock",
+      "docs": [
+        "Why a component's vault can't pay out right now, judged from chain state alone, never from",
+        "the caller's word."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "VaultFrozen"
+          },
+          {
+            "name": "MintPaused"
+          },
+          {
+            "name": "TransferHookSet"
+          },
+          {
+            "name": "VaultShort"
+          },
+          {
+            "name": "RefundBlocked"
           }
         ]
       }
@@ -7381,6 +8089,36 @@
       }
     },
     {
+      "name": "ExecuteLargeBasketMintWrappedComponentArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "max_quote_in",
+            "type": "u64"
+          },
+          {
+            "name": "swap",
+            "docs": [
+              "USDC -> ORE, from owner_quote_token_account into owner_ore_token_account. None only",
+              "when the leg's amount is zero."
+            ],
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "LargeBasketSwapPlan"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "ExecuteLargeBasketRedeemBatchArgs",
       "type": {
         "kind": "struct",
@@ -7443,6 +8181,36 @@
           {
             "name": "component_index",
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExecuteLargeBasketRedeemWrappedComponentArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "min_quote_out",
+            "type": "u64"
+          },
+          {
+            "name": "swap",
+            "docs": [
+              "ORE -> USDC, from owner_ore_token_account into owner_quote_token_account. None only",
+              "when the leg's amount is zero."
+            ],
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "LargeBasketSwapPlan"
+                }
+              }
+            }
           }
         ]
       }
@@ -8492,6 +9260,58 @@
       }
     },
     {
+      "name": "LargeBasketComponentForfeited",
+      "docs": [
+        "An expired intent's owed component couldn't leave its vault, so it was forfeited instead of",
+        "returned. `restored` of its `amount` went back into the basket's books."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "intent",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "LargeBasketIntentKind"
+              }
+            }
+          },
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "restored",
+            "type": "u64"
+          },
+          {
+            "name": "block",
+            "type": {
+              "defined": {
+                "name": "ComponentBlock"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "LargeBasketComponentOraclePairUpdated",
       "type": {
         "kind": "struct",
@@ -8598,6 +9418,53 @@
           {
             "name": "component_count",
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketComponentSkipped",
+      "docs": [
+        "A redeemer gave up one component of their redeem (skip_large_basket_redeem_component).",
+        "`restored` of its `amount` went back into the basket's books; `block` is why it couldn't",
+        "move, if the chain showed a reason."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "intent",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "restored",
+            "type": "u64"
+          },
+          {
+            "name": "block",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "ComponentBlock"
+                }
+              }
+            }
           }
         ]
       }
@@ -9070,6 +9937,77 @@
       }
     },
     {
+      "name": "LargeBasketRefundFeeKept",
+      "docs": [
+        "An expired redeem's unsold component came back in kind, less the in-kind redeem fee, which",
+        "stayed in the vault and was booked back to the basket."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "intent",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "refund",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "restored",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LargeBasketReserveWrittenDown",
+      "docs": [
+        "A component's vault held less than the basket's books said, so the books came down to it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "component_index",
+            "type": "u16"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "previous_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "reserve",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "LargeBasketSwapPlan",
       "type": {
         "kind": "struct",
@@ -9412,6 +10350,34 @@
       }
     },
     {
+      "name": "RebalanceComponentsExcluded",
+      "docs": [
+        "Components a rebalance leaves alone because they can't move (one bit per component)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "intent",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "pubkey"
+          },
+          {
+            "name": "excluded_bitmap",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "RebalanceIntent",
       "docs": [
         "Index-scoped, in-flight rebalance. Only one can be active per index at a time",
@@ -9585,11 +10551,20 @@
             "type": "u64"
           },
           {
+            "name": "excluded_bitmap",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          },
+          {
             "name": "reserved",
             "type": {
               "array": [
                 "u8",
-                18
+                11
               ]
             }
           }
@@ -9841,6 +10816,18 @@
               "Pubkey::default() removes the keeper, leaving rebalances to the authority."
             ],
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SkipLargeBasketRedeemComponentArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "component_index",
+            "type": "u16"
           }
         ]
       }

@@ -33,12 +33,12 @@ export async function prepareCompositionFixtures(dir, programId, payer) {
     return Object.fromEntries(def.fields.map(f => [f.name, zero(f.type)]));
   };
   const pda = (seed, ...p) => PublicKey.findProgramAddressSync([Buffer.from(seed), ...p.map(x => x.toBuffer ? x.toBuffer() : x)], programId);
-  const validatorArgs = [];
+  const accountDir = `${dir}/composition-change`;
+  fs.mkdirSync(accountDir, { recursive: true });
+  const validatorArgs = ['--account-dir', accountDir];
   const dump = (pk, data, owner, size = data.length) => {
     const padded = Buffer.alloc(size); data.copy(padded);
-    const file = `${dir}/${pk}.json`;
-    fs.writeFileSync(file, JSON.stringify({ pubkey: pk.toBase58(), account: { lamports: 100_000_000, data: [padded.toString('base64'), 'base64'], owner: owner.toBase58(), executable: false, rentEpoch: 0 } }));
-    validatorArgs.push('--account', pk.toBase58(), file);
+    fs.writeFileSync(`${accountDir}/${pk}.json`, JSON.stringify({ pubkey: pk.toBase58(), account: { lamports: 100_000_000, data: [padded.toString('base64'), 'base64'], owner: owner.toBase58(), executable: false, rentEpoch: 0 } }));
   };
   const mint = (pk, authority, supply, owner = TOKEN_PROGRAM_ID) => {
     const data = Buffer.alloc(MintLayout.span);
@@ -51,7 +51,7 @@ export async function prepareCompositionFixtures(dir, programId, payer) {
     dump(pk, data, TOKEN_PROGRAM_ID); return pk;
   };
   // Components the payer can mint in kind; additions the payer holds none of.
-  const newMint = (ownerAccount = true) => { const m = Keypair.generate().publicKey; mint(m, payer, 2_000_000_000n); if (ownerAccount) token(m, payer, 1_000_000_000n); return m; };
+  const newMint = (ownerAccount = true, owner = TOKEN_PROGRAM_ID) => { const m = Keypair.generate().publicKey; mint(m, payer, 2_000_000_000n, owner); if (ownerAccount) token(m, payer, 1_000_000_000n); return m; };
   const now = Math.floor(Date.now() / 1000);
 
   // A fixed-weight basket with `weights` for its non-USDC components (plus a USDC cash
@@ -78,7 +78,7 @@ export async function prepareCompositionFixtures(dir, programId, payer) {
     const [compositionChange, changeBump] = pda('composition-change', index);
     let additions = [];
     if (change) {
-      additions = change.additions.map(weight => ({ mint: newMint(false), oraclePair: Keypair.generate().publicKey, targetWeightBps: weight }));
+      additions = change.additions.map(weight => ({ mint: newMint(false, change.additionProgram ?? TOKEN_PROGRAM_ID), oraclePair: Keypair.generate().publicKey, targetWeightBps: weight }));
       dump(compositionChange, encode('compositionChange', { index, proposer: payer, proposedAt: bn(0), effectiveAt: bn(change.effectiveAt ?? now - 60), bump: changeBump, redeemFeeBps: 0, targetWeightsBps: change.weights, additions }), programId);
     }
     const [feeChangePda, feeChangeBump] = pda('fee-change', index);
@@ -91,6 +91,15 @@ export async function prepareCompositionFixtures(dir, programId, payer) {
 
   const token2022Mint = Keypair.generate().publicKey;
   mint(token2022Mint, payer, 1_000_000n, TOKEN_2022_PROGRAM_ID);
+  // A Token-2022 mint with a transfer fee: padded to an account's length, the mint type byte,
+  // then the TransferFeeConfig extension (type 1, 108 bytes).
+  const token2022FeeMint = Keypair.generate().publicKey;
+  {
+    const base = Buffer.alloc(MintLayout.span);
+    MintLayout.encode({ mintAuthorityOption: 1, mintAuthority: payer, supply: 1_000_000n, decimals: 6, isInitialized: true, freezeAuthorityOption: 0, freezeAuthority: PublicKey.default }, base);
+    const header = Buffer.alloc(4); header.writeUInt16LE(1, 0); header.writeUInt16LE(108, 2);
+    dump(token2022FeeMint, Buffer.concat([base, Buffer.alloc(165 - MintLayout.span), Buffer.from([1]), header, Buffer.alloc(108)]), TOKEN_2022_PROGRAM_ID);
+  }
 
   const fixtures = {
     // Removes the second component and adds a new one, all within page 0.
@@ -110,7 +119,10 @@ export async function prepareCompositionFixtures(dir, programId, payer) {
     // Due, but redemptions cost more than when proposed.
     // It also has a fee increase that is due.
     feeRaised: basket('COMPG', [5000, 5000], { change: { weights: [6000, 4000, 0], additions: [] }, feeChange: { fees: { redeemFeeBps: 60, stakingRedeemFeeBps: 20 } }, overrides: { redeemFeeBps: 50 } }),
+    // Due, adding a Token-2022 component.
+    token2022: basket('COMPT', [5000, 5000], { change: { weights: [4000, 4000, 0], additions: [2000], additionProgram: TOKEN_2022_PROGRAM_ID } }),
     token2022Mint,
+    token2022FeeMint,
   };
   return { validatorArgs, fixtures };
 }
@@ -129,6 +141,19 @@ export async function testCompositionChange(program, connection, payer, user, st
   const chainNow = async () => Number((await connection.getAccountInfo(new PublicKey('SysvarC1ock11111111111111111111111111111111'))).data.readBigInt64LE(32));
   let nonce = 9000;
 
+  // --- A due change that adds a Token-2022 component applies, with a Token-2022 vault ---
+  {
+    const t = fixtures.token2022;
+    const added = t.additions[0].mint;
+    const addedVault = getAssociatedTokenAddressSync(added, t.vaultAuthority, true, TOKEN_2022_PROGRAM_ID);
+    await program.methods.applyCompositionChange().accounts(applyAccounts(t))
+      .remainingAccounts([meta(t.page, true), meta(added), meta(addedVault, true), meta(TOKEN_2022_PROGRAM_ID)]).rpc();
+    const page = await program.account.largeBasketComponentPage.fetch(t.page);
+    const component = page.components.find(c => c.mint.equals(added));
+    assert.ok(component && component.tokenProgram.equals(TOKEN_2022_PROGRAM_ID) && component.vault.equals(addedVault), 'the Token-2022 component and its vault');
+    assert.ok((await connection.getAccountInfo(addedVault)).owner.equals(TOKEN_2022_PROGRAM_ID));
+  }
+
   // --- Propose, validate and cancel on a live basket ---
   const f = fixtures.fresh;
   const newComponent = fixtures.swap.additions[0].mint; // any existing SPL mint
@@ -143,7 +168,11 @@ export async function testCompositionChange(program, connection, payer, user, st
   await assert.rejects(propose([5000, 4990, 0], [{ mint: newComponent, weight: 10 }]).rpc(), errorCode('InvalidCompositionChange'), 'weight below the minimum');
   await assert.rejects(propose([5000, 4000, 0], [{ mint: f.components[0].mint, weight: 1000 }]).rpc(), errorCode('DuplicateComponentMint'), 'existing mint');
   await assert.rejects(propose([5000, 4000, 0], [{ mint: usdc, weight: 1000 }]).rpc(), errorCode('InvalidComponentMint'), 'USDC addition');
-  await assert.rejects(propose([5000, 4000, 0], [{ mint: fixtures.token2022Mint, weight: 1000 }]).rpc(), errorCode('InvalidTokenProgram'), 'Token-2022 addition');
+  // Token-2022 tokens can be added like classic ones, as at creation; a transfer fee can't.
+  await assert.rejects(propose([5000, 4000, 0], [{ mint: fixtures.token2022FeeMint, weight: 1000 }]).rpc(), errorCode('InvalidTokenMint'), 'Token-2022 addition with a transfer fee');
+  await propose([5000, 4000, 0], [{ mint: fixtures.token2022Mint, weight: 1000 }]).rpc();
+  assert.ok((await program.account.compositionChange.fetch(f.compositionChange)).additions[0].mint.equals(fixtures.token2022Mint));
+  await cancel(f).rpc();
   await assert.rejects(propose([5000, 4000, 0], [{ mint: newComponent, weight: 1000 }], user).rpc(), errorCode('UnauthorizedAuthority'), 'only the authority proposes');
   const before = await chainNow();
   await propose([5000, 4000, 0], [{ mint: newComponent, weight: 1000 }]).rpc();

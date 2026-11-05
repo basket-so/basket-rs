@@ -33,6 +33,8 @@ pub const REBALANCE_INTENT_SEED: &[u8] = b"rebalance-intent";
 pub const COMPOSITION_CHANGE_SEED: &[u8] = b"composition-change";
 pub const FEE_CHANGE_SEED: &[u8] = b"fee-change";
 pub const COMMUNITY_CONFIG_SEED: &[u8] = b"community-config";
+/// The most the protocol authority can charge to create a community basket: 1 SOL.
+pub const MAX_COMMUNITY_CREATION_FEE_LAMPORTS: u64 = 1_000_000_000;
 // One claim per basket symbol, so no two baskets share one.
 pub const SYMBOL_CLAIM_SEED: &[u8] = b"symbol";
 pub const PRICE_ORACLE_SEED: &[u8] = b"price-oracle";
@@ -104,3 +106,19 @@ pub const REWARD_PER_TOKEN_SCALE: u128 = 1_000_000_000_000_000_000;
 pub const BASKET_MINT: Pubkey = pubkey!("2rNBaMg5VAr1aMNCwAPdDZVgzzdTaNDebUnNqPFNmeta");
 pub const USDC_MINT: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 pub const USDC_DECIMALS: u8 = 6;
+
+// ORE's liquid staking token. stORE is a classic SPL token that the ore-lst program mints
+// against ORE it stakes through ore-stake, so it earns ORE's staking yield. Jupiter does not
+// route through ore-lst, so a basket holding stORE can wrap and unwrap at the vault rate
+// with the wrapped mint and redeem legs instead of trading thin stORE pools.
+pub const ORE_MINT: Pubkey = pubkey!("oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp");
+pub const STORE_MINT: Pubkey = pubkey!("storenSbvkfzircixnaosc5CbzNZVrHJ6S3EKrS1yqR");
+pub const STORE_DECIMALS: u8 = 11;
+pub const ORE_LST_PROGRAM_ID: Pubkey = pubkey!("storeD7bEkywTTMrje19WRoyrkEhbhrvyjVnLxWih6a");
+pub const ORE_STAKE_PROGRAM_ID: Pubkey = pubkey!("stakecNP3FpiExZPCgZfqRgumVzi6dNqnfrjwXyTgeH");
+pub const ORE_LST_UNWRAP_DISCRIMINATOR: u8 = 2;
+pub const ORE_LST_WRAP_DISCRIMINATOR: u8 = 3;
+/// How much of the ORE a wrapped redeem leg unwraps it may leave unsold. A route is quoted
+/// for the ORE expected at the vault rate when it was built; yield claimed since then
+/// unwraps slightly more, which the redeemer keeps.
+pub const MAX_UNSOLD_UNWRAPPED_ORE_BPS: u64 = 10;

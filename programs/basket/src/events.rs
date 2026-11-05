@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::state::{ComponentAddition, IndexFees, IndexKind, LargeBasketIntentKind};
+use crate::utils::ComponentBlock;
 
 #[event]
 pub struct IndexCreated {
@@ -423,4 +424,63 @@ pub struct CommunityBasketUpdated {
 pub struct IndexSymbolClaimed {
     pub index: Pubkey,
     pub symbol: String,
+}
+
+/// A redeemer gave up one component of their redeem (skip_large_basket_redeem_component).
+/// `restored` of its `amount` went back into the basket's books; `block` is why it couldn't
+/// move, if the chain showed a reason.
+#[event]
+pub struct LargeBasketComponentSkipped {
+    pub intent: Pubkey,
+    pub index: Pubkey,
+    pub owner: Pubkey,
+    pub component_index: u16,
+    pub amount: u64,
+    pub restored: u64,
+    pub block: Option<ComponentBlock>,
+}
+
+/// An expired redeem's unsold component came back in kind, less the in-kind redeem fee, which
+/// stayed in the vault and was booked back to the basket.
+#[event]
+pub struct LargeBasketRefundFeeKept {
+    pub intent: Pubkey,
+    pub index: Pubkey,
+    pub owner: Pubkey,
+    pub component_index: u16,
+    pub refund: u64,
+    pub fee: u64,
+    pub restored: u64,
+}
+
+/// An expired intent's owed component couldn't leave its vault, so it was forfeited instead of
+/// returned. `restored` of its `amount` went back into the basket's books.
+#[event]
+pub struct LargeBasketComponentForfeited {
+    pub intent: Pubkey,
+    pub index: Pubkey,
+    pub owner: Pubkey,
+    pub kind: LargeBasketIntentKind,
+    pub component_index: u16,
+    pub amount: u64,
+    pub restored: u64,
+    pub block: ComponentBlock,
+}
+
+/// A component's vault held less than the basket's books said, so the books came down to it.
+#[event]
+pub struct LargeBasketReserveWrittenDown {
+    pub index: Pubkey,
+    pub component_index: u16,
+    pub mint: Pubkey,
+    pub previous_reserve: u64,
+    pub reserve: u64,
+}
+
+/// Components a rebalance leaves alone because they can't move (one bit per component).
+#[event]
+pub struct RebalanceComponentsExcluded {
+    pub intent: Pubkey,
+    pub index: Pubkey,
+    pub excluded_bitmap: [u8; crate::constants::LARGE_BASKET_COMPONENT_BITMAP_BYTES],
 }

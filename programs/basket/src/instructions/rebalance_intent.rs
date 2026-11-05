@@ -62,8 +62,9 @@ use crate::{
     },
     errors::BasketError,
     events::{
-        FixedWeightRebalanceExecuted, IndexRebalanceCancelled, RebalanceComponentSwapped,
-        RebalanceIntentOpened, RebalanceIntentUnwound,
+        FixedWeightRebalanceExecuted, IndexRebalanceCancelled, LargeBasketReserveWrittenDown,
+        RebalanceComponentSwapped, RebalanceComponentsExcluded, RebalanceIntentOpened,
+        RebalanceIntentUnwound,
     },
     state::{
         IndexKind, IndexState, LargeBasketComponent, LargeBasketComponentPage, PriceOracle,
@@ -73,6 +74,7 @@ use crate::{
         associated_token_address_with_token_program, bitmap_all_set, bitmap_get, bitmap_set_once,
         create_associated_token_account_idempotent_for_token_program,
         invoke_jupiter_swap, load_interface_token_account, load_mint, load_signed_prices,
+        mint_transfers_blocked, token_account_frozen,
         nav_loss_within_tolerance_u128, unpack_account_metas,
         units_per_index_for_amount_saturating, validate_buy_execution_price,
         validate_jupiter_route_account_scope,
@@ -471,26 +473,39 @@ impl<'info> OpenRebalanceIntent<'info> {
         )?;
 
         // remaining_accounts = [ordered component pages..] ++ [component vaults in global order..]
+        //   ++ [the mints of components that can't move because they are paused or hooked]
+        // A frozen vault shows itself; a paused or hooked mint is shown by passing the mint.
         let component_count = usize::from(ctx.accounts.index.large_basket_component_count);
         let page_count = usize::from(ctx.accounts.index.large_basket_page_count);
         require!(
-            ctx.remaining_accounts.len() == page_count + component_count,
+            ctx.remaining_accounts.len() >= page_count + component_count
+                && ctx.remaining_accounts.len() <= page_count + 2 * component_count,
             BasketError::InvalidRemainingAccounts
         );
-        let (page_infos, vault_infos) = ctx.remaining_accounts.split_at(page_count);
+        let (page_infos, rest) = ctx.remaining_accounts.split_at(page_count);
+        let (vault_infos, proof_mints) = rest.split_at(component_count);
         let components =
             load_components_in_order(&ctx.accounts.index.key(), ctx.program_id, &ctx.accounts.index, page_infos)?;
         require!(
             components.len() == component_count,
             BasketError::InvalidRemainingAccounts
         );
+        require!(
+            proof_mints
+                .iter()
+                .all(|mint| components.iter().any(|c| c.mint == mint.key())),
+            BasketError::InvalidRemainingAccounts
+        );
 
         require!(components.iter().any(|c| c.mint == USDC_MINT), BasketError::InvalidFixedWeightConfig);
-        // Pass 1: price every component, accumulate NAV.
+        // Pass 1: price every component, accumulate NAV. A component that can't move is left
+        // out: not priced (the oracle may not price a frozen token), not traded, not counted.
         let mut snapshots = Vec::with_capacity(component_count);
         let mut open_amounts = Vec::with_capacity(component_count);
         let mut total_value: u128 = 0;
         let mut has_quote_component = false;
+        let mut excluded = [0u8; LARGE_BASKET_COMPONENT_BITMAP_BYTES];
+        let mut excluded_weight_bps: u32 = 0;
         for (i, component) in components.iter().enumerate() {
             let vault_info = &vault_infos[i];
             require_keys_eq!(
@@ -511,7 +526,15 @@ impl<'info> OpenRebalanceIntent<'info> {
                 has_quote_component = true;
             }
             let current_amount = load_interface_token_account(vault_info)?.amount;
-            let retired = is_retired(component);
+            let blocked = token_account_frozen(vault_info)?
+                || mint_proves_blocked(proof_mints, component)?;
+            if blocked {
+                // Every rebalance trade settles through the USDC vault.
+                require!(!is_quote, BasketError::QuoteComponentBlocked);
+                bitmap_set_once(&mut excluded, i as u16)?;
+                excluded_weight_bps += u32::from(component.target_weight_bps);
+            }
+            let retired = is_retired(component) || blocked;
             let (oracle_price, value) = if retired {
                 (0, 0)
             } else {
@@ -550,6 +573,15 @@ impl<'info> OpenRebalanceIntent<'info> {
                 .ok_or_else(|| error!(BasketError::ArithmeticOverflow))?;
         }
         require!(total_value > 0, BasketError::InvalidOraclePrice);
+        // The components left out keep what they hold; the others share the rest of the
+        // basket in their own proportions.
+        for (i, snap) in snapshots.iter_mut().enumerate() {
+            snap.target_weight_bps = active_weight_bps(
+                snap.target_weight_bps,
+                bitmap_get(&excluded, i as u16)?,
+                excluded_weight_bps,
+            )?;
+        }
 
         // Drift / time gate.
         let (max_drift_bps, drift_triggered) =
@@ -641,7 +673,15 @@ impl<'info> OpenRebalanceIntent<'info> {
         intent.component_fill_atoms = vec![0u64; component_count];
         intent.component_open_amounts = open_amounts;
         intent.open_scratch_quote_atoms = scratch_quote_atoms;
-        intent.reserved = [0u8; 18];
+        intent.excluded_bitmap = excluded;
+        intent.reserved = [0u8; 11];
+        if excluded_weight_bps > 0 || excluded.iter().any(|byte| *byte != 0) {
+            emit!(RebalanceComponentsExcluded {
+                intent: intent.key(),
+                index: ctx.accounts.index.key(),
+                excluded_bitmap: excluded,
+            });
+        }
 
         ctx.accounts.index.large_basket_operation_in_progress = true;
         ctx.accounts.index.active_rebalance_intent = intent.key();
@@ -1079,9 +1119,29 @@ impl<'info> FinalizeRebalance<'info> {
         )?
         .amount;
         require!(scratch_atoms >= rebalanced_scratch, BasketError::RebalanceNavMismatch);
-        for (live, rebalanced) in amounts.iter().zip(&rebalanced) {
-            require!(live >= rebalanced, BasketError::RebalanceNavMismatch);
-        }
+        let excluded_bitmap = ctx.accounts.intent.excluded_bitmap;
+        let excluded: Vec<bool> = (0..component_count)
+            .map(|i| bitmap_get(&excluded_bitmap, i as u16))
+            .collect::<Result<_>>()?;
+        let excluded_weight_bps: u32 = pages
+            .iter()
+            .flat_map(|page| page.components.iter())
+            .zip(&excluded)
+            .filter(|(_, left_out)| **left_out)
+            .map(|(component, _)| u32::from(component.target_weight_bps))
+            .sum();
+        // A component left out of this rebalance is judged by nobody here: it had no leg, and
+        // whatever its vault holds now is simply booked below.
+        // A vault holding less than its rebalanced amount lost tokens outside this rebalance's
+        // legs: no route can debit a vault (the vault authority signs only the program's own
+        // transfers), and mints and redeems wait for finalize, so only the token's issuer can
+        // (a permanent delegate). The gates judge the smaller amount, so the shortfall counts as
+        // lost value against the NAV bound instead of leaving finalize impossible.
+        let rebalanced: Vec<u64> = rebalanced
+            .iter()
+            .zip(&amounts)
+            .map(|(rebalanced, live)| (*rebalanced).min(*live))
+            .collect();
 
         // The scratch ATA is part of NAV: as the USDC component's vault when one exists
         // (the aliasing is pinned at open and re-checked below), otherwise as parked
@@ -1108,16 +1168,22 @@ impl<'info> FinalizeRebalance<'info> {
             let mut global = 0usize;
             for page in pages.iter() {
                 for component in page.components.iter() {
+                    let left_out = excluded[global];
+                    let weight_bps = active_weight_bps(
+                        component.target_weight_bps,
+                        left_out,
+                        excluded_weight_bps,
+                    )?;
                     if component.mint == USDC_MINT {
                         require_keys_eq!(
                             component.vault,
                             ctx.accounts.vault_quote_token_account.key(),
                             BasketError::InvalidVaultAccount
                         );
-                        usdc_component_weight_bps = Some(component.target_weight_bps);
+                        usdc_component_weight_bps = Some(weight_bps);
                     }
                     let (value, open_value) =
-                        if is_retired(component) {
+                        if is_retired(component) || left_out {
                             (0, 0)
                         } else {
                             let oracle_price = prices.of(global as u16, component)?;
@@ -1143,7 +1209,7 @@ impl<'info> FinalizeRebalance<'info> {
                     // What is left of a removed component is being written off (sent to its
                     // vault, or dust), so it does not count as drift from its zero target.
                     let drift_value = if sold_out_at_finalize(component) { 0 } else { value };
-                    values.push((drift_value, component.target_weight_bps));
+                    values.push((drift_value, weight_bps));
                     global += 1;
                 }
             }
@@ -1225,9 +1291,19 @@ impl<'info> FinalizeRebalance<'info> {
         let sold_out: Vec<bool> = pages
             .iter()
             .flat_map(|page| page.components.iter())
-            .map(sold_out_at_finalize)
+            .zip(&excluded)
+            .map(|(component, left_out)| !left_out && sold_out_at_finalize(component))
             .collect();
-        rewrite_pages_from_amounts(&mut pages, &amounts, &sold_out, base_units, supply, true, ctx.program_id)?;
+        rewrite_pages_from_amounts(
+            &mut pages,
+            &amounts,
+            &sold_out,
+            &excluded,
+            base_units,
+            supply,
+            true,
+            ctx.program_id,
+        )?;
 
         let now = Clock::get()?.unix_timestamp;
         let new_nav_nad = final_total_value
@@ -1372,6 +1448,7 @@ impl<'info> UnwindRebalance<'info> {
             &mut pages,
             &amounts,
             &sold_out,
+            &vec![false; component_count],
             ctx.accounts.index.index_base_units()?,
             ctx.accounts.intent.supply_snapshot,
             false,
@@ -1843,10 +1920,13 @@ fn collect_vault_amounts<'info>(
 /// re-sync and hold the operation lock until expiry (finalize) or forever (unwind).
 /// `accounted_reserve` (the live mint/redeem basis) takes the real `u64` balance regardless;
 /// `units_per_index` only matters when supply returns to zero, so a saturated value is benign.
+#[allow(clippy::too_many_arguments)]
 fn rewrite_pages_from_amounts<'info>(
     pages: &mut [Account<'info, LargeBasketComponentPage>],
     amounts: &[u64],
     sold_out: &[bool],
+    // Components the rebalance left out: they may be booked at zero units (a drained vault).
+    left_out: &[bool],
     base_units: u64,
     supply: u64,
     require_nonzero_units: bool,
@@ -1861,7 +1941,7 @@ fn rewrite_pages_from_amounts<'info>(
                 sold_out[global],
                 base_units,
                 supply,
-                require_nonzero_units,
+                require_nonzero_units && !left_out[global],
             )?;
             component.units_per_index = units;
             component.accounted_reserve = reserve;
@@ -1904,6 +1984,108 @@ fn rewritten_accounting(
         );
     }
     Ok((units, amount))
+}
+
+/// Whether the keeper passed this component's mint as proof, and the mint shows every
+/// transfer of it fails (paused, or a transfer-hook program set).
+fn mint_proves_blocked(proof_mints: &[AccountInfo], component: &LargeBasketComponent) -> Result<bool> {
+    for info in proof_mints {
+        if info.key() == component.mint {
+            require_keys_eq!(*info.owner, component.token_program, BasketError::InvalidTokenMint);
+            return Ok(mint_transfers_blocked(info)?.is_some());
+        }
+    }
+    Ok(false)
+}
+
+/// A component's target weight while `excluded_weight_bps` of the basket is left out of a
+/// rebalance: zero for one left out, and scaled up for the others so they share the rest in
+/// their own proportions.
+fn active_weight_bps(weight_bps: u16, left_out: bool, excluded_weight_bps: u32) -> Result<u16> {
+    if left_out {
+        return Ok(0);
+    }
+    if excluded_weight_bps == 0 {
+        return Ok(weight_bps);
+    }
+    let active = u32::from(BPS_DENOMINATOR)
+        .checked_sub(excluded_weight_bps)
+        .filter(|active| *active > 0)
+        .ok_or_else(|| error!(BasketError::RebalanceNotNeeded))?;
+    let scaled = u32::from(weight_bps) * u32::from(BPS_DENOMINATOR) / active;
+    u16::try_from(scaled).map_err(|_| error!(BasketError::ArithmeticOverflow))
+}
+
+#[derive(Accounts)]
+pub struct SyncLargeBasketReserves<'info> {
+    #[account(has_one = index_mint @ BasketError::IndexMintMismatch)]
+    pub index: Account<'info, IndexState>,
+    /// CHECK: the basket's own mint (has_one above), read for its supply.
+    pub index_mint: UncheckedAccount<'info>,
+}
+
+impl<'info> SyncLargeBasketReserves<'info> {
+    /// Brings a component's books down to what its vault really holds, when the vault holds
+    /// less (an issuer's permanent delegate took tokens, say). Anyone may call it, and it only
+    /// ever lowers the books, so redeems then split what is really left instead of the first
+    /// redeemers taking all of it. Not during a rebalance, whose finalize or unwind re-books
+    /// every component from its vault anyway.
+    ///
+    /// remaining_accounts = [writable component pages in page-index order..]
+    ///                   ++ [component vaults in global component order..]
+    pub fn handle(ctx: Context<'_, '_, 'info, 'info, Self>) -> Result<()> {
+        require!(
+            ctx.accounts.index.large_basket_configured,
+            BasketError::LargeBasketNotConfigured
+        );
+        require!(
+            !ctx.accounts.index.large_basket_operation_in_progress,
+            BasketError::ReserveSyncDuringRebalance
+        );
+        let component_count = usize::from(ctx.accounts.index.large_basket_component_count);
+        let page_count = usize::from(ctx.accounts.index.large_basket_page_count);
+        require!(
+            ctx.remaining_accounts.len() == page_count + component_count,
+            BasketError::InvalidRemainingAccounts
+        );
+        let (page_infos, vault_infos) = ctx.remaining_accounts.split_at(page_count);
+        let index_key = ctx.accounts.index.key();
+        let mut pages =
+            load_writable_pages_in_order(&index_key, ctx.program_id, component_count, page_infos)?;
+        let amounts = collect_vault_amounts(&pages, vault_infos)?;
+        let supply = load_mint(&ctx.accounts.index_mint.to_account_info())?.supply;
+        let base_units = ctx.accounts.index.index_base_units()?;
+
+        let mut changed = false;
+        let mut global = 0usize;
+        for page in pages.iter_mut() {
+            for component in page.components.iter_mut() {
+                let amount = amounts[global];
+                if amount < component.accounted_reserve {
+                    emit!(LargeBasketReserveWrittenDown {
+                        index: index_key,
+                        component_index: global as u16,
+                        mint: component.mint,
+                        previous_reserve: component.accounted_reserve,
+                        reserve: amount,
+                    });
+                    component.accounted_reserve = amount;
+                    if supply > 0 {
+                        component.units_per_index =
+                            units_per_index_for_amount_saturating(amount, base_units, supply);
+                    }
+                    changed = true;
+                }
+                global += 1;
+            }
+        }
+        if changed {
+            for page in pages.iter() {
+                page.exit(ctx.program_id)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2181,7 +2363,8 @@ mod tests {
             component_fill_atoms: vec![0; count],
             component_open_amounts: open_amounts,
             open_scratch_quote_atoms,
-            reserved: [0; 18],
+            excluded_bitmap: [0; LARGE_BASKET_COMPONENT_BITMAP_BYTES],
+            reserved: [0; 11],
         }
     }
 
@@ -2249,6 +2432,42 @@ mod tests {
         assert!(triggered, "drift == threshold should trigger");
         assert!(!drift_status(&snaps, total, 1001).unwrap().1, "below threshold");
         assert!(!drift_status(&snaps, total, 0).unwrap().1, "0 threshold disables drift");
+    }
+
+    #[test]
+    fn components_left_out_give_their_weight_to_the_rest_in_proportion() {
+        // ORE 50, a frozen xStock 20, JUP 20, USDC 10: the xStock is left out.
+        assert_eq!(active_weight_bps(5000, false, 0).unwrap(), 5000);
+        assert_eq!(active_weight_bps(2000, true, 2000).unwrap(), 0);
+        assert_eq!(active_weight_bps(5000, false, 2000).unwrap(), 6250);
+        assert_eq!(active_weight_bps(2000, false, 2000).unwrap(), 2500);
+        assert_eq!(active_weight_bps(1000, false, 2000).unwrap(), 1250);
+        // Nothing left to rebalance when every weighted component is out.
+        assert!(active_weight_bps(0, false, 10_000).is_err());
+    }
+
+    #[test]
+    fn a_component_left_out_neither_trades_nor_triggers_drift() {
+        // $50 ORE (target 50%), $40 frozen token (target 20%, now 40%), $10 USDC (target 30%).
+        // Left out, the frozen token is valued at zero with no target, and the others are
+        // judged against their scaled targets: ORE 62.5%, USDC 37.5% of the $60 that can move.
+        let excluded_weight = 2000;
+        let mut ore = snap(50, active_weight_bps(5000, false, excluded_weight).unwrap());
+        ore.current_amount = 50_000_000;
+        let mut frozen = snap(0, active_weight_bps(2000, true, excluded_weight).unwrap());
+        frozen.retired = true;
+        frozen.current_amount = 40_000_000;
+        let mut usdc = snap(10, active_weight_bps(3000, false, excluded_weight).unwrap());
+        usdc.is_quote = true;
+        let total = 60 * PRICE_SCALE;
+
+        assert_eq!(plan_leg(&frozen, total).unwrap(), LegPlan::Done);
+        // ORE sells down to its scaled share of $60: $37.50.
+        assert_eq!(plan_leg(&ore, total).unwrap(), LegPlan::Sell(12_500_000));
+        let (drift, _) = drift_status(&[ore, frozen, usdc], total, 500).unwrap();
+        // ORE is 83.3% of what can move against 62.5%: 2083.3 bps off, rounded up. The frozen
+        // token adds none.
+        assert_eq!(drift, 2084);
     }
 
     #[test]

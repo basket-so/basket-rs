@@ -177,6 +177,20 @@ pub mod basket {
         ExecuteLargeBasketRedeemBatch::handle(ctx, args)
     }
 
+    pub fn execute_large_basket_mint_wrapped_component<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ExecuteLargeBasketMintWrappedComponent<'info>>,
+        args: ExecuteLargeBasketMintWrappedComponentArgs,
+    ) -> Result<()> {
+        ExecuteLargeBasketMintWrappedComponent::handle(ctx, args)
+    }
+
+    pub fn execute_large_basket_redeem_wrapped_component<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ExecuteLargeBasketRedeemWrappedComponent<'info>>,
+        args: ExecuteLargeBasketRedeemWrappedComponentArgs,
+    ) -> Result<()> {
+        ExecuteLargeBasketRedeemWrappedComponent::handle(ctx, args)
+    }
+
     pub fn finalize_large_basket_mint_intent<'info>(
         ctx: Context<'_, '_, 'info, 'info, FinalizeLargeBasketMintIntent<'info>>,
     ) -> Result<()> {
@@ -215,6 +229,22 @@ pub mod basket {
 
     pub fn close_large_basket_intent(ctx: Context<CloseLargeBasketIntent>) -> Result<()> {
         CloseLargeBasketIntent::handle(ctx)
+    }
+
+    /// The redeemer gives up one component of an open redeem (one that can't move, usually),
+    /// so the redeem still pays out everything else.
+    pub fn skip_large_basket_redeem_component(
+        ctx: Context<SkipLargeBasketRedeemComponent>,
+        args: SkipLargeBasketRedeemComponentArgs,
+    ) -> Result<()> {
+        SkipLargeBasketRedeemComponent::handle(ctx, args)
+    }
+
+    /// Lowers a component's books to what its vault holds, if it holds less. Permissionless.
+    pub fn sync_large_basket_reserves<'info>(
+        ctx: Context<'_, '_, 'info, 'info, SyncLargeBasketReserves<'info>>,
+    ) -> Result<()> {
+        SyncLargeBasketReserves::handle(ctx)
     }
 
     pub fn set_price_oracle(ctx: Context<SetPriceOracle>, args: SetPriceOracleArgs) -> Result<()> {
