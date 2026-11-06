@@ -4,6 +4,7 @@
 //   node scripts/setup-community.mjs --config --treasury <pubkey> --keeper <pubkey> \
 //     --creation-fee-sol 0.2 --protocol-step-bps 4 --creator-step-bps 1 --staking-step-bps 5 [--execute]
 //   node scripts/setup-community.mjs --config --creation-fee-sol 0.5 [--execute]
+//   node scripts/setup-community.mjs --creation open|closed [--execute]
 //
 // --claim-symbols registers the symbol of every basket made before symbols were claimed, so no
 // community basket can take one. Do it before turning on permissionless creation.
@@ -14,6 +15,9 @@
 // 40/10/50). Existing community baskets keep the split they were created with. Once the config
 // exists, any setting left out keeps its current value, so the fee can change on its own. The
 // program caps the creation fee at 1 SOL.
+// --creation open lets any wallet create a community basket (the protocol config's
+// permissionless_index_creation); closed limits it to the index creator and the whitelist again.
+// Opening refuses until the community terms are set and every existing symbol is claimed.
 // Env: SOLANA_RPC_URL, ANCHOR_WALLET (protocol authority; default deployer-keypair.json).
 import fs from 'node:fs';
 import anchor from '@coral-xyz/anchor';
@@ -24,7 +28,11 @@ const value = name => (args.includes(name) ? args[args.indexOf(name) + 1] : unde
 const execute = args.includes('--execute');
 const claimSymbols = args.includes('--claim-symbols');
 const setConfig = args.includes('--config');
-if (claimSymbols === setConfig) throw new Error('Pass exactly one of --claim-symbols or --config');
+const creation = value('--creation');
+if ([claimSymbols, setConfig, creation !== undefined].filter(Boolean).length !== 1) {
+  throw new Error('Pass exactly one of --claim-symbols, --config or --creation open|closed');
+}
+if (creation !== undefined && creation !== 'open' && creation !== 'closed') throw new Error('--creation takes open or closed');
 
 const idl = JSON.parse(fs.readFileSync('target/idl/basket.json', 'utf8'));
 const authority = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(process.env.ANCHOR_WALLET ?? 'deployer-keypair.json', 'utf8'))));
@@ -52,7 +60,24 @@ async function send(label, builder) {
   console.log(`${label}: ${await builder.rpc()}`);
 }
 
-if (claimSymbols) {
+if (creation !== undefined) {
+  const open = creation === 'open';
+  if (open) {
+    const terms = await program.account.communityConfig.fetchNullable(pda('community-config'));
+    if (!terms) throw new Error('Set the community terms first (--config)');
+    const missing = await unclaimed();
+    if (missing.length) throw new Error(`Claim these symbols first (--claim-symbols): ${missing.join(', ')}`);
+  }
+  console.log(`creation is ${protocol.permissionlessIndexCreation ? 'open' : 'closed'}; index creator ${protocol.indexCreator.toBase58()}, whitelist ${protocol.indexCreatorWhitelist.filter(k => !k.equals(PublicKey.default)).length}`);
+  if (protocol.permissionlessIndexCreation === open) {
+    console.log(`creation is already ${creation}; nothing to do`);
+  } else {
+    // The authority and the index creator stay as they are; only the switch changes.
+    await send(`${open ? 'open' : 'close'} community basket creation`,
+      program.methods.updateProtocolConfig({ authority: protocol.authority, indexCreator: protocol.indexCreator, permissionlessIndexCreation: open })
+        .accounts({ authority: authority.publicKey, protocolConfig }));
+  }
+} else if (claimSymbols) {
   const indexes = await program.account.indexState.all();
   for (const { publicKey: index, account: state } of indexes.sort((a, b) => a.account.symbol.localeCompare(b.account.symbol))) {
     const symbolClaim = pda('symbol', claimKey(state.symbol));
